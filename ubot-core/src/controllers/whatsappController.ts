@@ -1,65 +1,40 @@
-import { Request, Response } from 'express';
-import { whatsappService } from '../services/whatsappService.js';
-import { WhatsAppSession } from '../types/whatsapp.js';
+import { Router } from 'express';
+import { WhatsAppService } from '../services/whatsappService.js';
+import { WhatsAppConfig } from '../types/whatsapp.js';
 
-export class WhatsAppController {
-  public router = express.Router();
+const router = Router();
+const whatsappService = new WhatsAppService({ sessionName: 'ubot-session' });
 
-  constructor() {
-    this.initializeRoutes();
+router.post('/connect', async (req, res) => {
+  try {
+    await whatsappService.connect();
+    res.json({ success: true, status: whatsappService.getStatus() });
+  } catch (error) {
+    res.status(500).json({ success: false, error: 'Failed to connect' });
+  }
+});
+
+router.post('/disconnect', async (req, res) => {
+  try {
+    await whatsappService.disconnect();
+    res.json({ success: true, status: whatsappService.getStatus() });
+  } catch (error) {
+    res.status(500).json({ success: false, error: 'Failed to disconnect' });
+  }
+});
+
+router.get('/status', (req, res) => {
+  res.json({ status: whatsappService.getStatus() });
+});
+
+router.post('/send', async (req, res) => {
+  const { to, content } = req.body;
+  if (!to || !content) {
+    return res.status(400).json({ success: false, error: 'Missing to or content' });
   }
 
-  private initializeRoutes() {
-    // Get connection status
-    this.router.get('/status', (req: Request, res: Response) => {
-      const status: WhatsAppSession = whatsappService.getStatus();
-      res.json(status);
-    });
+  const success = await whatsappService.sendMessage(to, content);
+  res.json({ success, status: whatsappService.getStatus() });
+});
 
-    // Get QR Code
-    this.router.get('/qr', (req: Request, res: Response) => {
-      const qr = whatsappService.getQRCode();
-      if (qr) {
-        res.json({ qr });
-      } else {
-        res.status(400).json({ error: 'QR Code not available. Connect first.' });
-      }
-    });
-
-    // Connect to WhatsApp
-    this.router.post('/connect', async (req: Request, res: Response) => {
-      try {
-        await whatsappService.connect();
-        res.json({ success: true, message: 'Connecting...' });
-      } catch (error) {
-        res.status(500).json({ error: 'Failed to connect' });
-      }
-    });
-
-    // Disconnect from WhatsApp
-    this.router.post('/disconnect', async (req: Request, res: Response) => {
-      try {
-        await whatsappService.disconnect();
-        res.json({ success: true, message: 'Disconnected' });
-      } catch (error) {
-        res.status(500).json({ error: 'Failed to disconnect' });
-      }
-    });
-
-    // Send message
-    this.router.post('/send', async (req: Request, res: Response) => {
-      const { to, content } = req.body;
-
-      if (!to || !content) {
-        return res.status(400).json({ error: 'Missing to or content' });
-      }
-
-      const success = await whatsappService.sendMessage(to, content);
-      if (success) {
-        res.json({ success: true });
-      } else {
-        res.status(500).json({ error: 'Failed to send message' });
-      }
-    });
-  }
-}
+export default router;
