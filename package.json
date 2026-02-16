@@ -1,12 +1,14 @@
 {
   "name": "ubot-core",
   "version": "1.0.0",
-  "type": "module",
+  "main": "dist/index.js",
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "start": "node src/index.js"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "*",
+    "openai": "*",
     "better-sqlite3": "*",
     "@types/better-sqlite3": "*",
     "uuid": "*",
@@ -14,10 +16,11 @@
     "tsx": "*",
     "tailwindcss": "*",
     "autoprefixer": "*",
-    "postcss": "*"
-  },
-  "devDependencies": {
+    "postcss": "*",
     "@types/node": "*",
     "typescript": "*"
+  },
+  "devDependencies": {
+    "@types/express": "*"
   }
 }
