@@ -1,24 +1,16 @@
-export type Provider = 'openai' | 'anthropic';
-
-export interface Message {
-  role: 'system' | 'user' | 'assistant';
+export interface LLMMessage {
+  role: 'user' | 'assistant' | 'system';
   content: string;
 }
 
-export interface LLMRequest {
-  provider: Provider;
+export interface LLMChatRequest {
+  prompt: string;
   model: string;
-  messages: Message[];
-  apiKey?: string;
+  history?: LLMMessage[];
 }
 
-export interface LLMResponse {
-  content: string;
-  provider: Provider;
-  model: string;
-  usage?: {
-    promptTokens: number;
-    completionTokens: number;
-    totalTokens: number;
-  };
+export interface LLMChatResponse {
+  success: boolean;
+  content?: string;
+  error?: string;
 }
