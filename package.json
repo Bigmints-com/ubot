@@ -7,17 +7,20 @@
     "start": "node dist/index.js"
   },
   "dependencies": {
-    "express": "*",
-    "better-sqlite3": "*",
+    "@anthropic-ai/sdk": "*",
     "@types/better-sqlite3": "*",
-    "uuid": "*",
-    "tsx": "*",
-    "tailwindcss": "*",
-    "autoprefixer": "*",
-    "postcss": "*",
     "@types/node": "*",
-    "typescript": "*",
+    "autoprefixer": "*",
+    "better-sqlite3": "*",
+    "express": "*",
     "openai": "*",
-    "@anthropic-ai/sdk": "*"
+    "postcss": "*",
+    "tailwindcss": "*",
+    "tsx": "*",
+    "uuid": "*",
+    "winston": "*"
+  },
+  "devDependencies": {
+    "typescript": "*"
   }
 }
