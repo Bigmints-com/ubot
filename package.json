@@ -1,10 +1,11 @@
 {
-  "name": "file-management-skill",
+  "name": "memory-skill",
   "version": "1.0.0",
   "type": "module",
+  "main": "dist/index.js",
   "scripts": {
-    "start": "tsx src/index.ts",
-    "dev": "tsx watch src/index.ts"
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "*",
