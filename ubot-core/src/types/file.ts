@@ -1,16 +1,8 @@
-export interface File {
+export interface FileRecord {
   id: string;
-  name: string;
-  size: number;
-  type: string;
-  path: string;
-  owner: string;
-  createdAt: Date;
-}
-
-export interface FileUploadRequest {
-  owner: string;
   filename: string;
   mimetype: string;
-  buffer: Buffer;
+  size: number;
+  path: string;
+  uploadedAt: string;
 }

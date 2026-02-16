@@ -1,49 +1,25 @@
-import { fileService } from '../services/fileService.js';
 import { Request, Response } from 'express';
+import { getAllFiles, deleteFile } from '../services/fileService.js';
 
-export const fileController = {
-  async uploadFile(req: Request, res: Response): Promise<void> {
-    try {
-      const owner = req.body.owner || 'unknown';
-      const filename = req.body.filename || 'unknown';
-      const mimetype = req.body.mimetype || 'application/octet-stream';
-      const buffer = req.body;
+export const listFiles = (req: Request, res: Response): void => {
+  try {
+    const files = getAllFiles();
+    res.json({ success: true, data: files });
+  } catch (error) {
+    res.status(500).json({ success: false, error: 'Failed to list files' });
+  }
+};
 
-      if (!buffer || !Buffer.isBuffer(buffer)) {
-        res.status(400).json({ error: 'No file data provided' });
-        return;
-      }
-
-      const file = await fileService.uploadFile({
-        owner,
-        filename,
-        mimetype,
-        buffer,
-      });
-
-      res.status(201).json(file);
-    } catch (error) {
-      res.status(500).json({ error: 'Failed to upload file' });
+export const removeFile = (req: Request, res: Response): void => {
+  try {
+    const { id } = req.params;
+    const deleted = deleteFile(id);
+    if (deleted) {
+      res.json({ success: true, message: 'File deleted' });
+    } else {
+      res.status(404).json({ success: false, message: 'File not found' });
     }
-  },
-
-  async listFiles(req: Request, res: Response): Promise<void> {
-    try {
-      const owner = req.query.owner as string;
-      const files = await fileService.getFilesByOwner(owner);
-      res.json(files);
-    } catch (error) {
-      res.status(500).json({ error: 'Failed to list files' });
-    }
-  },
-
-  async deleteFile(req: Request, res: Response): Promise<void> {
-    try {
-      const id = req.params.id;
-      await fileService.deleteFile(id);
-      res.status(204).send();
-    } catch (error) {
-      res.status(500).json({ error: 'Failed to delete file' });
-    }
-  },
+  } catch (error) {
+    res.status(500).json({ success: false, error: 'Failed to delete file' });
+  }
 };
