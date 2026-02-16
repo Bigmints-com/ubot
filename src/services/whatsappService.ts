@@ -1,84 +1,69 @@
-import { makeWASocket, useMultiFileAuthState, DisconnectReason, delay } from '@whiskeysockets/baileys/index.js';
-import { logger } from './logger.js';
-import { WhatsAppSession, WhatsAppMessage } from '../types/whatsapp.js';
-import { existsSync, mkdirSync } from 'fs';
-import { join } from 'path';
+import pino from 'pino';
+import { makeWASocket, useMultiFileAuthState, DisconnectReason, WAMessage } from '@whiskeysockets/baileys';
+import { WAConnectionStatus, WAMessage, WhatsAppConfig } from '../types/whatsapp.js';
 
-class WhatsAppService {
+const logger = pino({ level: 'info' });
+
+export class WhatsAppService {
   private socket: any = null;
-  private sessionPath: string;
-  private isConnected: boolean = false;
-  private qrCode: string | null = null;
+  private config: WhatsAppConfig;
+  private status: WAConnectionStatus = { status: 'close' };
 
-  constructor() {
-    this.sessionPath = join(process.cwd(), 'sessions');
-    if (!existsSync(this.sessionPath)) {
-      mkdirSync(this.sessionPath, { recursive: true });
-    }
+  constructor(config: WhatsAppConfig) {
+    this.config = config;
   }
 
   async connect(): Promise<void> {
     if (this.socket) {
-      logger.info('WhatsApp is already connected.');
+      logger.warn('WhatsApp is already connected');
       return;
     }
 
-    logger.info('Initializing WhatsApp connection...');
-    const { state, saveCreds } = await useMultiFileAuthState(this.sessionPath);
+    const { state, saveCreds } = await useMultiFileAuthState(`./auth_info_${this.config.sessionName}`);
 
     this.socket = makeWASocket({
+      printQRInTerminal: true,
       auth: state,
-      printQRInTerminal: false,
       logger: pino({ level: 'silent' }),
-      browser: ['Ubot Core', 'Chrome', '1.0.0'],
+      browser: ['Ubot Core', 'Chrome', '1.0'],
     });
 
-    // Save credentials whenever they are updated
-    this.socket.ev.on('creds.update', saveCreds);
-
-    // Connection update events
-    this.socket.ev.on('connection.update', async (update: any) => {
+    this.socket.ev.on('connection.update', (update: any) => {
       const { connection, lastDisconnect, qr } = update;
 
       if (qr) {
-        this.qrCode = qr;
-        logger.info('QR Code generated. Please scan it.');
+        this.status = { status: 'qr', qr };
+        logger.info('QR Code received. Scan to connect.');
       }
 
       if (connection === 'close') {
-        const shouldReconnect = (lastDisconnect?.error as any)?.output?.statusCode !== DisconnectReason.loggedOut;
-        logger.warn('WhatsApp connection closed', { shouldReconnect });
-        this.isConnected = false;
-        this.socket = null;
-
-        if (shouldReconnect) {
-          await delay(1000);
-          await this.connect();
-        }
+        const shouldReconnect = (lastDisconnect.error as any)?.output?.statusCode !== DisconnectReason.loggedOut;
+        this.status = { status: 'close' };
+        logger.info('Connection closed. Reconnecting...', { shouldReconnect });
+        if (shouldReconnect) this.connect();
       } else if (connection === 'open') {
-        this.isConnected = true;
-        this.qrCode = null;
-        logger.info('WhatsApp connected successfully');
+        this.status = { status: 'open' };
+        logger.info('WhatsApp connection opened');
       }
     });
 
-    // Handle incoming messages
+    this.socket.ev.on('creds.update', saveCreds);
+
     this.socket.ev.on('messages.upsert', async ({ messages, type }) => {
       if (type === 'notify') {
         for (const msg of messages) {
           if (!msg.message) continue;
 
-          const messageData: WhatsAppMessage = {
+          const waMessage: WAMessage = {
             id: msg.key.id,
             from: msg.key.remoteJid,
-            to: msg.key.fromMe ? msg.key.remoteJid : msg.key.remoteJid.split('@')[0] + '@s.whatsapp.net',
+            to: msg.key.fromMe ? this.socket.user?.id : msg.key.remoteJid,
             content: JSON.stringify(msg.message),
-            timestamp: Date.now(),
+            timestamp: msg.messageTimestamp || Date.now(),
           };
 
-          logger.info('New WhatsApp message received', { message: messageData });
-          // Here you could trigger an LLM agent to process the message
-          // await this.processMessage(messageData);
+          logger.info('New WhatsApp message received', { message: waMessage });
+          // TODO: Integrate with LLM service here
         }
       }
     });
@@ -86,22 +71,21 @@ class WhatsAppService {
 
   async disconnect(): Promise<void> {
     if (this.socket) {
-      await this.socket.end(undefined);
+      await this.socket.logout();
       this.socket = null;
-      this.isConnected = false;
+      this.status = { status: 'close' };
       logger.info('WhatsApp disconnected');
     }
   }
 
   async sendMessage(to: string, content: string): Promise<boolean> {
-    if (!this.socket || !this.isConnected) {
+    if (!this.socket || this.status.status !== 'open') {
       logger.error('Cannot send message: Not connected');
       return false;
     }
 
     try {
-      const jid = to.includes('@s.whatsapp.net') ? to : `${to}@s.whatsapp.net`;
-      await this.socket.sendMessage(jid, { text: content });
+      await this.socket.sendMessage(to, { text: content });
       logger.info('Message sent successfully', { to, content });
       return true;
     } catch (error) {
@@ -110,23 +94,7 @@ class WhatsAppService {
     }
   }
 
-  getQRCode(): string | null {
-    return this.qrCode;
-  }
-
-  getStatus(): WhatsAppSession {
-    return {
-      id: 'default',
-      status: this.isConnected ? 'CONNECTED' : 'DISCONNECTED',
-    };
+  getStatus(): WAConnectionStatus {
+    return this.status;
   }
 }
-
-// Initialize logger for Baileys if needed, or reuse app logger
-const pino = (options: any) => ({
-  info: (msg: string, meta?: any) => logger.info(msg, meta),
-  warn: (msg: string, meta?: any) => logger.warn(msg, meta),
-  error: (msg: string, meta?: any) => logger.error(msg, meta),
-});
-
-export const whatsappService = new WhatsAppService();

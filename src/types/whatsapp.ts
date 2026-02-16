@@ -1,10 +1,9 @@
-export interface WhatsAppSession {
-  id: string;
-  status: 'CONNECTED' | 'DISCONNECTED' | 'CONNECTING' | 'QR_REQUIRED';
-  phoneNumber?: string;
+export interface WAConnectionStatus {
+  status: 'connecting' | 'open' | 'close' | 'qr';
+  qr?: string;
 }
 
-export interface WhatsAppMessage {
+export interface WAMessage {
   id: string;
   from: string;
   to: string;
@@ -13,6 +12,5 @@ export interface WhatsAppMessage {
 }
 
 export interface WhatsAppConfig {
-  sessionPath: string;
-  autoReconnect: boolean;
+  sessionName: string;
 }
