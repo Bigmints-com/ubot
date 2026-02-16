@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ubot Core - Agent Core</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-50 text-gray-900 font-sans antialiased">
+    <div class="flex h-screen overflow-hidden">
+        <!-- Sidebar -->
+        <aside class="w-64 bg-white border-r border-gray-200 flex-shrink-0 hidden md:flex flex-col">
+            <div class="h-16 flex items-center justify-center border-b border-gray-200">
+                <h1 class="text-xl font-bold text-indigo-600">Ubot Core</h1>
+            </div>
+            <nav class="flex-1 px-2 py-4 space-y-1">
+                <a href="/" class="flex items-center px-2 py-2 text-sm font-medium rounded-md bg-indigo-50 text-indigo-700">
+                    Dashboard
+                </a>
+                <a href="/agents" class="flex items-center px-2 py-2 text-sm font-medium rounded-md text-gray-600 hover:bg-gray-50 hover:text-gray-900">
+                    Agent Core
+                </a>
+            </nav>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="flex-1 flex flex-col overflow-hidden">
+            <header class="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-6">
+                <h2 class="text-lg font-semibold text-gray-800">Agent Core</h2>
+                <div class="flex items-center space-x-4">
+                    <span class="text-sm text-gray-500">System Status: <span class="text-green-600 font-medium">Online</span></span>
+                </div>
+            </header>
+            <div class="flex-1 overflow-y-auto p-6">
+                <div class="max-w-4xl mx-auto">
+                    <div class="mb-6">
+                        <h3 class="text-lg font-medium text-gray-900">Active Agents</h3>
+                        <p class="mt-1 text-sm text-gray-500">Manage your bot agents and configurations.</p>
+                    </div>
+                    
+                    <div id="agent-list" class="space-y-4">
+                        <!-- Agent cards will be injected here -->
+                        <div class="text-center py-10 text-gray-500">
+                            Loading agents...
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        async function loadAgents() {
+            const response = await fetch('/api/agents');
+            const agents = await response.json();
+            const container = document.getElementById('agent-list');
+            
+            if (agents.length === 0) {
+                container.innerHTML = '<div class="text-center py-10 text-gray-500">No agents found. Create one to get started.</div>';
+                return;
+            }
+
+            container.innerHTML = agents.map(agent => `
+                <div class="bg-white border border-gray-200 rounded-lg shadow-sm p-4 flex items-center justify-between">
+                    <div>
+                        <h4 class="text-sm font-medium text-gray-900">${agent.name}</h4>
+                        <p class="text-xs text-gray-500">ID: ${agent.id} | Status: ${agent.status}</p>
+                    </div>
+                    <div class="flex space-x-2">
+                        <button class="px-3 py-1 text-xs font-medium text-white bg-indigo-600 rounded hover:bg-indigo-700">Configure</button>
+                        <button class="px-3 py-1 text-xs font-medium text-red-600 bg-red-50 rounded hover:bg-red-100">Delete</button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        loadAgents();
+    </script>
+</body>
+</html>
