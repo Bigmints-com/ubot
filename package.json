@@ -1,0 +1,29 @@
+{
+  "name": "ubot-core",
+  "version": "1.0.0",
+  "description": "Ubot Core Application",
+  "main": "dist/index.js",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "express": "*",
+    "uuid": "*"
+  },
+  "devDependencies": {
+    "@types/express": "*",
+    "@types/node": "*",
+    "@types/uuid": "*",
+    "autoprefixer": "*",
+    "postcss": "*",
+    "tailwindcss": "*",
+    "tsx": "*",
+    "typescript": "*"
+  }
+}
