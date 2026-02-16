@@ -1,34 +1,11 @@
 import Database from 'better-sqlite3';
-import { v4 as uuidv4 } from 'uuid';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
 
-const db = new Database('ubot.db');
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
-// Enable foreign keys
-db.pragma('foreign_keys = ON');
+const dbPath = join(__dirname, '../data/ubot.db');
+const db = new Database(dbPath);
 
-// Initialize schema
-const initSchema = () => {
-    db.exec(`
-        CREATE TABLE IF NOT EXISTS logs (
-            id TEXT PRIMARY KEY,
-            message TEXT NOT NULL,
-            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
-        );
-    `);
-};
-
-initSchema();
-
-export const logMessage = (message: string) => {
-    const id = uuidv4();
-    const stmt = db.prepare('INSERT INTO logs (id, message) VALUES (?, ?)');
-    stmt.run(id, message);
-    return id;
-};
-
-export const getAllLogs = () => {
-    const stmt = db.prepare('SELECT * FROM logs ORDER BY timestamp DESC');
-    return stmt.all();
-};
-
-export default db;
+export { db };
