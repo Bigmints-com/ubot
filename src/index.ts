@@ -1,2 +1,4 @@
-export type { EmailConfig, EmailMessage, EmailAttachment, EmailResult, EmailSkill } from './types.js';
-export { EmailSkillImpl, createEmailSkill } from './email-skill.js';
+import { ShellSkill } from './skills/shell-skill.js';
+
+export { ShellSkill };
+export type { ShellSkillConfig, ShellSkillResult, ShellCommandOptions } from './skills/shell-skill.js';
