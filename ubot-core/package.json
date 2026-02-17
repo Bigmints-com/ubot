@@ -6,10 +6,10 @@
   "scripts": {
     "dev": "concurrently \"npm run dev:server\" \"npm run dev:css\"",
     "dev:server": "tsx watch src/index.ts",
-    "dev:css": "tailwindcss -i ./public/css/input.css -o ./public/css/output.css --watch",
+    "dev:css": "npx @tailwindcss/cli -i ./public/css/input.css -o ./public/css/output.css --watch",
     "build": "npm run build:css && npm run build:ts",
     "build:ts": "tsc",
-    "build:css": "tailwindcss -i ./public/css/input.css -o ./public/css/output.css --minify",
+    "build:css": "npx @tailwindcss/cli -i ./public/css/input.css -o ./public/css/output.css --minify",
     "start": "node dist/index.js",
     "clean": "rm -rf dist public/css/output.css",
     "test": "vitest run",
@@ -23,17 +23,32 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "dotenv": "*"
+    "@whiskeysockets/baileys": "^7.0.0-rc.9",
+    "better-sqlite3": "^12.6.2",
+    "dotenv": "*",
+    "node-cron": "^4.2.1",
+    "nodemailer": "^8.0.1",
+    "openai": "^6.22.0",
+    "pino": "^10.3.1",
+    "puppeteer": "^24.37.3",
+    "qrcode-terminal": "^0.12.0",
+    "uuid": "^13.0.0",
+    "winston": "^3.19.0"
   },
   "devDependencies": {
+    "@tailwindcss/cli": "^4.1.18",
+    "@types/better-sqlite3": "^7.6.13",
     "@types/node": "*",
+    "@types/nodemailer": "^7.0.10",
+    "@types/qrcode-terminal": "^0.12.2",
+    "@types/uuid": "^10.0.0",
     "autoprefixer": "*",
     "concurrently": "*",
     "postcss": "*",
-    "tailwindcss": "*",
+    "tailwindcss": "^4.1.18",
     "tslib": "*",
-    "typescript": "*",
     "tsx": "*",
+    "typescript": "*",
     "vitest": "*"
   }
 }

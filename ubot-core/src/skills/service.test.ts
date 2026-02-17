@@ -49,16 +49,29 @@ describe('SkillsService', () => {
 
   describe('assessAgentSkill', () => {
     it('should create an assessment', async () => {
+      const skill: Skill = {
+        id: 'skill-1',
+        name: 'TypeScript',
+        description: 'TypeScript',
+        category: 'technical',
+        level: 'intermediate',
+        tags: [],
+        createdAt: new Date(),
+        updatedAt: new Date()
+      };
+
       const assessment: SkillAssessment = {
         id: 'assessment-1',
         skillId: 'skill-1',
         agentId: 'agent-1',
         level: 'intermediate',
         score: 0.75,
+        confidence: 0.9,
         evidence: ['Completed task X'],
         assessedAt: new Date()
       };
 
+      (mockRepository.getSkillById as ReturnType<typeof vi.fn>).mockResolvedValue(skill);
       (mockRepository.createAssessment as ReturnType<typeof vi.fn>).mockResolvedValue(assessment);
 
       const result = await service.assessAgentSkill(assessment);

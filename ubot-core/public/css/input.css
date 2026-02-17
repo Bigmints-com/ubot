@@ -1,6 +1,4 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
 
 /* Custom base styles */
 @layer base {
@@ -10,22 +8,33 @@
   }
   
   body {
-    @apply font-sans;
+    font-family: system-ui, -apple-system, sans-serif;
   }
 }
 
 /* Custom component styles */
 @layer components {
   .btn {
-    @apply px-4 py-2 rounded-lg font-medium transition-colors;
+    padding: 0.5rem 1rem;
+    border-radius: 0.5rem;
+    font-weight: 500;
+    transition: color 0.15s ease, background-color 0.15s ease;
   }
   
   .btn-primary {
-    @apply bg-blue-600 text-white hover:bg-blue-700;
+    background-color: var(--color-blue-600, #2563eb);
+    color: white;
+  }
+  .btn-primary:hover {
+    background-color: var(--color-blue-700, #1d4ed8);
   }
   
   .btn-secondary {
-    @apply bg-gray-200 text-gray-700 hover:bg-gray-300;
+    background-color: var(--color-gray-200, #e5e7eb);
+    color: var(--color-gray-700, #374151);
+  }
+  .btn-secondary:hover {
+    background-color: var(--color-gray-300, #d1d5db);
   }
 }
 

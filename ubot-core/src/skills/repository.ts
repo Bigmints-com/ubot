@@ -186,6 +186,7 @@ function mapRowToAssessment(row: Record<string, unknown>): SkillAssessment {
     agentId: row.agent_id as string,
     level: row.level as SkillLevel,
     score: row.score as number,
+    confidence: (row.confidence as number) ?? (row.score as number),
     evidence: JSON.parse(row.evidence as string || '[]'),
     assessedAt: new Date(row.assessed_at as string),
     validUntil: row.valid_until ? new Date(row.valid_until as string) : undefined

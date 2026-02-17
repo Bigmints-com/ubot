@@ -1,4 +1,3 @@
-```typescript
 import type {
   Memory,
   MemoryType,
@@ -393,4 +392,3 @@ export function formatMemorySummary(memory: Memory): string {
   
   return `[${memory.type}] ${memory.id}: ${preview}`;
 }
-```

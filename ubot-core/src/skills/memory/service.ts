@@ -1,4 +1,3 @@
-```typescript
 import type { LoggerInstance } from '../../logger/types.js';
 import type {
   Memory,
@@ -524,7 +523,7 @@ export class MemoryService {
 
     for (const op of operations) {
       try {
-        let result: Memory | MemoryListResult | MemoryConsolidationResult | null = null;
+        let result: Memory | MemoryListResult | MemoryConsolidationResult | MemoryRecallResult | null = null;
 
         switch (op.operation) {
           case 'store':
@@ -720,4 +719,3 @@ export function resetMemoryService(): void {
   }
   memoryServiceInstance = null;
 }
-```

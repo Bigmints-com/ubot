@@ -1,4 +1,3 @@
-```typescript
 /**
  * Memory Skill
  * Provides memory management capabilities for agents including
@@ -93,4 +92,3 @@ export default {
   resetMemory,
   MEMORY_SKILL,
 };
-```

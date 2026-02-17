@@ -32,8 +32,8 @@ export class SQLiteDatabase implements DatabaseConnection {
   private connect(): void {
     try {
       this.db = new Database(this.config.path, {
-        readonly: this.config.readonly,
-        fileMustExist: this.config.fileMustExist,
+        readonly: this.config.readonly ?? false,
+        fileMustExist: this.config.fileMustExist ?? false,
         timeout: this.config.timeout || 5000,
         verbose: this.config.verbose ? console.log : undefined,
       });
