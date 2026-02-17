@@ -19,14 +19,10 @@
 .
 ├── package.json
 ├── tsconfig.json
-├── src/
-│   ├── index.ts
 ├── src/controllers/
 │   ├── emailController.ts
 ├── src/services/
 │   ├── emailService.ts
-├── src/skills/
-│   ├── email-skill.ts
 ├── src/types/
 │   ├── email.ts
 ```
@@ -42,10 +38,8 @@
 ## Key Files
 
 - `package.json`
-- `tsconfig.json`
 - `src/types/email.ts`
 - `src/services/emailService.ts`
 - `src/controllers/emailController.ts`
-- `src/skills/email-skill.ts`
-- `src/index.ts`
+- `tsconfig.json`
 
