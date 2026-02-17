@@ -1,19 +1,34 @@
 import express from 'express';
-import path from 'path';
-import whatsappController from './controllers/whatsappController.js';
-import agentController from './controllers/agentController.js';
-import llmController from './controllers/llmController.js';
+import { whatsappController } from './controllers/whatsappController.js';
+import { emailController } from './controllers/emailController.js';
+import { agentController } from './controllers/agentController.js';
+import { fileController } from './controllers/fileController.js';
+import { llmController } from './controllers/llmController.js';
+import { memoryController } from './controllers/memoryController.js';
+import { safetyController } from './controllers/safetyController.js';
+import { webSearchController } from './controllers/webSearchController.js';
 
 const app = express();
-const PORT = process.env.PORT || 3100;
 
+// Middleware
 app.use(express.json());
-app.use(express.static(path.join(__dirname, '../public')));
+app.use(express.urlencoded({ extended: true }));
 
-app.use('/api/whatsapp', whatsappController);
-app.use('/api/agents', agentController);
-app.use('/api/llm', llmController);
+// Routes
+app.post('/api/whatsapp/send', whatsappController.sendMessage);
+app.post('/api/email/send', emailController.sendEmail);
+app.post('/api/agent/create', agentController.createAgent);
+app.post('/api/agent/chat', agentController.chatWithAgent);
+app.post('/api/file/upload', fileController.uploadFile);
+app.post('/api/llm/chat', llmController.chat);
+app.post('/api/memory/add', memoryController.addMemory);
+app.post('/api/memory/search', memoryController.searchMemory);
+app.post('/api/safety/scan', safetyController.scanContent);
+app.get('/api/web-search', webSearchController.search);
 
-app.listen(PORT, () => {
-  console.log(`Ubot Core running on port ${PORT}`);
+// Health check
+app.get('/health', (req, res) => {
+  res.status(200).json({ status: 'ok' });
 });
+
+export default app;
