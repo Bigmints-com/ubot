@@ -1,182 +1,139 @@
+/**
+ * Logger Module
+ * Winston-based logging implementation
+ */
+
 import winston from 'winston';
-import type {
-  LogLevel,
-  LoggerOptions,
-  LoggerInstance,
-  LoggerManager,
-  LogMetadata,
-} from './types.js';
+import type { LoggerInstance, LoggerConfig, LogLevel, LogEntry } from './types.js';
 
-const defaultLevel: LogLevel = 'info';
-const loggers = new Map<string, LoggerInstance>();
-
-const levelPriority: Record<LogLevel, number> = {
+const LEVELS: Record<LogLevel, number> = {
   error: 0,
   warn: 1,
   info: 2,
-  http: 3,
+  debug: 3,
   verbose: 4,
-  debug: 5,
-  silly: 6,
 };
 
-function createFormat(formatType: 'json' | 'simple' | 'combined' = 'json') {
-  const { combine, timestamp, printf, json, colorize, simple } = winston.format;
+class WinstonLogger implements LoggerInstance {
+  private logger: winston.Logger;
+  private context?: string;
 
-  const customFormat = printf(({ level, message, timestamp, ...meta }) => {
-    const metaStr = Object.keys(meta).length > 0 ? JSON.stringify(meta) : '';
-    return `${timestamp} [${level}]: ${message} ${metaStr}`.trim();
-  });
+  constructor(config: LoggerConfig) {
+    const level = config.level || 'info';
+    const format = config.format || 'simple';
 
-  switch (formatType) {
-    case 'simple':
-      return combine(colorize(), timestamp(), simple());
-    case 'combined':
-      return combine(timestamp(), customFormat);
-    case 'json':
-    default:
-      return combine(timestamp(), json());
-  }
-}
-
-function createWinstonLogger(name: string, options: LoggerOptions = {}): winston.Logger {
-  const {
-    level = defaultLevel,
-    console: enableConsole = true,
-    file,
-    format = 'json',
-    defaultMeta = {},
-  } = options;
-
-  const transports: winston.transports.StreamTransportInstance[] = [];
-
-  if (enableConsole) {
-    transports.push(
+    const transports: winston.transport[] = [
       new winston.transports.Console({
-        level,
-        format: format === 'json' ? createFormat('simple') : createFormat(format),
-      })
-    );
+        format:
+          format === 'json'
+            ? winston.format.json()
+            : winston.format.combine(
+                winston.format.timestamp(),
+                winston.format.printf(({ level, message, timestamp, ...meta }) => {
+                  const ctx = this.context ? `[${this.context}] ` : '';
+                  return `${timestamp} [${level}]: ${ctx}${message} ${
+                    Object.keys(meta).length ? JSON.stringify(meta) : ''
+                  }`;
+                })
+              ),
+      }),
+    ];
+
+    if (config.transports) {
+      config.transports.forEach((transport) => {
+        transports.push({
+          log: (info: winston.LogEntry, callback: () => void) => {
+            transport.log({
+              level: info.level as LogLevel,
+              message: info.message,
+              timestamp: new Date(),
+              context: this.context,
+              meta: info.meta as Record<string, unknown>,
+            });
+            callback();
+          },
+        } as unknown as winston.transport);
+      });
+    }
+
+    this.logger = winston.createLogger({
+      levels: LEVELS,
+      level,
+      transports,
+    });
+
+    this.context = config.context;
   }
 
-  if (file) {
-    transports.push(
-      new winston.transports.File({
-        filename: file,
-        level,
-        format: createFormat('json'),
-      })
-    );
+  error(message: string, meta?: Record<string, unknown>): void {
+    this.logger.error(message, { context: this.context, ...meta });
   }
 
-  return winston.createLogger({
-    level,
-    defaultMeta: { service: name, ...defaultMeta },
-    transports,
-  });
-}
-
-class LoggerWrapper implements LoggerInstance {
-  private winston: winston.Logger;
-  private contextMeta: LogMetadata;
-
-  constructor(winston: winston.Logger, contextMeta: LogMetadata = {}) {
-    this.winston = winston;
-    this.contextMeta = contextMeta;
+  warn(message: string, meta?: Record<string, unknown>): void {
+    this.logger.warn(message, { context: this.context, ...meta });
   }
 
-  private log(level: LogLevel, message: string, meta?: LogMetadata): void {
-    this.winston.log(level, message, { ...this.contextMeta, ...meta });
+  info(message: string, meta?: Record<string, unknown>): void {
+    this.logger.info(message, { context: this.context, ...meta });
   }
 
-  error(message: string, meta?: LogMetadata): void {
-    this.log('error', message, meta);
+  debug(message: string, meta?: Record<string, unknown>): void {
+    this.logger.debug(message, { context: this.context, ...meta });
   }
 
-  warn(message: string, meta?: LogMetadata): void {
-    this.log('warn', message, meta);
+  verbose(message: string, meta?: Record<string, unknown>): void {
+    this.logger.verbose(message, { context: this.context, ...meta });
   }
 
-  info(message: string, meta?: LogMetadata): void {
-    this.log('info', message, meta);
+  log(level: LogLevel, message: string, meta?: Record<string, unknown>): void {
+    this.logger.log(level, message, { context: this.context, ...meta });
   }
 
-  http(message: string, meta?: LogMetadata): void {
-    this.log('http', message, meta);
-  }
-
-  verbose(message: string, meta?: LogMetadata): void {
-    this.log('verbose', message, meta);
-  }
-
-  debug(message: string, meta?: LogMetadata): void {
-    this.log('debug', message, meta);
-  }
-
-  silly(message: string, meta?: LogMetadata): void {
-    this.log('silly', message, meta);
-  }
-
-  child(meta: LogMetadata): LoggerInstance {
-    return new LoggerWrapper(this.winston, { ...this.contextMeta, ...meta });
+  child(context: string): LoggerInstance {
+    const childContext = this.context ? `${this.context}:${context}` : context;
+    return new WinstonLogger({
+      level: this.logger.level as LogLevel,
+      context: childContext,
+    });
   }
 
   withContext(context: string): LoggerInstance {
-    return this.child({ context });
+    return this.child(context);
   }
 }
 
-function createLogger(name: string, options: LoggerOptions = {}): LoggerInstance {
-  const winstonLogger = createWinstonLogger(name, options);
-  const logger = new LoggerWrapper(winstonLogger);
-  loggers.set(name, logger);
-  return logger;
+/**
+ * Create a new logger instance
+ */
+export function createLogger(config?: Partial<LoggerConfig>): LoggerInstance {
+  return new WinstonLogger({
+    level: config?.level || 'info',
+    context: config?.context,
+    format: config?.format,
+    transports: config?.transports,
+  });
 }
 
-function getLogger(name: string): LoggerInstance {
-  const existing = loggers.get(name);
-  if (existing) {
-    return existing;
+/**
+ * Default logger instance
+ */
+let defaultLogger: LoggerInstance | undefined;
+
+/**
+ * Get the default logger instance
+ */
+export function getLogger(): LoggerInstance {
+  if (!defaultLogger) {
+    defaultLogger = createLogger({ level: 'info' });
   }
-  return createLogger(name);
+  return defaultLogger;
 }
 
-function setDefaultLevel(level: LogLevel): void {
-  (globalThis as { __ubotLogLevel?: LogLevel }).__ubotLogLevel = level;
+/**
+ * Set the default logger instance
+ */
+export function setLogger(logger: LoggerInstance): void {
+  defaultLogger = logger;
 }
 
-function getDefaultLevel(): LogLevel {
-  return (globalThis as { __ubotLogLevel?: LogLevel }).__ubotLogLevel ?? defaultLevel;
-}
-
-function getLoggers(): Map<string, LoggerInstance> {
-  return new Map(loggers);
-}
-
-function clearLoggers(): void {
-  loggers.clear();
-}
-
-const loggerManager: LoggerManager = {
-  getLogger,
-  createLogger,
-  setDefaultLevel,
-  getDefaultLevel,
-  getLoggers,
-  clearLoggers,
-};
-
-const defaultLogger = createLogger('ubot-core');
-
-export {
-  createLogger,
-  getLogger,
-  defaultLogger,
-  loggerManager,
-  setDefaultLevel,
-  getDefaultLevel,
-  getLoggers,
-  clearLoggers,
-};
-
-export type { LogLevel, LoggerOptions, LoggerInstance, LoggerManager, LogMetadata } from './types.js';
+export type { LoggerInstance, LoggerConfig, LogLevel, LogEntry, LogTransport } from './types.js';
