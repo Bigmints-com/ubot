@@ -1,34 +1,37 @@
-export type LogLevel = 'error' | 'warn' | 'info' | 'http' | 'verbose' | 'debug' | 'silly';
+/**
+ * Logger Types
+ * Type definitions for the logging system
+ */
 
-export interface LogMetadata {
-  [key: string]: unknown;
+export type LogLevel = 'error' | 'warn' | 'info' | 'debug' | 'verbose';
+
+export interface LogEntry {
+  level: LogLevel;
+  message: string;
+  timestamp: Date;
+  context?: string;
+  meta?: Record<string, unknown>;
+  error?: Error;
 }
 
-export interface LoggerOptions {
-  level?: LogLevel;
-  console?: boolean;
-  file?: string;
-  format?: 'json' | 'simple' | 'combined';
-  defaultMeta?: LogMetadata;
+export interface LoggerConfig {
+  level: LogLevel;
+  context?: string;
+  format?: 'json' | 'simple' | 'pretty';
+  transports?: LogTransport[];
+}
+
+export interface LogTransport {
+  log(entry: LogEntry): void | Promise<void>;
 }
 
 export interface LoggerInstance {
-  error(message: string, meta?: LogMetadata): void;
-  warn(message: string, meta?: LogMetadata): void;
-  info(message: string, meta?: LogMetadata): void;
-  http(message: string, meta?: LogMetadata): void;
-  verbose(message: string, meta?: LogMetadata): void;
-  debug(message: string, meta?: LogMetadata): void;
-  silly(message: string, meta?: LogMetadata): void;
-  child(meta: LogMetadata): LoggerInstance;
+  error(message: string, meta?: Record<string, unknown>): void;
+  warn(message: string, meta?: Record<string, unknown>): void;
+  info(message: string, meta?: Record<string, unknown>): void;
+  debug(message: string, meta?: Record<string, unknown>): void;
+  verbose(message: string, meta?: Record<string, unknown>): void;
+  log(level: LogLevel, message: string, meta?: Record<string, unknown>): void;
+  child(context: string): LoggerInstance;
   withContext(context: string): LoggerInstance;
-}
-
-export interface LoggerManager {
-  getLogger(name: string): LoggerInstance;
-  createLogger(name: string, options?: LoggerOptions): LoggerInstance;
-  setDefaultLevel(level: LogLevel): void;
-  getDefaultLevel(): LogLevel;
-  getLoggers(): Map<string, LoggerInstance>;
-  clearLoggers(): void;
 }
