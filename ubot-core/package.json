@@ -1,5 +1,5 @@
 {
-  "name": "ubot-core",
+  "name": "safety-layer",
   "version": "1.0.0",
   "type": "module",
   "main": "dist/index.js",
@@ -7,22 +7,12 @@
   "scripts": {
     "build": "tsc",
     "test": "vitest run",
-    "test:watch": "vitest",
-    "start": "tsx src/index.ts"
+    "test:watch": "vitest"
   },
-  "dependencies": {
-    "@whiskeysockets/baileys": "*",
-    "qrcode-terminal": "*",
-    "pino": "*",
-    "dotenv": "*",
-    "openai": "*",
-    "winston": "*"
-  },
+  "dependencies": {},
   "devDependencies": {
     "@types/node": "*",
-    "@types/qrcode-terminal": "*",
     "typescript": "*",
-    "vitest": "*",
-    "tsx": "*"
+    "vitest": "*"
   }
 }
