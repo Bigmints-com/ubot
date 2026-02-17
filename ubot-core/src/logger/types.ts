@@ -1,11 +1,27 @@
+```typescript
 /**
- * Logger Types
- * Defines types for the logging system
+ * Logger types for ubot-core
  */
 
+export type LogLevel = 'error' | 'warn' | 'info' | 'debug' | 'trace';
+
 export interface LoggerInstance {
-  debug(message: string, meta?: Record<string, unknown>): void;
-  info(message: string, meta?: Record<string, unknown>): void;
-  warn(message: string, meta?: Record<string, unknown>): void;
-  error(message: string, meta?: Record<string, unknown>): void;
+  error(message: string, ...args: unknown[]): void;
+  error(object: Record<string, unknown>, message?: string): void;
+  warn(message: string, ...args: unknown[]): void;
+  warn(object: Record<string, unknown>, message?: string): void;
+  info(message: string, ...args: unknown[]): void;
+  info(object: Record<string, unknown>, message?: string): void;
+  debug(message: string, ...args: unknown[]): void;
+  debug(object: Record<string, unknown>, message?: string): void;
+  trace(message: string, ...args: unknown[]): void;
+  trace(object: Record<string, unknown>, message?: string): void;
+  child(bindings: Record<string, unknown>): LoggerInstance;
 }
+
+export interface LoggerConfig {
+  level: LogLevel;
+  name?: string;
+  prettyPrint?: boolean;
+}
+```
