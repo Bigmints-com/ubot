@@ -1,5 +1,5 @@
 {
-  "name": "browser-skill",
+  "name": "email-skill",
   "version": "1.0.0",
   "type": "module",
   "main": "dist/index.js",
@@ -9,11 +9,10 @@
     "test": "vitest"
   },
   "dependencies": {
-    "puppeteer": "*"
+    "nodemailer": "*"
   },
   "devDependencies": {
-    "@types/node": "*",
-    "typescript": "*",
-    "vitest": "*"
+    "@types/nodemailer": "*",
+    "typescript": "*"
   }
 }
