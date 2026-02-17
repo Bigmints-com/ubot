@@ -1,31 +1,32 @@
 {
   "name": "ubot-core",
   "version": "1.0.0",
-  "main": "dist/index.js",
   "type": "module",
+  "main": "dist/index.js",
   "scripts": {
-    "dev": "tsx watch src/index.ts",
-    "build": "tsc"
+    "start": "node dist/index.js",
+    "dev": "tsx watch src/index.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "*",
     "@whiskeysockets/baileys": "*",
     "better-sqlite3": "*",
     "express": "*",
-    "googleapis": "*",
     "openai": "*",
     "pino": "*",
-    "puppeteer": "*",
     "qrcode-terminal": "*",
     "uuid": "*",
     "winston": "*",
+    "googleapis": "*",
+    "google-auth-library": "*",
     "@types/better-sqlite3": "*",
     "@types/node": "*",
-    "@types/puppeteer": "*",
     "autoprefixer": "*",
     "postcss": "*",
     "tailwindcss": "*",
     "tsx": "*",
-    "typescript": "*"
+    "typescript": "*",
+    "react": "*",
+    "react-dom": "*"
   }
 }
