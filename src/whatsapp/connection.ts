@@ -186,15 +186,34 @@ export class WhatsAppConnection {
   }
 
   private parseMessage(msg: any): WhatsAppMessage {
+    // WhatsApp sometimes uses LID (Linked Identity) format for remoteJid.
+    // Try to get the real phone JID from participant or other fields.
+    let from = msg.key.remoteJid || '';
+    if (from.endsWith('@lid') && msg.key.participant) {
+      from = msg.key.participant; // participant often has the real phone JID
+    }
+    console.log(`[WhatsApp] parseMessage: remoteJid=${msg.key.remoteJid}, participant=${msg.key.participant || 'none'}, resolved from=${from}`);
+    // Debug: dump raw msg fields when LID is unresolved
+    if (from.endsWith('@lid')) {
+      console.log(`[WhatsApp] LID unresolved — raw msg keys:`, JSON.stringify({
+        key: msg.key,
+        pushName: msg.pushName,
+        verifiedBizName: msg.verifiedBizName,
+        messageStubType: msg.messageStubType,
+        messageStubParameters: msg.messageStubParameters,
+      }));
+    }
+    
     return {
       id: msg.key.id,
-      from: msg.key.remoteJid,
+      from,
       to: msg.key.fromMe ? msg.key.remoteJid : '',
       body: msg.message?.conversation || msg.message?.extendedTextMessage?.text || '',
       timestamp: new Date(msg.messageTimestamp * 1000),
       isFromMe: msg.key.fromMe,
       hasMedia: !!(msg.message?.imageMessage || msg.message?.videoMessage || msg.message?.audioMessage || msg.message?.documentMessage),
-      quotedMessageId: msg.message?.extendedTextMessage?.contextInfo?.stanzaId
+      quotedMessageId: msg.message?.extendedTextMessage?.contextInfo?.stanzaId,
+      participant: msg.key.participant || undefined,
     };
   }
 

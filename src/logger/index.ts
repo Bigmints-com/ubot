@@ -71,4 +71,9 @@ export function resetLogger(): void {
   logger = null;
 }
 
+/**
+ * Alias for initializeLogger (backwards compatibility)
+ */
+export const createLogger = initializeLogger;
+
 export type { LoggerInstance, LoggerConfig } from './types.js';

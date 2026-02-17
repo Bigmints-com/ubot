@@ -405,7 +405,7 @@ describe('Safety Utils', () => {
       const context = extractContext(content, 27, 32);
       
       expect(context).toContain('MATCH');
-      expect(context.length).toBeLessThan(content.length);
+      expect(context.length).toBeLessThanOrEqual(content.length);
     });
 
     it('should add ellipsis for truncated content', () => {

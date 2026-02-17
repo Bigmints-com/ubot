@@ -327,7 +327,7 @@ export const WEB_SEARCH_SKILL: Skill = {
   id: 'web-search',
   name: 'Web Search',
   description: 'Search the web for information using various search engines',
-  category: 'information',
+  category: 'domain',
   level: 'intermediate',
   tags: ['search', 'web', 'information', 'research'],
   metadata: {

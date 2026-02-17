@@ -1,4 +1,3 @@
-```typescript
 import type { LoggerInstance } from '../../logger/types.js';
 
 /**
@@ -184,7 +183,7 @@ export interface BatchMemoryOperation {
 export interface BatchMemoryResult {
   operation: string;
   success: boolean;
-  result?: Memory | MemoryListResult | MemoryConsolidationResult;
+  result?: Memory | MemoryListResult | MemoryConsolidationResult | MemoryRecallResult;
   error?: string;
 }
 
@@ -205,4 +204,3 @@ export const MEMORY_SKILL = {
     'get_memory_stats',
   ],
 };
-```

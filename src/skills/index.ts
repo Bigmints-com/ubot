@@ -29,9 +29,9 @@ let skillsServiceInstance: SkillsService | null = null;
 
 export function initializeSkillsFramework(
   db: DatabaseConnection,
-  config?: Partial<SkillFrameworkConfig>
+  _config?: Partial<SkillFrameworkConfig>
 ): SkillsService {
-  skillsServiceInstance = createSkillsService(db, config);
+  skillsServiceInstance = createSkillsService(db);
   return skillsServiceInstance;
 }
 

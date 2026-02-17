@@ -1,157 +1,1839 @@
 <!DOCTYPE html>
-<html lang="en" class="light">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Ubot Core</title>
   <link rel="stylesheet" href="/css/output.css">
-</head>
-<body class="bg-gray-50 text-gray-900 min-h-screen">
-  <div class="flex min-h-screen">
-    <!-- Sidebar Navigation -->
-    <aside class="w-64 bg-white border-r border-gray-200 flex flex-col">
-      <!-- Logo -->
-      <div class="p-6 border-b border-gray-200">
-        <h1 class="text-xl font-bold text-gray-900">Ubot Core</h1>
-        <p class="text-sm text-gray-500 mt-1">v1.0.0</p>
-      </div>
-      
-      <!-- Navigation Links -->
-      <nav class="flex-1 p-4">
-        <ul class="space-y-2">
-          <li>
-            <a href="/" class="flex items-center px-4 py-2 text-gray-700 bg-gray-100 rounded-lg font-medium">
-              <svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"></path>
-              </svg>
-              Dashboard
-            </a>
-          </li>
-          <li>
-            <a href="/settings" class="flex items-center px-4 py-2 text-gray-600 hover:bg-gray-50 rounded-lg transition-colors">
-              <svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path>
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
-              </svg>
-              Settings
-            </a>
-          </li>
-          <li>
-            <a href="/docs" class="flex items-center px-4 py-2 text-gray-600 hover:bg-gray-50 rounded-lg transition-colors">
-              <svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
-              </svg>
-              Documentation
-            </a>
-          </li>
-        </ul>
-      </nav>
-      
-      <!-- Sidebar Footer -->
-      <div class="p-4 border-t border-gray-200">
-        <div class="text-xs text-gray-500">
-          <p>Empty skeleton project</p>
-          <p class="mt-1">Ready for development</p>
-        </div>
-      </div>
-    </aside>
+  <style>
+    :root {
+      --bg-primary: #0f172a;
+      --bg-secondary: #1e293b;
+      --bg-card: #1e293b;
+      --bg-card-hover: #334155;
+      --bg-input: #0f172a;
+      --border: #334155;
+      --border-focus: #6366f1;
+      --text-primary: #f1f5f9;
+      --text-secondary: #94a3b8;
+      --text-muted: #64748b;
+      --accent: #6366f1;
+      --accent-hover: #818cf8;
+      --accent-glow: rgba(99, 102, 241, 0.15);
+      --success: #22c55e;
+      --warning: #f59e0b;
+      --danger: #ef4444;
+      --info: #3b82f6;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      min-height: 100vh;
+      display: flex;
+    }
+
+    /* ── Sidebar ──────────────────────── */
+    .sidebar {
+      width: 260px;
+      background: var(--bg-secondary);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      position: fixed;
+      top: 0;
+      bottom: 0;
+      z-index: 10;
+    }
+    .sidebar-header {
+      padding: 24px 20px;
+      border-bottom: 1px solid var(--border);
+    }
+    .sidebar-header h1 {
+      font-size: 18px;
+      font-weight: 700;
+      background: linear-gradient(135deg, #6366f1, #a78bfa);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .sidebar-header p {
+      font-size: 12px;
+      color: var(--text-muted);
+      margin-top: 4px;
+    }
+    .sidebar nav { flex: 1; padding: 12px; }
+    .nav-section {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-muted);
+      padding: 16px 12px 8px;
+    }
+    .nav-link {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 12px;
+      border-radius: 8px;
+      text-decoration: none;
+      color: var(--text-secondary);
+      font-size: 14px;
+      font-weight: 500;
+      transition: all 0.15s;
+      cursor: pointer;
+    }
+    .nav-link:hover {
+      background: var(--bg-card-hover);
+      color: var(--text-primary);
+    }
+    .nav-link.active {
+      background: var(--accent-glow);
+      color: var(--accent-hover);
+      font-weight: 600;
+    }
+    .nav-icon {
+      width: 20px;
+      height: 20px;
+      opacity: 0.7;
+    }
+    .nav-link.active .nav-icon { opacity: 1; }
+    .sidebar-footer {
+      padding: 16px 20px;
+      border-top: 1px solid var(--border);
+    }
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--success);
+      display: inline-block;
+      margin-right: 8px;
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+    .sidebar-footer span {
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+
+    /* ── Main Content ─────────────────── */
+    .main {
+      flex: 1;
+      margin-left: 260px;
+      padding: 32px 40px;
+      min-height: 100vh;
+    }
+    .page-header {
+      margin-bottom: 32px;
+    }
+    .page-header h2 {
+      font-size: 24px;
+      font-weight: 700;
+    }
+    .page-header p {
+      color: var(--text-secondary);
+      margin-top: 6px;
+      font-size: 14px;
+    }
+
+    /* ── Cards ─────────────────────────── */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+      gap: 16px;
+      margin-bottom: 32px;
+    }
+    .stat-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px;
+      transition: all 0.2s;
+    }
+    .stat-card:hover {
+      border-color: var(--border-focus);
+      box-shadow: 0 0 20px var(--accent-glow);
+    }
+    .stat-label {
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-muted);
+      margin-bottom: 8px;
+    }
+    .stat-value {
+      font-size: 28px;
+      font-weight: 700;
+    }
+    .stat-value.green { color: var(--success); }
+    .stat-value.blue { color: var(--info); }
+    .stat-value.purple { color: #a78bfa; }
+    .stat-value.amber { color: var(--warning); }
+
+    /* ── Tables / Lists ───────────────── */
+    .card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+      margin-bottom: 24px;
+    }
+    .card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--border);
+    }
+    .card-title {
+      font-size: 16px;
+      font-weight: 600;
+    }
+    .card-body { padding: 20px; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    th {
+      text-align: left;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-muted);
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border);
+      font-weight: 600;
+    }
+    td {
+      padding: 12px 16px;
+      font-size: 14px;
+      border-bottom: 1px solid rgba(51, 65, 85, 0.5);
+    }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: rgba(99, 102, 241, 0.04); }
+
+    /* ── Badges ────────────────────────── */
+    .badge {
+      display: inline-block;
+      padding: 3px 10px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: capitalize;
+    }
+    .badge-green { background: rgba(34,197,94,0.15); color: #4ade80; }
+    .badge-amber { background: rgba(245,158,11,0.15); color: #fbbf24; }
+    .badge-red { background: rgba(239,68,68,0.15); color: #f87171; }
+    .badge-blue { background: rgba(59,130,246,0.15); color: #60a5fa; }
+    .badge-purple { background: rgba(139,92,246,0.15); color: #a78bfa; }
+    .badge-gray { background: rgba(100,116,139,0.15); color: #94a3b8; }
+
+    /* ── Buttons ───────────────────────── */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 16px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      border: none;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .btn-primary {
+      background: var(--accent);
+      color: white;
+    }
+    .btn-primary:hover {
+      background: var(--accent-hover);
+      box-shadow: 0 0 15px var(--accent-glow);
+    }
+    .btn-danger {
+      background: rgba(239,68,68,0.15);
+      color: #f87171;
+    }
+    .btn-danger:hover { background: rgba(239,68,68,0.25); }
+    .btn-ghost {
+      background: transparent;
+      color: var(--text-secondary);
+      border: 1px solid var(--border);
+    }
+    .btn-ghost:hover {
+      background: var(--bg-card-hover);
+      color: var(--text-primary);
+    }
+    .btn-sm { padding: 5px 10px; font-size: 12px; }
+
+    /* ── Forms ─────────────────────────── */
+    .form-group { margin-bottom: 16px; }
+    .form-label {
+      display: block;
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text-secondary);
+      margin-bottom: 6px;
+    }
+    .form-input, .form-select, .form-textarea {
+      width: 100%;
+      padding: 10px 14px;
+      background: var(--bg-input);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text-primary);
+      font-size: 14px;
+      font-family: inherit;
+      transition: border-color 0.15s;
+    }
+    .form-input:focus, .form-select:focus, .form-textarea:focus {
+      outline: none;
+      border-color: var(--border-focus);
+      box-shadow: 0 0 0 3px var(--accent-glow);
+    }
+    .form-textarea { resize: vertical; min-height: 80px; }
+    .form-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+
+    /* ── Toggle ────────────────────────── */
+    .toggle-wrap { display: flex; align-items: center; gap: 10px; }
+    .toggle {
+      width: 44px;
+      height: 24px;
+      border-radius: 999px;
+      background: var(--border);
+      position: relative;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .toggle.on { background: var(--accent); }
+    .toggle::after {
+      content: '';
+      width: 18px;
+      height: 18px;
+      background: white;
+      border-radius: 50%;
+      position: absolute;
+      top: 3px;
+      left: 3px;
+      transition: transform 0.2s;
+    }
+    .toggle.on::after { transform: translateX(20px); }
+
+    /* ── Config Grid ───────────────────── */
+    .config-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+    }
+    @media (max-width: 900px) {
+      .config-grid, .form-row { grid-template-columns: 1fr; }
+    }
+
+    /* ── Empty State ───────────────────── */
+    .empty {
+      text-align: center;
+      padding: 48px 20px;
+      color: var(--text-muted);
+    }
+    .empty-icon {
+      font-size: 48px;
+      margin-bottom: 12px;
+      opacity: 0.4;
+    }
+    .empty h3 { font-size: 16px; margin-bottom: 8px; color: var(--text-secondary); }
+    .empty p { font-size: 13px; }
+
+    /* ── Modal ──────────────────────────── */
+    .modal-overlay {
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.6);
+      display: flex; align-items: center; justify-content: center;
+      z-index: 100;
+      backdrop-filter: blur(4px);
+    }
+    .modal {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      width: 500px;
+      max-height: 90vh;
+      overflow-y: auto;
+      padding: 24px;
+    }
+    .modal-title {
+      font-size: 18px;
+      font-weight: 600;
+      margin-bottom: 20px;
+    }
+    .modal-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+      margin-top: 24px;
+    }
+
+    /* ── Scrollbar ─────────────────────── */
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+
+    /* ── Chat / Command Center ──────────── */
+    .chat-container {
+      display: flex;
+      flex-direction: column;
+      height: calc(100vh - 64px);
+      overflow: hidden;
+    }
+    .chat-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px 24px;
+      background: linear-gradient(135deg, rgba(99,102,241,0.08), rgba(167,139,250,0.05));
+      border-bottom: 1px solid var(--border);
+      border-radius: 12px 12px 0 0;
+    }
+    .chat-header-left {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .chat-header-icon {
+      width: 40px;
+      height: 40px;
+      border-radius: 12px;
+      background: linear-gradient(135deg, #6366f1, #a78bfa);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+    }
+    .chat-header h2 {
+      font-size: 18px;
+      font-weight: 700;
+    }
+    .chat-header p {
+      font-size: 12px;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+    .chat-messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      scroll-behavior: smooth;
+    }
+    .chat-msg {
+      max-width: 75%;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      animation: fadeIn 0.3s ease;
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .chat-msg.user { align-self: flex-end; }
+    .chat-msg.assistant { align-self: flex-start; }
+    .chat-msg .bubble {
+      padding: 12px 16px;
+      border-radius: 16px;
+      font-size: 14px;
+      line-height: 1.6;
+      word-break: break-word;
+    }
+    .chat-msg.user .bubble {
+      background: linear-gradient(135deg, #6366f1, #818cf8);
+      color: #fff;
+      border-bottom-right-radius: 4px;
+    }
+    .chat-msg.assistant .bubble {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      color: var(--text-primary);
+      border-bottom-left-radius: 4px;
+    }
+    .chat-msg .msg-meta {
+      font-size: 11px;
+      color: var(--text-muted);
+      padding: 0 8px;
+    }
+    .chat-msg.user .msg-meta { text-align: right; }
+    .chat-msg .tools-used {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      padding: 0 4px;
+    }
+    .tool-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 2px 8px;
+      border-radius: 6px;
+      font-size: 10px;
+      font-weight: 600;
+    }
+    .tool-badge.success {
+      background: rgba(34,197,94,0.12);
+      color: #4ade80;
+    }
+    .tool-badge.failure {
+      background: rgba(239,68,68,0.12);
+      color: #f87171;
+    }
+    .chat-input-area {
+      padding: 16px 24px;
+      border-top: 1px solid var(--border);
+      background: var(--bg-secondary);
+      border-radius: 0 0 12px 12px;
+      display: flex;
+      gap: 12px;
+      align-items: flex-end;
+    }
+    .chat-input-area textarea {
+      flex: 1;
+      background: var(--bg-input);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 12px 16px;
+      color: var(--text-primary);
+      font-size: 14px;
+      font-family: inherit;
+      resize: none;
+      min-height: 44px;
+      max-height: 120px;
+      transition: border-color 0.2s;
+      outline: none;
+    }
+    .chat-input-area textarea:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-glow);
+    }
+    .chat-send-btn {
+      width: 44px;
+      height: 44px;
+      border-radius: 12px;
+      background: linear-gradient(135deg, #6366f1, #818cf8);
+      border: none;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #fff;
+      transition: all 0.2s;
+      flex-shrink: 0;
+    }
+    .chat-send-btn:hover {
+      transform: scale(1.05);
+      box-shadow: 0 4px 15px rgba(99,102,241,0.4);
+    }
+    .chat-send-btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      transform: none;
+      box-shadow: none;
+    }
+    .chat-send-btn svg {
+      width: 20px;
+      height: 20px;
+    }
+    .typing-indicator {
+      display: flex;
+      gap: 4px;
+      padding: 12px 16px;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      border-bottom-left-radius: 4px;
+      align-self: flex-start;
+      max-width: 80px;
+    }
+    .typing-indicator .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--text-muted);
+      animation: typingBounce 1.4s infinite ease-in-out;
+    }
+    .typing-indicator .dot:nth-child(1) { animation-delay: 0s; }
+    .typing-indicator .dot:nth-child(2) { animation-delay: 0.2s; }
+    .typing-indicator .dot:nth-child(3) { animation-delay: 0.4s; }
+    @keyframes typingBounce {
+      0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
+      30% { transform: translateY(-6px); opacity: 1; }
+    }
+    .chat-welcome {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+      color: var(--text-muted);
+      text-align: center;
+      padding: 40px;
+    }
+    .chat-welcome-icon {
+      width: 64px;
+      height: 64px;
+      border-radius: 20px;
+      background: linear-gradient(135deg, rgba(99,102,241,0.2), rgba(167,139,250,0.1));
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 32px;
+    }
+    .chat-welcome h3 {
+      font-size: 20px;
+      font-weight: 700;
+      color: var(--text-primary);
+    }
+    .chat-welcome p {
+      font-size: 14px;
+      max-width: 420px;
+      line-height: 1.6;
+    }
+    .chat-suggestions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      justify-content: center;
+      margin-top: 8px;
+    }
+    .chat-suggestion {
+      padding: 8px 16px;
+      border-radius: 20px;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      font-size: 13px;
+      color: var(--text-secondary);
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .chat-suggestion:hover {
+      border-color: var(--accent);
+      color: var(--accent-hover);
+      background: var(--accent-glow);
+    }
+    .chat-status-bar {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      padding: 8px 16px;
+      background: rgba(99,102,241,0.04);
+      border-top: 1px solid var(--border);
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+    .chat-status-bar .status-item {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .chat-status-bar .dot-sm {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+    }
+    .dot-green { background: var(--success); }
+    .dot-red { background: var(--danger); }
+    .dot-amber { background: var(--warning); }
     
-    <!-- Main Content -->
-    <main class="flex-1 p-8">
-      <div class="max-w-4xl">
-        <!-- Header -->
-        <header class="mb-8">
-          <h2 class="text-3xl font-bold text-gray-900">Welcome to Ubot Core</h2>
-          <p class="text-gray-600 mt-2">A minimal TypeScript project skeleton with everything you need to get started.</p>
-        </header>
-        
-        <!-- Status Cards -->
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-          <div class="bg-white rounded-lg border border-gray-200 p-6">
-            <div class="flex items-center">
-              <div class="p-2 bg-green-100 rounded-lg">
-                <svg class="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-                </svg>
-              </div>
-              <div class="ml-4">
-                <p class="text-sm font-medium text-gray-500">Status</p>
-                <p class="text-lg font-semibold text-gray-900" id="status">Running</p>
-              </div>
-            </div>
-          </div>
-          
-          <div class="bg-white rounded-lg border border-gray-200 p-6">
-            <div class="flex items-center">
-              <div class="p-2 bg-blue-100 rounded-lg">
-                <svg class="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
-                </svg>
-              </div>
-              <div class="ml-4">
-                <p class="text-sm font-medium text-gray-500">Requests</p>
-                <p class="text-lg font-semibold text-gray-900" id="requests">0</p>
-              </div>
-            </div>
-          </div>
-          
-          <div class="bg-white rounded-lg border border-gray-200 p-6">
-            <div class="flex items-center">
-              <div class="p-2 bg-purple-100 rounded-lg">
-                <svg class="w-6 h-6 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-                </svg>
-              </div>
-              <div class="ml-4">
-                <p class="text-sm font-medium text-gray-500">Uptime</p>
-                <p class="text-lg font-semibold text-gray-900" id="uptime">0s</p>
-              </div>
-            </div>
-          </div>
-        </div>
-        
-        <!-- Info Section -->
-        <div class="bg-white rounded-lg border border-gray-200 p-6">
-          <h3 class="text-lg font-semibold text-gray-900 mb-4">Getting Started</h3>
-          <div class="space-y-4 text-gray-600">
-            <p>This is an empty TypeScript project skeleton. Here's what's included:</p>
-            <ul class="list-disc list-inside space-y-2">
-              <li><strong>TypeScript</strong> - Type-safe JavaScript development</li>
-              <li><strong>Node.js HTTP Server</strong> - Lightweight native server</li>
-              <li><strong>Tailwind CSS</strong> - Utility-first CSS framework</li>
-              <li><strong>tsx</strong> - Fast TypeScript execution</li>
-              <li><strong>dotenv</strong> - Environment variable management</li>
-            </ul>
-            <p class="mt-4">Start building your application by modifying <code class="bg-gray-100 px-2 py-1 rounded text-sm">src/index.ts</code></p>
-          </div>
-        </div>
-      </div>
-    </main>
-  </div>
-  
+  </style>
+</head>
+<body>
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <h1>⚡ Ubot Core</h1>
+      <p>v1.0.0 — Management Console</p>
+    </div>
+    <nav>
+      <div class="nav-section">Overview</div>
+      <a class="nav-link" data-route="" onclick="navigate('')">
+        <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"></path></svg>
+        Dashboard
+      </a>
+      <a class="nav-link" data-route="chat" onclick="navigate('chat')">
+        <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+        Command Center
+      </a>
+
+      <div class="nav-section">Manage</div>
+      <a class="nav-link" data-route="skills" onclick="navigate('skills')">
+        <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"></path></svg>
+        Skills
+      </a>
+      <a class="nav-link" data-route="whatsapp" onclick="navigate('whatsapp')">
+        <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"></path></svg>
+        WhatsApp
+      </a>
+      <a class="nav-link" data-route="safety" onclick="navigate('safety')">
+        <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path></svg>
+        Safety Rules
+      </a>
+      <a class="nav-link" data-route="scheduler" onclick="navigate('scheduler')">
+        <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+        Scheduler
+      </a>
+
+      <div class="nav-section">System</div>
+      <a class="nav-link" data-route="settings" onclick="navigate('settings')">
+        <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+        Settings
+      </a>
+    </nav>
+    <div class="sidebar-footer">
+      <span class="status-dot"></span>
+      <span id="sidebar-status">System Running</span>
+    </div>
+  </aside>
+
+  <!-- Main Content -->
+  <main class="main" id="app"></main>
+
+  <!-- Modal Container -->
+  <div id="modal-root"></div>
+
   <script>
-    // Fetch app state from API
-    async function updateState() {
-      try {
-        const response = await fetch('/api/state');
-        const data = await response.json();
-        
-        document.getElementById('requests').textContent = data.requestCount;
-        
-        const uptimeSeconds = Math.floor(data.uptime / 1000);
-        const minutes = Math.floor(uptimeSeconds / 60);
-        const seconds = uptimeSeconds % 60;
-        document.getElementById('uptime').textContent = minutes > 0 
-          ? `${minutes}m ${seconds}s` 
-          : `${seconds}s`;
-      } catch (error) {
-        console.error('Failed to fetch state:', error);
+    // ── State ──────────────────────────────────────────
+    let currentRoute = '';
+    let appState = {};
+
+    // ── Router ────────────────────────────────────────
+    function navigate(route) {
+      window.location.hash = '#/' + route;
+    }
+
+    function getRoute() {
+      const hash = window.location.hash.slice(2) || '';
+      return hash;
+    }
+
+    function updateActiveNav() {
+      document.querySelectorAll('.nav-link').forEach(link => {
+        const route = link.getAttribute('data-route');
+        if (route === currentRoute) {
+          link.classList.add('active');
+        } else {
+          link.classList.remove('active');
+        }
+      });
+    }
+
+    async function router() {
+      currentRoute = getRoute();
+      updateActiveNav();
+      const app = document.getElementById('app');
+
+      switch (currentRoute) {
+        case '':         await renderDashboard(app); break;
+        case 'chat':     await renderChat(app); break;
+        case 'skills':   await renderSkills(app); break;
+        case 'whatsapp': await renderWhatsApp(app); break;
+        case 'safety':   await renderSafety(app); break;
+        case 'scheduler':await renderScheduler(app); break;
+        case 'settings': await renderSettings(app); break;
+        default:         renderNotFound(app);
       }
     }
-    
-    // Update state every 5 seconds
-    updateState();
-    setInterval(updateState, 5000);
+
+    window.addEventListener('hashchange', router);
+    window.addEventListener('DOMContentLoaded', () => {
+      if (!window.location.hash) window.location.hash = '#/';
+      router();
+    });
+
+    // ── API Helpers ───────────────────────────────────
+    async function api(url, opts = {}) {
+      const res = await fetch(url, {
+        headers: { 'Content-Type': 'application/json' },
+        ...opts,
+        body: opts.body ? JSON.stringify(opts.body) : undefined,
+      });
+      return res.json();
+    }
+
+    // ── Utility ───────────────────────────────────────
+    function levelBadge(level) {
+      const m = { low: 'blue', medium: 'amber', high: 'red', critical: 'red' };
+      return `<span class="badge badge-${m[level] || 'gray'}">${level}</span>`;
+    }
+    function actionBadge(action) {
+      const m = { allow: 'green', warn: 'amber', block: 'red', sanitize: 'purple', escalate: 'red', review: 'blue' };
+      return `<span class="badge badge-${m[action] || 'gray'}">${action}</span>`;
+    }
+    function categoryBadge(cat) {
+      return `<span class="badge badge-gray">${cat.replace(/_/g, ' ')}</span>`;
+    }
+    function enabledBadge(v) {
+      return v ? '<span class="badge badge-green">enabled</span>' : '<span class="badge badge-gray">disabled</span>';
+    }
+    function formatUptime(ms) {
+      const s = Math.floor(ms / 1000);
+      const m = Math.floor(s / 60);
+      const h = Math.floor(m / 60);
+      if (h > 0) return `${h}h ${m % 60}m`;
+      if (m > 0) return `${m}m ${s % 60}s`;
+      return `${s}s`;
+    }
+
+    function showModal(html) {
+      document.getElementById('modal-root').innerHTML = `
+        <div class="modal-overlay" onclick="if(event.target===this)closeModal()">
+          <div class="modal">${html}</div>
+        </div>`;
+    }
+    function closeModal() {
+      document.getElementById('modal-root').innerHTML = '';
+    }
+
+    // ── Chat / Command Center ─────────────────────────
+    let chatSending = false;
+
+    async function renderChat(el) {
+      el.innerHTML = `
+        <div class="chat-container">
+          <div class="chat-header">
+            <div class="chat-header-left">
+              <div class="chat-header-icon">⚡</div>
+              <div>
+                <h2>Command Center</h2>
+                <p id="chat-status-text">AI Agent — Ready</p>
+              </div>
+            </div>
+            <div style="display:flex;gap:8px;">
+              <button class="btn btn-secondary" onclick="clearChat()" title="Clear history">
+                <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                Clear
+              </button>
+            </div>
+          </div>
+          <div class="chat-messages" id="chat-messages"></div>
+          <div class="chat-status-bar" id="chat-status-bar">
+            <div class="status-item"><span class="dot-sm dot-green"></span> LLM Connected</div>
+            <div class="status-item" id="wa-status-indicator"><span class="dot-sm dot-red"></span> WhatsApp Disconnected</div>
+            <div style="flex:1"></div>
+            <span id="chat-model-label">—</span>
+          </div>
+          <div class="chat-input-area">
+            <textarea id="chat-input" placeholder="Ask Ubot anything... e.g. 'Send a WhatsApp message to...'" rows="1" onkeydown="chatKeyDown(event)"></textarea>
+            <button class="chat-send-btn" id="chat-send-btn" onclick="sendChatMessage()">
+              <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path></svg>
+            </button>
+          </div>
+        </div>
+      `;
+
+      // Load existing history
+      await loadChatHistory();
+
+      // Load config for status bar
+      try {
+        const cfg = await api('/api/chat/config');
+        document.getElementById('chat-model-label').textContent = cfg.llmModel || '—';
+      } catch {}
+
+      // Check WhatsApp status
+      try {
+        const waStatus = await api('/api/whatsapp/status');
+        const waEl = document.getElementById('wa-status-indicator');
+        if (waStatus.status === 'connected') {
+          waEl.innerHTML = '<span class="dot-sm dot-green"></span> WhatsApp Connected';
+        } else if (waStatus.status === 'connecting') {
+          waEl.innerHTML = '<span class="dot-sm dot-amber"></span> WhatsApp Connecting...';
+        }
+      } catch {}
+
+      // Focus input
+      document.getElementById('chat-input')?.focus();
+    }
+
+    async function loadChatHistory() {
+      const container = document.getElementById('chat-messages');
+      if (!container) return;
+      try {
+        const data = await api('/api/chat/history?sessionId=web-console&limit=50');
+        if (data.messages && data.messages.length > 0) {
+          container.innerHTML = '';
+          for (const msg of data.messages) {
+            if (msg.role === 'user' || msg.role === 'assistant') {
+              appendChatMessage(msg.role, msg.content, msg.metadata, msg.timestamp);
+            }
+          }
+        } else {
+          showChatWelcome();
+        }
+      } catch {
+        showChatWelcome();
+      }
+    }
+
+    function showChatWelcome() {
+      const container = document.getElementById('chat-messages');
+      if (!container) return;
+      container.innerHTML = `
+        <div class="chat-welcome">
+          <div class="chat-welcome-icon">⚡</div>
+          <h3>Welcome to Ubot Command Center</h3>
+          <p>I'm your AI assistant. I can help you send WhatsApp messages, set up auto-replies, schedule messages, and more. What would you like to do?</p>
+          <div class="chat-suggestions">
+            <div class="chat-suggestion" onclick="fillSuggestion('What can you do?')">What can you do?</div>
+            <div class="chat-suggestion" onclick="fillSuggestion('Check WhatsApp status')">WhatsApp Status</div>
+            <div class="chat-suggestion" onclick="fillSuggestion('Set up auto-reply for all contacts')">Auto-Reply</div>
+            <div class="chat-suggestion" onclick="fillSuggestion('Send a message to +971...')">Send Message</div>
+          </div>
+        </div>
+      `;
+    }
+
+    function fillSuggestion(text) {
+      const input = document.getElementById('chat-input');
+      if (input) {
+        input.value = text;
+        input.focus();
+      }
+    }
+
+    function formatChatContent(text) {
+      // Simple markdown-like formatting
+      let html = text
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+        .replace(/`(.+?)`/g, '<code style="background:rgba(99,102,241,0.15);padding:1px 5px;border-radius:4px;font-size:12px;">$1</code>')
+        .replace(/\n/g, '<br>');
+      return html;
+    }
+
+    function appendChatMessage(role, content, metadata, timestamp) {
+      const container = document.getElementById('chat-messages');
+      if (!container) return;
+
+      // Remove welcome screen if present
+      const welcome = container.querySelector('.chat-welcome');
+      if (welcome) welcome.remove();
+
+      const time = timestamp ? new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+
+      let toolsHtml = '';
+      if (metadata?.toolCall && metadata.toolCall.toolName) {
+        const tools = metadata.toolCall.toolName.split(', ');
+        toolsHtml = '<div class="tools-used">' + tools.map(t =>
+          `<span class="tool-badge success">⚡ ${t}</span>`
+        ).join('') + '</div>';
+      }
+
+      let usageHtml = '';
+      if (metadata?.usage) {
+        usageHtml = `<span style="margin-left:8px;font-size:10px;color:var(--text-muted);">${metadata.usage.totalTokens || 0} tokens</span>`;
+      }
+
+      const div = document.createElement('div');
+      div.className = `chat-msg ${role}`;
+      div.innerHTML = `
+        <div class="bubble">${formatChatContent(content)}</div>
+        ${toolsHtml}
+        <div class="msg-meta">
+          ${role === 'assistant' ? '🤖 Ubot' : '👤 You'}
+          ${time ? ' · ' + time : ''}
+          ${usageHtml}
+        </div>
+      `;
+
+      container.appendChild(div);
+      container.scrollTop = container.scrollHeight;
+    }
+
+    function showTypingIndicator() {
+      const container = document.getElementById('chat-messages');
+      if (!container) return;
+      const div = document.createElement('div');
+      div.id = 'typing-indicator';
+      div.className = 'typing-indicator';
+      div.innerHTML = '<div class="dot"></div><div class="dot"></div><div class="dot"></div>';
+      container.appendChild(div);
+      container.scrollTop = container.scrollHeight;
+    }
+
+    function removeTypingIndicator() {
+      const el = document.getElementById('typing-indicator');
+      if (el) el.remove();
+    }
+
+    function chatKeyDown(e) {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        sendChatMessage();
+      }
+    }
+
+    async function sendChatMessage() {
+      if (chatSending) return;
+      const input = document.getElementById('chat-input');
+      const btn = document.getElementById('chat-send-btn');
+      const message = input?.value?.trim();
+      if (!message) return;
+
+      chatSending = true;
+      btn.disabled = true;
+      input.value = '';
+      input.style.height = 'auto';
+
+      // Show user message immediately
+      appendChatMessage('user', message);
+
+      // Show typing indicator
+      showTypingIndicator();
+      document.getElementById('chat-status-text').textContent = 'AI Agent — Thinking...';
+
+      try {
+        const response = await api('/api/chat', {
+          method: 'POST',
+          body: {
+            message,
+            sessionId: 'web-console',
+          },
+        });
+
+        removeTypingIndicator();
+
+        if (response.error) {
+          appendChatMessage('assistant', '⚠️ ' + response.error, null);
+        } else {
+          const meta = {
+            toolCall: response.toolCalls?.length > 0 ? { toolName: response.toolCalls.map(t => t.toolName).join(', ') } : null,
+            usage: response.usage,
+            model: response.model,
+          };
+          appendChatMessage('assistant', response.content, meta);
+        }
+
+        document.getElementById('chat-status-text').textContent = `AI Agent — Ready (${response.duration || 0}ms)`;
+      } catch (err) {
+        removeTypingIndicator();
+        appendChatMessage('assistant', '⚠️ Failed to reach the agent: ' + err.message);
+        document.getElementById('chat-status-text').textContent = 'AI Agent — Error';
+      } finally {
+        chatSending = false;
+        btn.disabled = false;
+        input?.focus();
+      }
+    }
+
+    async function clearChat() {
+      if (!confirm('Clear all conversation history?')) return;
+      try {
+        await api('/api/chat/clear', { method: 'POST', body: { sessionId: 'web-console' } });
+      } catch {}
+      showChatWelcome();
+    }
+
+    // ── Dashboard Page ────────────────────────────────
+    async function renderDashboard(el) {
+      const state = await api('/api/state');
+      const safetyData = await api('/api/safety/rules');
+      const whatsappData = await api('/api/whatsapp/config');
+
+      el.innerHTML = `
+        <div class="page-header">
+          <h2>Dashboard</h2>
+          <p>System overview and live metrics</p>
+        </div>
+        <div class="stats-grid">
+          <div class="stat-card">
+            <div class="stat-label">Status</div>
+            <div class="stat-value green">● Running</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Requests Served</div>
+            <div class="stat-value blue" id="d-requests">${state.requestCount || 0}</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Uptime</div>
+            <div class="stat-value purple" id="d-uptime">${formatUptime(state.uptime || 0)}</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Safety Rules</div>
+            <div class="stat-value amber">${safetyData.total || 0}</div>
+          </div>
+        </div>
+
+        <div class="config-grid">
+          <div class="card">
+            <div class="card-header"><span class="card-title">Quick Links</span></div>
+            <div class="card-body">
+              <div style="display:flex;flex-direction:column;gap:8px;">
+                <a class="nav-link" onclick="navigate('skills')">
+                  <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"></path></svg>
+                  Manage Skills →
+                </a>
+                <a class="nav-link" onclick="navigate('whatsapp')">
+                  <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"></path></svg>
+                  WhatsApp Config →
+                </a>
+                <a class="nav-link" onclick="navigate('safety')">
+                  <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path></svg>
+                  Safety Rules →
+                </a>
+              </div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-header"><span class="card-title">Connection Status</span></div>
+            <div class="card-body">
+              <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
+                <span class="badge badge-gray">${whatsappData.status || 'disconnected'}</span>
+                <span style="color:var(--text-muted);font-size:13px;">WhatsApp Session</span>
+              </div>
+              <div style="font-size:13px;color:var(--text-muted);">
+                Session: <strong style="color:var(--text-primary)">${whatsappData.config?.sessionName || 'ubot-session'}</strong>
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+
+      // Auto-refresh dashboard stats
+      const interval = setInterval(async () => {
+        if (getRoute() !== '') { clearInterval(interval); return; }
+        try {
+          const s = await api('/api/state');
+          const rEl = document.getElementById('d-requests');
+          const uEl = document.getElementById('d-uptime');
+          if (rEl) rEl.textContent = s.requestCount;
+          if (uEl) uEl.textContent = formatUptime(s.uptime);
+        } catch {}
+      }, 5000);
+    }
+
+    // ── Skills Page ───────────────────────────────────
+    async function renderSkills(el) {
+      const data = await api('/api/skills');
+      const skills = data.skills || [];
+
+      function triggerBadge(t) {
+        const colors = { manual: 'blue', on_message: 'green', scheduled: 'purple' };
+        const labels = { manual: '🔧 Manual', on_message: '💬 On Message', scheduled: '⏰ Scheduled' };
+        return `<span class="badge badge-${colors[t] || 'blue'}">${labels[t] || t}</span>`;
+      }
+
+      function triggerInfo(s) {
+        const c = s.triggerConfig || {};
+        const parts = [];
+        if (c.groupsOnly) parts.push('Groups only');
+        if (c.fromGroups && c.fromGroups.length) parts.push(`Groups: ${c.fromGroups.length}`);
+        if (c.fromContact) parts.push(`Contact: ${c.fromContact}`);
+        if (c.messagePattern) parts.push(`Pattern: /${c.messagePattern}/`);
+        return parts.length ? parts.join(' · ') : '<span style="color:var(--text-muted)">All messages</span>';
+      }
+
+      el.innerHTML = `
+        <div class="page-header">
+          <h2>Skills</h2>
+          <p>Create and manage agent skills — automated actions triggered by messages or schedules</p>
+        </div>
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">All Skills (${skills.length})</span>
+            <button class="btn btn-primary" onclick="showCreateSkillModal()">+ Add Skill</button>
+          </div>
+          ${skills.length === 0 ? `
+            <div class="empty">
+              <div class="empty-icon">🧠</div>
+              <h3>No skills yet</h3>
+              <p>Skills let the agent auto-respond to messages, run scheduled tasks, and more</p>
+            </div>
+          ` : `
+            <table>
+              <thead>
+                <tr>
+                  <th>Skill</th>
+                  <th>Trigger</th>
+                  <th>Filters</th>
+                  <th>Status</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${skills.map(s => `
+                  <tr>
+                    <td>
+                      <strong>${esc(s.name)}</strong>
+                      <div style="font-size:12px;color:var(--text-muted);margin-top:2px;">${esc(s.description || '')}</div>
+                    </td>
+                    <td>${triggerBadge(s.trigger)}</td>
+                    <td style="font-size:12px;">${triggerInfo(s)}</td>
+                    <td>
+                      <span class="badge badge-${s.enabled ? 'green' : 'blue'}" style="cursor:pointer" onclick="toggleSkill('${esc(s.id)}', ${!s.enabled})">
+                        ${s.enabled ? '● Active' : '○ Disabled'}
+                      </span>
+                    </td>
+                    <td>
+                      <button class="btn btn-sm" onclick='editSkill(${JSON.stringify(s).replace(/'/g, "\\'")})'  style="margin-right:4px">Edit</button>
+                      <button class="btn btn-danger btn-sm" onclick="deleteSkill('${esc(s.id)}')">Delete</button>
+                    </td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          `}
+        </div>
+      `;
+    }
+
+    function skillFormHTML(skill) {
+      const s = skill || {};
+      const tc = s.triggerConfig || {};
+      const isEdit = !!s.id;
+      return `
+        <h3 class="modal-title">${isEdit ? 'Edit' : 'Add New'} Skill</h3>
+        <div class="form-group">
+          <label class="form-label">Name</label>
+          <input class="form-input" id="skill-name" value="${esc(s.name || '')}" placeholder="e.g. Auto Reply to Support Group">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Description</label>
+          <textarea class="form-textarea" id="skill-desc" placeholder="What does this skill do?">${esc(s.description || '')}</textarea>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Prompt (LLM Instructions)</label>
+          <textarea class="form-textarea" id="skill-prompt" rows="4" placeholder="Instructions for the AI when this skill triggers. Use {{from}}, {{body}}, {{contact}} as variables.">${esc(s.prompt || '')}</textarea>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Trigger</label>
+            <select class="form-select" id="skill-trigger" onchange="toggleTriggerConfig()">
+              <option value="manual" ${s.trigger === 'manual' ? 'selected' : ''}>Manual</option>
+              <option value="on_message" ${s.trigger === 'on_message' ? 'selected' : ''}>On Message</option>
+              <option value="scheduled" ${s.trigger === 'scheduled' ? 'selected' : ''}>Scheduled</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Safety Level</label>
+            <select class="form-select" id="skill-safety">
+              <option value="safe" ${s.safetyLevel === 'safe' ? 'selected' : ''}>Safe</option>
+              <option value="moderate" ${s.safetyLevel === 'moderate' ? 'selected' : ''}>Moderate</option>
+              <option value="destructive" ${s.safetyLevel === 'destructive' ? 'selected' : ''}>Destructive</option>
+            </select>
+          </div>
+        </div>
+        <div id="trigger-config" style="display:${s.trigger === 'on_message' || s.trigger === 'scheduled' ? 'block' : 'none'}">
+          <div style="border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:12px;background:var(--bg-secondary)">
+            <div style="font-weight:600;margin-bottom:8px;font-size:13px;">Trigger Configuration</div>
+            <div class="form-group">
+              <label class="form-label" style="font-size:12px;">From Contact (phone number)</label>
+              <input class="form-input" id="skill-tc-contact" value="${esc(tc.fromContact || '')}" placeholder="e.g. +919947793728">
+            </div>
+            <div class="form-group">
+              <label class="form-label" style="font-size:12px;">Groups (one JID per line, e.g. 120363XXX@g.us)</label>
+              <textarea class="form-textarea" id="skill-tc-groups" rows="2" placeholder="Leave empty for all groups/chats">${(tc.fromGroups || []).join('\\n')}</textarea>
+            </div>
+            <div class="form-group" style="margin-bottom:4px;">
+              <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;">
+                <input type="checkbox" id="skill-tc-groupsonly" ${tc.groupsOnly ? 'checked' : ''}>
+                Groups only (ignore DMs)
+              </label>
+            </div>
+            <div class="form-group">
+              <label class="form-label" style="font-size:12px;">Message Pattern (regex)</label>
+              <input class="form-input" id="skill-tc-pattern" value="${esc(tc.messagePattern || '')}" placeholder="e.g. ^help|support">
+            </div>
+          </div>
+        </div>
+        <div class="modal-actions">
+          <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+          <button class="btn btn-primary" onclick="saveSkill('${esc(s.id || '')}')">${isEdit ? 'Save Changes' : 'Create Skill'}</button>
+        </div>
+      `;
+    }
+
+    function toggleTriggerConfig() {
+      const trigger = document.getElementById('skill-trigger').value;
+      document.getElementById('trigger-config').style.display =
+        (trigger === 'on_message' || trigger === 'scheduled') ? 'block' : 'none';
+    }
+
+    function showCreateSkillModal() {
+      showModal(skillFormHTML(null));
+    }
+
+    function editSkill(skill) {
+      showModal(skillFormHTML(skill));
+    }
+
+    async function saveSkill(existingId) {
+      const name = document.getElementById('skill-name').value.trim();
+      if (!name) return alert('Name is required');
+
+      const trigger = document.getElementById('skill-trigger').value;
+      const contact = document.getElementById('skill-tc-contact').value.trim();
+      const groupsRaw = document.getElementById('skill-tc-groups').value.trim();
+      const groups = groupsRaw ? groupsRaw.split(/[\n,]+/).map(g => g.trim()).filter(Boolean) : [];
+      const groupsOnly = document.getElementById('skill-tc-groupsonly').checked;
+      const pattern = document.getElementById('skill-tc-pattern').value.trim();
+
+      const triggerConfig = {};
+      if (contact) triggerConfig.fromContact = contact;
+      if (groups.length) triggerConfig.fromGroups = groups;
+      if (groupsOnly) triggerConfig.groupsOnly = true;
+      if (pattern) triggerConfig.messagePattern = pattern;
+
+      const body = {
+        name,
+        description: document.getElementById('skill-desc').value,
+        prompt: document.getElementById('skill-prompt').value,
+        trigger,
+        triggerConfig: Object.keys(triggerConfig).length > 0 ? triggerConfig : undefined,
+        safetyLevel: document.getElementById('skill-safety').value,
+      };
+
+      if (existingId) {
+        await api(`/api/skills/${existingId}`, { method: 'PUT', body });
+      } else {
+        await api('/api/skills', { method: 'POST', body });
+      }
+
+      closeModal();
+      renderSkills(document.getElementById('app'));
+    }
+
+    async function toggleSkill(id, enabled) {
+      await api(`/api/skills/${id}`, { method: 'PUT', body: { enabled } });
+      renderSkills(document.getElementById('app'));
+    }
+
+    async function deleteSkill(id) {
+      if (!confirm('Delete this skill?')) return;
+      await api(`/api/skills/${id}`, { method: 'DELETE' });
+      renderSkills(document.getElementById('app'));
+    }
+
+    // ── WhatsApp Page ─────────────────────────────────
+    let waPollingInterval = null;
+
+    async function renderWhatsApp(el) {
+      const data = await api('/api/whatsapp/config');
+      const qrData = await api('/api/whatsapp/qr');
+      const cfg = data.config || {};
+      const status = qrData.status || data.status || 'disconnected';
+      const isConnected = status === 'connected';
+      const isConnecting = status === 'connecting';
+
+      const statusColor = isConnected ? 'green' : isConnecting ? 'amber' : 'var(--text-muted)';
+      const statusLabel = status.charAt(0).toUpperCase() + status.slice(1);
+
+      el.innerHTML = `
+        <div class="page-header">
+          <h2>WhatsApp Configuration</h2>
+          <p>Manage your WhatsApp session and connection settings</p>
+        </div>
+
+        <div class="stats-grid" style="grid-template-columns:repeat(3, 1fr);">
+          <div class="stat-card">
+            <div class="stat-label">Connection</div>
+            <div class="stat-value" style="color:${statusColor}" id="wa-status-display">${statusLabel}</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Session</div>
+            <div class="stat-value blue">${esc(cfg.sessionName || 'ubot-session')}</div>
+          </div>
+          <div class="stat-card" style="display:flex;flex-direction:column;justify-content:center;">
+            <div class="stat-label">Actions</div>
+            <div style="display:flex;gap:8px;margin-top:8px;">
+              ${isConnected ? `
+                <button class="btn btn-danger" onclick="disconnectWhatsApp()">Disconnect</button>
+              ` : isConnecting ? `
+                <button class="btn btn-ghost" disabled style="opacity:0.5">Connecting...</button>
+                <button class="btn btn-danger btn-sm" onclick="disconnectWhatsApp()">Cancel</button>
+              ` : `
+                <button class="btn btn-primary" onclick="connectWhatsApp()">Connect</button>
+              `}
+            </div>
+          </div>
+        </div>
+
+        <!-- QR Code Section -->
+        <div class="card" id="qr-section" style="${!isConnecting && !qrData.qr ? 'display:none' : ''}">
+          <div class="card-header">
+            <span class="card-title">📱 Scan QR Code with WhatsApp</span>
+            <span class="badge ${qrData.qr ? 'badge-green' : 'badge-amber'}" id="qr-badge">${qrData.qr ? 'QR Ready' : 'Waiting for QR...'}</span>
+          </div>
+          <div class="card-body" style="display:flex;flex-direction:column;align-items:center;padding:32px;">
+            <div id="qr-container" style="
+              background: white;
+              border-radius: 16px;
+              padding: 24px;
+              display: ${qrData.qr ? 'block' : 'none'};
+              box-shadow: 0 0 30px rgba(99, 102, 241, 0.2);
+            ">
+              <img id="qr-image" style="width:280px;height:280px;image-rendering:pixelated;" />
+            </div>
+            <div id="qr-waiting" style="display:${qrData.qr ? 'none' : 'flex'};flex-direction:column;align-items:center;padding:24px;">
+              <div style="font-size:40px;margin-bottom:12px;animation:pulse 1.5s infinite">⏳</div>
+              <p style="color:var(--text-secondary);font-size:14px;">Waiting for QR code from WhatsApp...</p>
+            </div>
+            ${qrData.error ? `<p style="color:var(--danger);margin-top:12px;font-size:13px;">Error: ${esc(qrData.error)}</p>` : ''}
+            <p style="color:var(--text-muted);margin-top:16px;font-size:13px;">Open WhatsApp on your phone → Settings → Linked Devices → Link a Device</p>
+          </div>
+        </div>
+
+        <!-- Connection Settings -->
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">Connection Settings</span>
+            <button class="btn btn-primary" onclick="saveWhatsAppConfig()">Save Changes</button>
+          </div>
+          <div class="card-body">
+            <div class="config-grid">
+              <div class="form-group">
+                <label class="form-label">Session Name</label>
+                <input class="form-input" id="wa-session" value="${esc(cfg.sessionName || 'ubot-session')}">
+              </div>
+              <div class="form-group">
+                <label class="form-label">Session Path</label>
+                <input class="form-input" id="wa-path" value="${esc(cfg.sessionPath || './sessions')}">
+              </div>
+              <div class="form-group">
+                <label class="form-label">Connect Timeout (ms)</label>
+                <input class="form-input" type="number" id="wa-timeout" value="${cfg.connectTimeoutMs || 60000}">
+              </div>
+              <div class="form-group">
+                <label class="form-label">Keep Alive Interval (ms)</label>
+                <input class="form-input" type="number" id="wa-keepalive" value="${cfg.keepAliveIntervalMs || 25000}">
+              </div>
+              <div class="form-group">
+                <label class="form-label">Retry Delay (ms)</label>
+                <input class="form-input" type="number" id="wa-retry" value="${cfg.retryRequestDelayMs || 1000}">
+              </div>
+              <div class="form-group">
+                <label class="form-label">Max Msg Retry Count</label>
+                <input class="form-input" type="number" id="wa-maxretry" value="${cfg.maxMsgRetryCount || 5}">
+              </div>
+            </div>
+            <div class="form-group" style="margin-top:16px;">
+              <div class="toggle-wrap">
+                <div class="toggle ${cfg.printQRInTerminal !== false ? 'on' : ''}" id="wa-qr-toggle" onclick="this.classList.toggle('on')"></div>
+                <label class="form-label" style="margin:0;">Print QR in Terminal</label>
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+
+      // Render QR if available
+      if (qrData.qr) {
+        renderQrCode(qrData.qr);
+      }
+
+      // Start polling if connecting
+      stopWaPolling();
+      if (isConnecting) {
+        startWaPolling();
+      }
+    }
+
+    function renderQrCode(qrString) {
+      const img = document.getElementById('qr-image');
+      if (!img || !qrString) return;
+      img.src = 'https://api.qrserver.com/v1/create-qr-code/?size=280x280&data=' + encodeURIComponent(qrString);
+      img.alt = 'WhatsApp QR Code';
+    }
+
+    function startWaPolling() {
+      stopWaPolling();
+      waPollingInterval = setInterval(async () => {
+        if (getRoute() !== 'whatsapp') { stopWaPolling(); return; }
+        try {
+          const data = await api('/api/whatsapp/qr');
+          const qrSection = document.getElementById('qr-section');
+          const qrContainer = document.getElementById('qr-container');
+          const qrWaiting = document.getElementById('qr-waiting');
+          const qrBadge = document.getElementById('qr-badge');
+          const statusDisp = document.getElementById('wa-status-display');
+
+          if (data.status === 'connected') {
+            stopWaPolling();
+            renderWhatsApp(document.getElementById('app'));
+            return;
+          }
+          if (data.status === 'disconnected' && data.error) {
+            stopWaPolling();
+            renderWhatsApp(document.getElementById('app'));
+            return;
+          }
+
+          if (statusDisp) {
+            statusDisp.textContent = data.status.charAt(0).toUpperCase() + data.status.slice(1);
+          }
+
+          if (data.qr) {
+            if (qrSection) qrSection.style.display = '';
+            if (qrContainer) qrContainer.style.display = 'block';
+            if (qrWaiting) qrWaiting.style.display = 'none';
+            if (qrBadge) { qrBadge.textContent = 'QR Ready'; qrBadge.className = 'badge badge-green'; }
+            renderQrCode(data.qr);
+          } else {
+            if (qrSection) qrSection.style.display = '';
+            if (qrContainer) qrContainer.style.display = 'none';
+            if (qrWaiting) qrWaiting.style.display = 'flex';
+            if (qrBadge) { qrBadge.textContent = 'Waiting for QR...'; qrBadge.className = 'badge badge-amber'; }
+          }
+        } catch {}
+      }, 2000);
+    }
+
+    function stopWaPolling() {
+      if (waPollingInterval) {
+        clearInterval(waPollingInterval);
+        waPollingInterval = null;
+      }
+    }
+
+    async function connectWhatsApp() {
+      await api('/api/whatsapp/connect', { method: 'POST' });
+      renderWhatsApp(document.getElementById('app'));
+    }
+
+    async function disconnectWhatsApp() {
+      await api('/api/whatsapp/disconnect', { method: 'POST' });
+      stopWaPolling();
+      renderWhatsApp(document.getElementById('app'));
+    }
+
+    async function saveWhatsAppConfig() {
+      await api('/api/whatsapp/config', { method: 'PUT', body: {
+        sessionName: document.getElementById('wa-session').value,
+        sessionPath: document.getElementById('wa-path').value,
+        connectTimeoutMs: parseInt(document.getElementById('wa-timeout').value),
+        keepAliveIntervalMs: parseInt(document.getElementById('wa-keepalive').value),
+        retryRequestDelayMs: parseInt(document.getElementById('wa-retry').value),
+        maxMsgRetryCount: parseInt(document.getElementById('wa-maxretry').value),
+        printQRInTerminal: document.getElementById('wa-qr-toggle').classList.contains('on'),
+      }});
+      renderWhatsApp(document.getElementById('app'));
+    }
+
+    // ── Safety Rules Page ─────────────────────────────
+    async function renderSafety(el) {
+      const data = await api('/api/safety/rules');
+      const rules = data.rules || [];
+
+      el.innerHTML = `
+        <div class="page-header">
+          <h2>Safety Rules</h2>
+          <p>Content moderation, filtering, and safety policies</p>
+        </div>
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">Rules (${rules.length})</span>
+            <button class="btn btn-primary" onclick="showCreateRuleModal()">+ Add Rule</button>
+          </div>
+          ${rules.length === 0 ? `
+            <div class="empty">
+              <div class="empty-icon">🛡️</div>
+              <h3>No safety rules</h3>
+              <p>Add rules to protect your users</p>
+            </div>
+          ` : `
+            <table>
+              <thead>
+                <tr>
+                  <th>Rule</th>
+                  <th>Category</th>
+                  <th>Level</th>
+                  <th>Action</th>
+                  <th>Status</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${rules.map(r => `
+                  <tr>
+                    <td>
+                      <strong>${esc(r.name)}</strong>
+                      <div style="font-size:12px;color:var(--text-muted);margin-top:2px;">${esc(r.description || '')}</div>
+                    </td>
+                    <td>${categoryBadge(r.category)}</td>
+                    <td>${levelBadge(r.level)}</td>
+                    <td>${actionBadge(r.action)}</td>
+                    <td>${enabledBadge(r.enabled)}</td>
+                    <td style="white-space:nowrap">
+                      <button class="btn btn-ghost btn-sm" onclick="toggleRule('${esc(r.id)}', ${!r.enabled})">${r.enabled ? 'Disable' : 'Enable'}</button>
+                      <button class="btn btn-danger btn-sm" onclick="deleteRule('${esc(r.id)}')">Delete</button>
+                    </td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          `}
+        </div>
+      `;
+    }
+
+    function showCreateRuleModal() {
+      showModal(`
+        <h3 class="modal-title">Add Safety Rule</h3>
+        <div class="form-group">
+          <label class="form-label">Name</label>
+          <input class="form-input" id="rule-name" placeholder="e.g. Block bad words">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Description</label>
+          <textarea class="form-textarea" id="rule-desc" placeholder="What does this rule check?"></textarea>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Category</label>
+            <select class="form-select" id="rule-cat">
+              <option value="harmful_content">Harmful Content</option>
+              <option value="personal_information">Personal Information</option>
+              <option value="spam">Spam</option>
+              <option value="inappropriate_language">Inappropriate Language</option>
+              <option value="malicious_links">Malicious Links</option>
+              <option value="phishing">Phishing</option>
+              <option value="harassment">Harassment</option>
+              <option value="custom">Custom</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Level</label>
+            <select class="form-select" id="rule-level">
+              <option value="low">Low</option>
+              <option value="medium" selected>Medium</option>
+              <option value="high">High</option>
+              <option value="critical">Critical</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Action</label>
+          <select class="form-select" id="rule-action">
+            <option value="warn">Warn</option>
+            <option value="block">Block</option>
+            <option value="sanitize">Sanitize</option>
+            <option value="review">Review</option>
+            <option value="escalate">Escalate</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Pattern (regex, optional)</label>
+          <input class="form-input" id="rule-pattern" placeholder="e.g. \\b(badword)\\b">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Keywords (comma separated, optional)</label>
+          <input class="form-input" id="rule-keywords" placeholder="e.g. spam, scam, phishing">
+        </div>
+        <div class="modal-actions">
+          <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+          <button class="btn btn-primary" onclick="createRule()">Create Rule</button>
+        </div>
+      `);
+    }
+
+    async function createRule() {
+      const name = document.getElementById('rule-name').value.trim();
+      if (!name) return alert('Name is required');
+      await api('/api/safety/rules', { method: 'POST', body: {
+        name,
+        description: document.getElementById('rule-desc').value,
+        category: document.getElementById('rule-cat').value,
+        level: document.getElementById('rule-level').value,
+        action: document.getElementById('rule-action').value,
+        pattern: document.getElementById('rule-pattern').value || undefined,
+        keywords: document.getElementById('rule-keywords').value.split(',').map(t => t.trim()).filter(Boolean),
+      }});
+      closeModal();
+      renderSafety(document.getElementById('app'));
+    }
+
+    async function toggleRule(id, enabled) {
+      await api(`/api/safety/rules/${id}`, { method: 'PUT', body: { enabled }});
+      renderSafety(document.getElementById('app'));
+    }
+
+    async function deleteRule(id) {
+      if (!confirm('Delete this rule?')) return;
+      await api(`/api/safety/rules/${id}`, { method: 'DELETE' });
+      renderSafety(document.getElementById('app'));
+    }
+
+    // ── Scheduler Page ────────────────────────────────
+    async function renderScheduler(el) {
+      const data = await api('/api/scheduler/tasks');
+      const tasks = data.tasks || [];
+      const stats = await api('/api/scheduler/stats');
+
+      el.innerHTML = `
+        <div class="page-header">
+          <h2>Task Scheduler</h2>
+          <p>Manage scheduled and recurring tasks</p>
+        </div>
+        <div class="stats-grid">
+          <div class="stat-card">
+            <div class="stat-label">Total Tasks</div>
+            <div class="stat-value blue">${stats.totalTasks || 0}</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Running</div>
+            <div class="stat-value green">${stats.runningTasks || 0}</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Completed</div>
+            <div class="stat-value purple">${stats.completedTasks || 0}</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Failed</div>
+            <div class="stat-value amber">${stats.failedTasks || 0}</div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">Tasks (${tasks.length})</span>
+          </div>
+          ${tasks.length === 0 ? `
+            <div class="empty">
+              <div class="empty-icon">⏱️</div>
+              <h3>No tasks scheduled</h3>
+              <p>Tasks will appear here once scheduled programmatically</p>
+            </div>
+          ` : `
+            <table>
+              <thead><tr><th>Name</th><th>Type</th><th>Status</th><th>Next Run</th></tr></thead>
+              <tbody>
+                ${tasks.map(t => `
+                  <tr>
+                    <td><strong>${esc(t.name)}</strong></td>
+                    <td><span class="badge badge-blue">${esc(t.type || 'once')}</span></td>
+                    <td><span class="badge badge-${t.status === 'active' ? 'green' : 'gray'}">${esc(t.status)}</span></td>
+                    <td style="color:var(--text-muted);font-size:13px;">${t.nextRun ? new Date(t.nextRun).toLocaleString() : '—'}</td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          `}
+        </div>
+      `;
+    }
+
+    // ── Settings Page ─────────────────────────────────
+    async function renderSettings(el) {
+      const safetyConfig = await api('/api/safety/config');
+
+      el.innerHTML = `
+        <div class="page-header">
+          <h2>Settings</h2>
+          <p>System-wide configuration</p>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">Safety Configuration</span>
+            <button class="btn btn-primary" onclick="saveSafetyConfig()">Save Changes</button>
+          </div>
+          <div class="card-body">
+            <div class="config-grid">
+              <div class="form-group">
+                <div class="toggle-wrap">
+                  <div class="toggle ${safetyConfig.enabled ? 'on' : ''}" id="sc-enabled" onclick="this.classList.toggle('on')"></div>
+                  <label class="form-label" style="margin:0;">Safety Enabled</label>
+                </div>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Default Action</label>
+                <select class="form-select" id="sc-action">
+                  <option value="allow" ${safetyConfig.defaultAction === 'allow' ? 'selected' : ''}>Allow</option>
+                  <option value="warn" ${safetyConfig.defaultAction === 'warn' ? 'selected' : ''}>Warn</option>
+                  <option value="block" ${safetyConfig.defaultAction === 'block' ? 'selected' : ''}>Block</option>
+                  <option value="sanitize" ${safetyConfig.defaultAction === 'sanitize' ? 'selected' : ''}>Sanitize</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Min Score Threshold</label>
+                <input class="form-input" type="number" step="0.1" min="0" max="1" id="sc-threshold" value="${safetyConfig.minScoreThreshold}">
+              </div>
+              <div class="form-group">
+                <label class="form-label">Max Violations</label>
+                <input class="form-input" type="number" id="sc-maxviolations" value="${safetyConfig.maxViolations}">
+              </div>
+              <div class="form-group">
+                <div class="toggle-wrap">
+                  <div class="toggle ${safetyConfig.enableSanitization ? 'on' : ''}" id="sc-sanitize" onclick="this.classList.toggle('on')"></div>
+                  <label class="form-label" style="margin:0;">Enable Sanitization</label>
+                </div>
+              </div>
+              <div class="form-group">
+                <div class="toggle-wrap">
+                  <div class="toggle ${safetyConfig.logViolations ? 'on' : ''}" id="sc-logv" onclick="this.classList.toggle('on')"></div>
+                  <label class="form-label" style="margin:0;">Log Violations</label>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">System Info</span>
+          </div>
+          <div class="card-body" style="font-size:14px;color:var(--text-secondary);">
+            <table style="width:auto;">
+              <tr><td style="padding:6px 20px 6px 0;color:var(--text-muted);">App</td><td>Ubot Core v1.0.0</td></tr>
+              <tr><td style="padding:6px 20px 6px 0;color:var(--text-muted);">Runtime</td><td>Node.js</td></tr>
+              <tr><td style="padding:6px 20px 6px 0;color:var(--text-muted);">Database</td><td>SQLite (better-sqlite3)</td></tr>
+              <tr><td style="padding:6px 20px 6px 0;color:var(--text-muted);">CSS</td><td>Tailwind CSS v4</td></tr>
+            </table>
+          </div>
+        </div>
+      `;
+    }
+
+    async function saveSafetyConfig() {
+      await api('/api/safety/config', { method: 'PUT', body: {
+        enabled: document.getElementById('sc-enabled').classList.contains('on'),
+        defaultAction: document.getElementById('sc-action').value,
+        minScoreThreshold: parseFloat(document.getElementById('sc-threshold').value),
+        maxViolations: parseInt(document.getElementById('sc-maxviolations').value),
+        enableSanitization: document.getElementById('sc-sanitize').classList.contains('on'),
+        logViolations: document.getElementById('sc-logv').classList.contains('on'),
+      }});
+      renderSettings(document.getElementById('app'));
+    }
+
+    // ── 404 Page ──────────────────────────────────────
+    function renderNotFound(el) {
+      el.innerHTML = `
+        <div class="empty" style="margin-top:80px;">
+          <div class="empty-icon">🔍</div>
+          <h3>Page not found</h3>
+          <p>The page you're looking for doesn't exist.</p>
+          <button class="btn btn-primary" style="margin-top:16px;" onclick="navigate('')">Back to Dashboard</button>
+        </div>
+      `;
+    }
+
+    // ── Escape HTML ────────────────────────────────────
+    function esc(str) {
+      if (!str) return '';
+      const d = document.createElement('div');
+      d.textContent = String(str);
+      return d.innerHTML;
+    }
   </script>
 </body>
 </html>

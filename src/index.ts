@@ -2,8 +2,16 @@ import 'dotenv/config';
 import http from 'http';
 import fs from 'fs';
 import path from 'path';
+import { handleApiRoute, initializeApi } from './api.js';
+import { createConnection, createDefaultConfig } from './database/connection.js';
+import { defaultMigrations } from './database/migrations.js';
+import { createConversationStore, conversationMigrations } from './agent/conversation.js';
+import { createMemoryStore, memoryMigrations } from './agent/memory-store.js';
+import { createSoul } from './agent/soul.js';
+import { createAgentOrchestrator } from './agent/orchestrator.js';
+import { DEFAULT_AGENT_CONFIG } from './agent/types.js';
 
-const PORT = parseInt(process.env.PORT || '3100', 10);
+const PORT = parseInt(process.env.PORT || '4080', 10);
 
 // In-memory application state
 interface AppState {
@@ -19,6 +27,39 @@ const appState: AppState = {
   startedAt: new Date(),
   requestCount: 0,
 };
+
+// Initialize database
+const dbPath = process.env.DATABASE_PATH || './data/ubot.db';
+// Ensure data directory exists
+const dataDir = path.dirname(dbPath);
+if (!fs.existsSync(dataDir)) {
+  fs.mkdirSync(dataDir, { recursive: true });
+}
+
+const db = createConnection({
+  config: createDefaultConfig(dbPath),
+  migrations: [...defaultMigrations, ...conversationMigrations, ...memoryMigrations],
+  autoMigrate: true,
+});
+
+// Initialize agent
+const conversationStore = createConversationStore(db);
+const memoryStore = createMemoryStore(db);
+const soul = createSoul(memoryStore);
+const agent = createAgentOrchestrator(
+  {
+    ...DEFAULT_AGENT_CONFIG,
+    llmBaseUrl: process.env.LLM_BASE_URL || DEFAULT_AGENT_CONFIG.llmBaseUrl,
+    llmModel: process.env.LLM_MODEL || DEFAULT_AGENT_CONFIG.llmModel,
+    llmApiKey: process.env.LLM_API_KEY || DEFAULT_AGENT_CONFIG.llmApiKey,
+  },
+  conversationStore,
+  memoryStore,
+  soul,
+);
+
+// Initialize API with agent
+initializeApi(db as any, agent);
 
 // MIME types for static file serving
 const MIME_TYPES: Record<string, string> = {
@@ -65,6 +106,13 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
   const url = req.url || '/';
   const method = req.method || 'GET';
   
+  // Health check endpoint
+  if (url === '/health' && method === 'GET') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ status: 'ok', timestamp: new Date().toISOString() }));
+    return;
+  }
+  
   // API endpoint for app state
   if (url === '/api/state' && method === 'GET') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -75,11 +123,10 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
     return;
   }
   
-  // Health check endpoint
-  if (url === '/health' && method === 'GET') {
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ status: 'ok', timestamp: new Date().toISOString() }));
-    return;
+  // Route all /api/* to the API router
+  if (url.startsWith('/api/')) {
+    const handled = await handleApiRoute(req, res, url, method);
+    if (handled) return;
   }
   
   // Serve static files
@@ -95,10 +142,10 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
   const file = await serveStatic(filePath);
   
   if (file) {
-    res.writeHead(200, { 'Content-Type': file.contentType });
+    res.writeHead(200, { 'Content-Type': file.contentType, 'Cache-Control': 'no-cache, no-store, must-revalidate' });
     res.end(file.content);
   } else {
-    // For SPA: serve index.html for unmatched routes (except API routes)
+    // SPA fallback: serve index.html for non-API, non-static routes
     if (!url.startsWith('/api/') && !url.startsWith('/health')) {
       const indexFile = await serveStatic('/index.html');
       if (indexFile) {

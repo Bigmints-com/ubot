@@ -18,6 +18,8 @@ export interface WhatsAppMessage {
   mediaUrl?: string;
   mediaType?: 'image' | 'video' | 'audio' | 'document';
   quotedMessageId?: string;
+  /** In group messages, the actual sender JID (e.g. 919947793728@s.whatsapp.net) */
+  participant?: string;
 }
 
 export interface WhatsAppSendMessageOptions {

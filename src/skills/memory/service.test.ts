@@ -1,4 +1,3 @@
-```typescript
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { MemoryService, createMemoryService, resetMemoryService } from './service.js';
 import type { Memory, MemoryFilter, MemorySearchOptions } from './types.js';
@@ -325,4 +324,3 @@ describe('MemoryService', () => {
     });
   });
 });
-```
