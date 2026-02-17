@@ -3,19 +3,15 @@ node_modules/
 
 # Build output
 dist/
+public/css/output.css
 
 # Environment files
-.env
 .env.local
 .env.*.local
 
-# Logs
-*.log
-npm-debug.log*
-
 # IDE
-.vscode/
 .idea/
+.vscode/
 *.swp
 *.swo
 
@@ -23,5 +19,9 @@ npm-debug.log*
 .DS_Store
 Thumbs.db
 
-# Generated CSS
-public/styles.css
+# Logs
+*.log
+npm-debug.log*
+
+# Testing
+coverage/
