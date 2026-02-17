@@ -5,15 +5,20 @@
   "scripts": {
     "build": "tsc",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "dev": "tsx src/index.ts"
   },
   "dependencies": {
+    "@whiskeysockets/baileys": "*",
+    "qrcode-terminal": "*",
+    "pino": "*",
     "dotenv": "*",
     "openai": "*",
     "winston": "*"
   },
   "devDependencies": {
     "@types/node": "*",
+    "@types/qrcode-terminal": "*",
     "typescript": "*",
     "vitest": "*",
     "tsx": "*"
