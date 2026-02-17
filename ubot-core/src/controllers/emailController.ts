@@ -1,16 +1,22 @@
-import express from 'express';
-import { emailService } from '../services/emailService.js';
+import { Request, Response } from 'express';
+import { sendEmail } from '../services/emailService.js';
+import { Email } from '../types/email.js';
 
-const router = express.Router();
+export const emailController = {
+  sendEmail: async (req: Request, res: Response): Promise<void> => {
+    try {
+      const { auth, emailData } = req.body;
 
-router.post('/send', async (req, res) => {
-  try {
-    const { to, subject, body } = req.body;
-    const result = await emailService.sendEmail(to, subject, body);
-    res.json(result);
-  } catch (error) {
-    res.status(500).json({ error: 'Failed to send email' });
-  }
-});
+      if (!auth || !emailData) {
+        res.status(400).json({ error: 'Missing auth or email data' });
+        return;
+      }
 
-export default router;
+      const result = await sendEmail(auth, emailData as Email);
+      res.status(200).json({ success: true, data: result });
+    } catch (error) {
+      console.error('Email sending error:', error);
+      res.status(500).json({ error: 'Failed to send email' });
+    }
+  },
+};

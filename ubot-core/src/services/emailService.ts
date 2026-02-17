@@ -1,51 +1,46 @@
-import { OAuth2Client } from 'google-auth-library';
 import { google } from 'googleapis';
+import { Email, Attachment } from '../types/email.js';
 
-const CLIENT_ID = process.env.GOOGLE_CLIENT_ID || '';
-const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || '';
-const REDIRECT_URI = process.env.GOOGLE_REDIRECT_URI || '';
+export const sendEmail = async (
+  auth: any,
+  emailData: Email
+): Promise<any> => {
+  const gmail = google.gmail({ version: 'v1', auth });
 
-const client = new OAuth2Client(CLIENT_ID, CLIENT_SECRET, REDIRECT_URI);
+  const boundary = '----=_Part_' + Date.now();
+  let emailContent = `To: ${emailData.to}\r\n`;
+  emailContent += `Subject: ${emailData.subject}\r\n`;
+  emailContent += `MIME-Version: 1.0\r\n`;
+  emailContent += `Content-Type: multipart/mixed; boundary="${boundary}"\r\n\r\n`;
 
-export const sendEmail = async (to: string, subject: string, body: string) => {
-  try {
-    // Get access token
-    const tokenResponse = await client.getAccessToken();
-    
-    if (!tokenResponse.access_token) {
-      throw new Error('Failed to retrieve access token');
+  emailContent += `--${boundary}\r\n`;
+  emailContent += `Content-Type: text/plain; charset="UTF-8"\r\n\r\n`;
+  emailContent += `${emailData.body}\r\n`;
+
+  if (emailData.attachments && emailData.attachments.length > 0) {
+    for (const attachment of emailData.attachments) {
+      emailContent += `--${boundary}\r\n`;
+      emailContent += `Content-Type: ${attachment.mimeType}; name="${attachment.filename}"\r\n`;
+      emailContent += `Content-Disposition: attachment; filename="${attachment.filename}"\r\n`;
+      emailContent += `Content-Transfer-Encoding: base64\r\n\r\n`;
+      emailContent += Buffer.from(attachment.content).toString('base64');
+      emailContent += `\r\n`;
     }
-
-    const accessToken = tokenResponse.access_token;
-
-    const gmail = google.gmail({ version: 'v1', auth: accessToken });
-
-    const emailContent = [
-      `Content-Type: text/plain; charset=utf-8`,
-      `MIME-Version: 1.0`,
-      `Content-Transfer-Encoding: 7bit`,
-      `To: ${to}`,
-      `Subject: ${subject}`,
-      ``,
-      `${body}`,
-    ].join('\n');
-
-    const encodedEmail = Buffer.from(emailContent)
-      .toString('base64')
-      .replace(/\+/g, '-')
-      .replace(/\//g, '_')
-      .replace(/=+$/, '');
-
-    const response = await gmail.users.messages.send({
-      userId: 'me',
-      requestBody: {
-        raw: encodedEmail,
-      },
-    });
-
-    return { success: true, messageId: response.data.id };
-  } catch (error) {
-    console.error('Error sending email:', error);
-    throw error;
+    emailContent += `--${boundary}--\r\n`;
   }
+
+  const encodedMessage = Buffer.from(emailContent)
+    .toString('base64url')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '');
+
+  const response = await gmail.users.messages.send({
+    userId: 'me',
+    requestBody: {
+      raw: encodedMessage,
+    },
+  });
+
+  return response.data;
 };

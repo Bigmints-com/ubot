@@ -1,12 +1,12 @@
-export interface EmailRequest {
+export interface Email {
   to: string;
   subject: string;
-  text?: string;
-  html?: string;
+  body: string;
+  attachments?: Attachment[];
 }
 
-export interface EmailResponse {
-  success: boolean;
-  messageId?: string;
-  error?: string;
+export interface Attachment {
+  filename: string;
+  content: Buffer | string;
+  mimeType: string;
 }

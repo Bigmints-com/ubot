@@ -1,6 +1,7 @@
 {
   "name": "ubot-core",
   "version": "1.0.0",
+  "description": "Ubot Core Application",
   "main": "dist/index.js",
   "scripts": {
     "dev": "tsx watch src/index.ts",
@@ -11,13 +12,13 @@
     "@whiskeysockets/baileys": "*",
     "better-sqlite3": "*",
     "express": "*",
+    "googleapis": "*",
     "openai": "*",
     "pino": "*",
+    "puppeteer": "*",
     "qrcode-terminal": "*",
     "uuid": "*",
-    "winston": "*",
-    "googleapis": "*",
-    "google-auth-library": "*"
+    "winston": "*"
   },
   "devDependencies": {
     "@types/better-sqlite3": "*",
