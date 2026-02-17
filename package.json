@@ -1,7 +1,6 @@
 {
-  "name": "memory-skill",
+  "name": "ubot-core",
   "version": "1.0.0",
-  "type": "module",
   "main": "dist/index.js",
   "scripts": {
     "dev": "tsx watch src/index.ts",
@@ -14,6 +13,7 @@
     "express": "*",
     "openai": "*",
     "pino": "*",
+    "puppeteer": "*",
     "qrcode-terminal": "*",
     "uuid": "*",
     "winston": "*"
