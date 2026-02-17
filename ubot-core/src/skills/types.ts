@@ -1,28 +1,29 @@
 /**
  * Skill Types
- * Defines types for the skills framework
  */
-
-export type SkillCategory = 'technical' | 'creative' | 'analytical' | 'communication' | 'management';
-
-export type SkillLevel = 'beginner' | 'intermediate' | 'advanced' | 'expert';
 
 export interface Skill {
   id: string;
   name: string;
   description: string;
-  category: SkillCategory;
-  level: SkillLevel;
+  category: string;
+  level: string;
   tags: string[];
+  metadata?: Record<string, unknown>;
   createdAt: Date;
   updatedAt: Date;
+}
+
+export interface SkillContext {
+  skillId: string;
+  sessionId?: string;
+  userId?: string;
   metadata?: Record<string, unknown>;
 }
 
-export interface SkillAssessment {
-  skillId: string;
-  level: SkillLevel;
-  score: number;
-  assessedAt: Date;
-  notes?: string;
+export interface SkillResult {
+  success: boolean;
+  data?: unknown;
+  error?: string;
+  metadata?: Record<string, unknown>;
 }
