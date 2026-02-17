@@ -22,8 +22,9 @@
 ├── src/controllers/
 │   ├── shellController.ts
 ├── src/services/
-│   ├── logger.ts
 │   ├── shellService.ts
+├── src/skills/
+│   ├── shell-skill.ts
 ├── src/types/
 │   ├── shell.ts
 ```
@@ -40,8 +41,8 @@
 
 - `package.json`
 - `tsconfig.json`
-- `src/services/logger.ts`
 - `src/types/shell.ts`
 - `src/services/shellService.ts`
 - `src/controllers/shellController.ts`
+- `src/skills/shell-skill.ts`
 
