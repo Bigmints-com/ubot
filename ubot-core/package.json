@@ -1,19 +1,23 @@
 {
-  "name": "config-loader",
+  "name": "ubot-core",
   "version": "1.0.0",
   "type": "module",
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
   "scripts": {
     "build": "tsc",
-    "test": "vitest run"
+    "test": "vitest run",
+    "dev": "tsx src/index.ts"
   },
   "dependencies": {
-    "dotenv": "*"
+    "dotenv": "*",
+    "better-sqlite3": "*",
+    "uuid": "*"
   },
   "devDependencies": {
+    "@types/better-sqlite3": "*",
     "@types/node": "*",
+    "@types/uuid": "*",
     "typescript": "*",
-    "vitest": "*"
+    "vitest": "*",
+    "tsx": "*"
   }
 }
