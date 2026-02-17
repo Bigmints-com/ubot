@@ -1,25 +1,19 @@
-import { Request, Response } from 'express';
-import { getAllFiles, deleteFile } from '../services/fileService.js';
+import express from 'express';
+import { fileService } from '../services/fileService.js';
 
-export const listFiles = (req: Request, res: Response): void => {
-  try {
-    const files = getAllFiles();
-    res.json({ success: true, data: files });
-  } catch (error) {
-    res.status(500).json({ success: false, error: 'Failed to list files' });
-  }
-};
+const router = express.Router();
 
-export const removeFile = (req: Request, res: Response): void => {
+router.post('/upload', async (req, res) => {
   try {
-    const { id } = req.params;
-    const deleted = deleteFile(id);
-    if (deleted) {
-      res.json({ success: true, message: 'File deleted' });
-    } else {
-      res.status(404).json({ success: false, message: 'File not found' });
+    const { file } = req;
+    if (!file) {
+      return res.status(400).json({ error: 'No file uploaded' });
     }
+    const result = await fileService.uploadFile(file);
+    res.json(result);
   } catch (error) {
-    res.status(500).json({ success: false, error: 'Failed to delete file' });
+    res.status(500).json({ error: 'Failed to upload file' });
   }
-};
+});
+
+export default router;
