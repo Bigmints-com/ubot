@@ -1,31 +1,24 @@
 {
   "name": "ubot-core",
   "version": "1.0.0",
-  "description": "Empty TypeScript project skeleton. Just the build tooling, entry point, and dev scripts. Nothing else.",
   "type": "module",
-  "main": "dist/index.js",
   "scripts": {
-    "dev": "concurrently \"npm run dev:css\" \"npm run dev:server\"",
-    "dev:server": "tsx watch src/index.ts",
-    "dev:css": "tailwindcss -i ./src/styles.css -o ./public/styles.css --watch",
-    "build": "tsc && tailwindcss -i ./src/styles.css -o ./public/styles.css --minify",
-    "start": "node dist/index.js",
-    "test": "vitest run",
-    "test:watch": "vitest"
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "test": "vitest",
+    "lint": "next lint"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
   "dependencies": {
     "dotenv": "*",
-    "next": "^16.1.6",
-    "react": "^19.2.4",
-    "react-dom": "^19.2.4"
+    "next": "*",
+    "react": "*",
+    "react-dom": "*"
   },
   "devDependencies": {
     "@types/node": "*",
-    "@types/react": "^19.2.14",
-    "@types/react-dom": "^19.2.3",
+    "@types/react": "*",
+    "@types/react-dom": "*",
     "autoprefixer": "*",
     "concurrently": "*",
     "postcss": "*",
