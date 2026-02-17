@@ -115,22 +115,25 @@ function setupWhatsAppHandlers(conn: WhatsAppConnection): void {
     }
 
     // Emit to universal event bus — skill engine handles matching & execution
-    // This fires for ALL incoming messages (not just auto-reply ones)
-    if (eventBus && !msg.isFromMe && msg.body) {
-      const event: SkillEvent = {
-        source: 'whatsapp',
-        type: 'message',
-        from: msg.from || '',
-        to: msg.to || '',
-        body: msg.body || '',
-        timestamp: msg.timestamp instanceof Date ? msg.timestamp : new Date(),
-        data: {
-          participant: msg.participant,
-          hasMedia: msg.hasMedia,
-          quotedMessageId: msg.quotedMessageId,
-        },
-      };
-      eventBus.emit(event);
+    if (!msg.isFromMe && msg.body) {
+      if (eventBus) {
+        const event: SkillEvent = {
+          source: 'whatsapp',
+          type: 'message',
+          from: msg.from || '',
+          to: msg.to || '',
+          body: msg.body || '',
+          timestamp: msg.timestamp instanceof Date ? msg.timestamp : new Date(),
+          data: {
+            participant: msg.participant,
+            hasMedia: msg.hasMedia,
+            quotedMessageId: msg.quotedMessageId,
+          },
+        };
+        eventBus.emit(event);
+      } else {
+        console.log('[API] ⚠️ No eventBus — skill triggering disabled');
+      }
     }
   });
 }

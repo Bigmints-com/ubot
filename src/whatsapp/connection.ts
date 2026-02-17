@@ -6,7 +6,7 @@ import makeWASocket, {
 } from '@whiskeysockets/baileys';
 import pino from 'pino';
 import qrcode from 'qrcode-terminal';
-import { mkdir, access } from 'fs/promises';
+import { mkdir, access, readdir, readFile } from 'fs/promises';
 import { join } from 'path';
 import type { 
   WhatsAppConnectionConfig, 
@@ -34,6 +34,7 @@ export class WhatsAppConnection {
   private state: ConnectionState;
   private eventListeners: Map<string, Set<Function>> = new Map();
   private saveCreds: (() => Promise<void>) | null = null;
+  private lidToPhone: Map<string, string> = new Map();
   private logger: pino.Logger;
 
   constructor(config: Partial<WhatsAppConnectionConfig> = {}) {
@@ -136,6 +137,32 @@ export class WhatsAppConnection {
     }
   }
 
+  /** Load LID→phone mappings from session directory files */
+  private async loadLIDMappings(): Promise<void> {
+    const sessionDir = join(this.config.sessionPath, this.config.sessionName);
+    try {
+      const files = await readdir(sessionDir);
+      const reverseFiles = files.filter(f => f.startsWith('lid-mapping-') && f.endsWith('_reverse.json'));
+      
+      for (const file of reverseFiles) {
+        try {
+          const content = await readFile(join(sessionDir, file), 'utf-8');
+          const phoneNumber = JSON.parse(content);
+          // Extract LID from filename: lid-mapping-{lid}_reverse.json
+          const lid = file.replace('lid-mapping-', '').replace('_reverse.json', '');
+          const lidJid = `${lid}@lid`;
+          const phoneJid = `${phoneNumber}@s.whatsapp.net`;
+          this.lidToPhone.set(lidJid, phoneJid);
+        } catch {
+          // Skip invalid files
+        }
+      }
+      console.log(`[WhatsApp] Loaded ${this.lidToPhone.size} LID→phone mappings`);
+    } catch (err: any) {
+      console.error('[WhatsApp] Failed to read session dir for LID mappings:', err.message);
+    }
+  }
+
   private setupEventHandlers(): void {
     if (!this.socket) return;
 
@@ -165,6 +192,10 @@ export class WhatsAppConnection {
         this.state.lastConnected = new Date();
         this.state.reconnectAttempts = 0;
         this.state.qrCode = null;
+        // Load LID→phone mappings from session files
+        this.loadLIDMappings().catch(err => 
+          console.error('[WhatsApp] Failed to load LID mappings:', err.message)
+        );
       }
     });
 
@@ -175,40 +206,55 @@ export class WhatsAppConnection {
     });
 
     this.socket.ev.on('messages.upsert', ({ messages, type }) => {
-      if (type === 'notify') {
-        for (const msg of messages) {
-          if (!msg.key.fromMe) {
-            this.emit('message.received', this.parseMessage(msg));
-          }
+      for (const msg of messages) {
+        const body = this.extractBody(msg);
+        console.log(`[WhatsApp] 📩 type=${type} fromMe=${msg.key.fromMe} jid=${msg.key.remoteJid} body="${body.slice(0, 60)}"`);
+        if (!msg.key.fromMe && body) {
+          this.emit('message.received', this.parseMessage(msg, body));
         }
       }
     });
   }
 
-  private parseMessage(msg: any): WhatsAppMessage {
-    // WhatsApp sometimes uses LID (Linked Identity) format for remoteJid.
-    // Try to get the real phone JID from participant or other fields.
+  /** Extract text body from any WhatsApp message type */
+  private extractBody(msg: any): string {
+    const m = msg.message;
+    if (!m) return '';
+    return m.conversation
+      || m.extendedTextMessage?.text
+      || m.imageMessage?.caption
+      || m.videoMessage?.caption
+      || m.documentMessage?.caption
+      || m.buttonsResponseMessage?.selectedDisplayText
+      || m.listResponseMessage?.singleSelectReply?.selectedRowId
+      || m.templateButtonReplyMessage?.selectedDisplayText
+      || '';
+  }
+
+  private parseMessage(msg: any, body: string): WhatsAppMessage {
     let from = msg.key.remoteJid || '';
-    if (from.endsWith('@lid') && msg.key.participant) {
-      from = msg.key.participant; // participant often has the real phone JID
-    }
-    console.log(`[WhatsApp] parseMessage: remoteJid=${msg.key.remoteJid}, participant=${msg.key.participant || 'none'}, resolved from=${from}`);
-    // Debug: dump raw msg fields when LID is unresolved
+
+    // Resolve LID → phone number if needed
     if (from.endsWith('@lid')) {
-      console.log(`[WhatsApp] LID unresolved — raw msg keys:`, JSON.stringify({
-        key: msg.key,
-        pushName: msg.pushName,
-        verifiedBizName: msg.verifiedBizName,
-        messageStubType: msg.messageStubType,
-        messageStubParameters: msg.messageStubParameters,
-      }));
+      if (msg.key.participant) {
+        from = msg.key.participant;
+      } else {
+        const resolved = this.lidToPhone.get(from);
+        if (resolved) {
+          console.log(`[WhatsApp] LID resolved: ${from} → ${resolved}`);
+          from = resolved;
+        } else {
+          console.log(`[WhatsApp] LID unresolved: ${from} (pushName=${msg.pushName || '?'})`);
+        }
+      }
     }
-    
+
+    console.log(`[WhatsApp] ✅ Parsed: from=${from} body="${body.slice(0, 60)}"`);
     return {
       id: msg.key.id,
       from,
       to: msg.key.fromMe ? msg.key.remoteJid : '',
-      body: msg.message?.conversation || msg.message?.extendedTextMessage?.text || '',
+      body,
       timestamp: new Date(msg.messageTimestamp * 1000),
       isFromMe: msg.key.fromMe,
       hasMedia: !!(msg.message?.imageMessage || msg.message?.videoMessage || msg.message?.audioMessage || msg.message?.documentMessage),
