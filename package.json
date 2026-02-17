@@ -1,29 +1,18 @@
 {
-  "name": "ubot-core",
+  "name": "config-loader",
   "version": "1.0.0",
   "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start",
-    "test": "vitest",
-    "lint": "next lint"
+    "build": "tsc",
+    "test": "vitest run"
   },
   "dependencies": {
-    "dotenv": "*",
-    "next": "*",
-    "react": "*",
-    "react-dom": "*"
+    "dotenv": "*"
   },
   "devDependencies": {
     "@types/node": "*",
-    "@types/react": "*",
-    "@types/react-dom": "*",
-    "autoprefixer": "*",
-    "concurrently": "*",
-    "postcss": "*",
-    "tailwindcss": "*",
-    "tsx": "*",
     "typescript": "*",
     "vitest": "*"
   }
