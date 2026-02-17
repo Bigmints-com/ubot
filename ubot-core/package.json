@@ -1,26 +1,22 @@
 {
-  "name": "llm-client",
+  "name": "ubot-core",
   "version": "1.0.0",
   "type": "module",
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
-  "exports": {
-    ".": {
-      "import": "./dist/index.js",
-      "types": "./dist/index.d.ts"
-    }
-  },
   "scripts": {
     "build": "tsc",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "dev": "tsx src/index.ts"
   },
   "dependencies": {
-    "openai": "*"
+    "dotenv": "*",
+    "openai": "*",
+    "winston": "*"
   },
   "devDependencies": {
+    "@types/node": "*",
     "typescript": "*",
     "vitest": "*",
-    "@types/node": "*"
+    "tsx": "*"
   }
 }
