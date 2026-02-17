@@ -23,15 +23,10 @@
 │   ├── index.ts
 ├── src/controllers/
 │   ├── emailController.ts
-│   ├── whatsappController.ts
-│   ├── agentController.ts
-│   ├── fileController.ts
-│   ├── llmController.ts
-│   ├── memoryController.ts
-│   ├── safetyController.ts
-│   ├── webSearchController.ts
 ├── src/services/
 │   ├── emailService.ts
+├── src/skills/
+│   ├── email-skill.ts
 ├── src/types/
 │   ├── email.ts
 ```
@@ -47,16 +42,10 @@
 ## Key Files
 
 - `package.json`
+- `tsconfig.json`
 - `src/types/email.ts`
 - `src/services/emailService.ts`
 - `src/controllers/emailController.ts`
+- `src/skills/email-skill.ts`
 - `src/index.ts`
-- `tsconfig.json`
-- `src/controllers/whatsappController.ts`
-- `src/controllers/agentController.ts`
-- `src/controllers/fileController.ts`
-- `src/controllers/llmController.ts`
-- `src/controllers/memoryController.ts`
-- `src/controllers/safetyController.ts`
-- `src/controllers/webSearchController.ts`
 
