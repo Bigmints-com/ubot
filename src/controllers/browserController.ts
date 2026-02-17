@@ -1,28 +1,28 @@
 import { Request, Response } from 'express';
-import { BrowserService } from '../services/browserService.js';
+import { browserService } from '../services/browserService.js';
 import { BrowserConfig } from '../types/browser.js';
 
-const browserService = new BrowserService();
-
 export const browserController = {
-  execute: async (req: Request, res: Response): Promise<void> => {
-    try {
-      const config: BrowserConfig = req.body;
+  launch: async (req: Request, res: Response): Promise<void> => {
+    const config: BrowserConfig = req.body;
+    const result = await browserService.launch(config);
+    res.json(result);
+  },
 
-      if (!config.url || !config.action) {
-        res.status(400).json({ success: false, error: 'URL and action are required' });
-        return;
-      }
+  navigate: async (req: Request, res: Response): Promise<void> => {
+    const { url, waitUntil } = req.body;
+    const result = await browserService.navigate(url, waitUntil);
+    res.json(result);
+  },
 
-      const result = await browserService.execute(config);
+  screenshot: async (req: Request, res: Response): Promise<void> => {
+    const { pageId } = req.query;
+    const result = await browserService.screenshot(String(pageId));
+    res.json(result);
+  },
 
-      if (result.success) {
-        res.json(result);
-      } else {
-        res.status(500).json(result);
-      }
-    } catch (error) {
-      res.status(500).json({ success: false, error: 'Internal server error' });
-    }
+  close: async (req: Request, res: Response): Promise<void> => {
+    const result = await browserService.close();
+    res.json(result);
   },
 };
