@@ -1,15 +1,16 @@
 {
-  "name": "ubot-core",
+  "name": "browser-skill",
   "version": "1.0.0",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
     "build": "tsc",
-    "test": "vitest run",
-    "test:watch": "vitest"
+    "test": "vitest"
   },
-  "dependencies": {},
+  "dependencies": {
+    "puppeteer": "*"
+  },
   "devDependencies": {
     "@types/node": "*",
     "typescript": "*",
