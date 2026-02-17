@@ -1,0 +1,21 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Custom base styles for light theme */
+@layer base {
+  body {
+    @apply bg-gray-50 text-gray-900;
+  }
+}
+
+/* Custom component styles */
+@layer components {
+  .sidebar-link {
+    @apply flex items-center gap-3 px-4 py-2.5 text-gray-600 rounded-lg transition-colors hover:bg-gray-100 hover:text-gray-900;
+  }
+
+  .sidebar-link.active {
+    @apply bg-blue-50 text-blue-600 font-medium;
+  }
+}
