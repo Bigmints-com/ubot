@@ -1,5 +1,14 @@
-import { executeCommand } from '../services/shellService.js';
+import { ShellService } from '../services/shellService.js';
 
-export async function shellSkill(command: string): Promise<ReturnType<typeof executeCommand>> {
-    return await executeCommand(command);
+export class ShellSkill {
+  private shellService: ShellService;
+
+  constructor() {
+    this.shellService = new ShellService();
+  }
+
+  public async run(command: string): Promise<string> {
+    const result = await this.shellService.execute(command);
+    return result.stdout;
+  }
 }
