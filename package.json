@@ -1,5 +1,5 @@
 {
-  "name": "safety-layer",
+  "name": "ubot-core",
   "version": "1.0.0",
   "type": "module",
   "main": "dist/index.js",
