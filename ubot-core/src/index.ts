@@ -1,2 +1,2 @@
-export { BrowserSkill } from './browser-skill.js';
-export type { BrowserSkillConfig, BrowserActionResult } from './browser-skill.js';
+export type { EmailConfig, EmailMessage, EmailAttachment, EmailResult, EmailSkill } from './types.js';
+export { EmailSkillImpl, createEmailSkill } from './email-skill.js';
