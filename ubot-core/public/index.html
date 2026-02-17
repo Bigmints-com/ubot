@@ -1,116 +1,157 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="light">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Ubot Core</title>
-  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/css/output.css">
 </head>
-<body class="min-h-screen">
+<body class="bg-gray-50 text-gray-900 min-h-screen">
   <div class="flex min-h-screen">
     <!-- Sidebar Navigation -->
     <aside class="w-64 bg-white border-r border-gray-200 flex flex-col">
       <!-- Logo -->
-      <div class="h-16 flex items-center px-6 border-b border-gray-200">
-        <span class="text-xl font-semibold text-gray-800">Ubot Core</span>
+      <div class="p-6 border-b border-gray-200">
+        <h1 class="text-xl font-bold text-gray-900">Ubot Core</h1>
+        <p class="text-sm text-gray-500 mt-1">v1.0.0</p>
       </div>
-
+      
       <!-- Navigation Links -->
-      <nav class="flex-1 p-4 space-y-1">
-        <a href="#" class="sidebar-link active">
-          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"></path>
-          </svg>
-          Dashboard
-        </a>
-        <a href="#" class="sidebar-link">
-          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path>
-          </svg>
-          Analytics
-        </a>
-        <a href="#" class="sidebar-link">
-          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"></path>
-          </svg>
-          Users
-        </a>
-        <a href="#" class="sidebar-link">
-          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path>
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
-          </svg>
-          Settings
-        </a>
+      <nav class="flex-1 p-4">
+        <ul class="space-y-2">
+          <li>
+            <a href="/" class="flex items-center px-4 py-2 text-gray-700 bg-gray-100 rounded-lg font-medium">
+              <svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"></path>
+              </svg>
+              Dashboard
+            </a>
+          </li>
+          <li>
+            <a href="/settings" class="flex items-center px-4 py-2 text-gray-600 hover:bg-gray-50 rounded-lg transition-colors">
+              <svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path>
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+              </svg>
+              Settings
+            </a>
+          </li>
+          <li>
+            <a href="/docs" class="flex items-center px-4 py-2 text-gray-600 hover:bg-gray-50 rounded-lg transition-colors">
+              <svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+              </svg>
+              Documentation
+            </a>
+          </li>
+        </ul>
       </nav>
-
-      <!-- Footer -->
+      
+      <!-- Sidebar Footer -->
       <div class="p-4 border-t border-gray-200">
         <div class="text-xs text-gray-500">
-          v1.0.0
+          <p>Empty skeleton project</p>
+          <p class="mt-1">Ready for development</p>
         </div>
       </div>
     </aside>
-
+    
     <!-- Main Content -->
-    <main class="flex-1 flex flex-col">
-      <!-- Header -->
-      <header class="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-6">
-        <h1 class="text-lg font-medium text-gray-800">Dashboard</h1>
-        <div class="flex items-center gap-4">
-          <span class="text-sm text-gray-500" id="server-status">Server: Connected</span>
+    <main class="flex-1 p-8">
+      <div class="max-w-4xl">
+        <!-- Header -->
+        <header class="mb-8">
+          <h2 class="text-3xl font-bold text-gray-900">Welcome to Ubot Core</h2>
+          <p class="text-gray-600 mt-2">A minimal TypeScript project skeleton with everything you need to get started.</p>
+        </header>
+        
+        <!-- Status Cards -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+          <div class="bg-white rounded-lg border border-gray-200 p-6">
+            <div class="flex items-center">
+              <div class="p-2 bg-green-100 rounded-lg">
+                <svg class="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                </svg>
+              </div>
+              <div class="ml-4">
+                <p class="text-sm font-medium text-gray-500">Status</p>
+                <p class="text-lg font-semibold text-gray-900" id="status">Running</p>
+              </div>
+            </div>
+          </div>
+          
+          <div class="bg-white rounded-lg border border-gray-200 p-6">
+            <div class="flex items-center">
+              <div class="p-2 bg-blue-100 rounded-lg">
+                <svg class="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+                </svg>
+              </div>
+              <div class="ml-4">
+                <p class="text-sm font-medium text-gray-500">Requests</p>
+                <p class="text-lg font-semibold text-gray-900" id="requests">0</p>
+              </div>
+            </div>
+          </div>
+          
+          <div class="bg-white rounded-lg border border-gray-200 p-6">
+            <div class="flex items-center">
+              <div class="p-2 bg-purple-100 rounded-lg">
+                <svg class="w-6 h-6 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                </svg>
+              </div>
+              <div class="ml-4">
+                <p class="text-sm font-medium text-gray-500">Uptime</p>
+                <p class="text-lg font-semibold text-gray-900" id="uptime">0s</p>
+              </div>
+            </div>
+          </div>
         </div>
-      </header>
-
-      <!-- Content Area -->
-      <div class="flex-1 p-6">
-        <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-          <h2 class="text-xl font-semibold text-gray-800 mb-4">Welcome to Ubot Core</h2>
-          <p class="text-gray-600 mb-4">
-            This is a minimal TypeScript project skeleton with build tooling, entry point, and dev scripts ready to go.
-          </p>
-          <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mt-6">
-            <div class="bg-gray-50 rounded-lg p-4">
-              <div class="text-2xl font-bold text-blue-600" id="request-count">0</div>
-              <div class="text-sm text-gray-500">Total Requests</div>
-            </div>
-            <div class="bg-gray-50 rounded-lg p-4">
-              <div class="text-2xl font-bold text-green-600" id="uptime">--</div>
-              <div class="text-sm text-gray-500">Server Uptime</div>
-            </div>
-            <div class="bg-gray-50 rounded-lg p-4">
-              <div class="text-2xl font-bold text-purple-600">3100</div>
-              <div class="text-sm text-gray-500">Server Port</div>
-            </div>
+        
+        <!-- Info Section -->
+        <div class="bg-white rounded-lg border border-gray-200 p-6">
+          <h3 class="text-lg font-semibold text-gray-900 mb-4">Getting Started</h3>
+          <div class="space-y-4 text-gray-600">
+            <p>This is an empty TypeScript project skeleton. Here's what's included:</p>
+            <ul class="list-disc list-inside space-y-2">
+              <li><strong>TypeScript</strong> - Type-safe JavaScript development</li>
+              <li><strong>Node.js HTTP Server</strong> - Lightweight native server</li>
+              <li><strong>Tailwind CSS</strong> - Utility-first CSS framework</li>
+              <li><strong>tsx</strong> - Fast TypeScript execution</li>
+              <li><strong>dotenv</strong> - Environment variable management</li>
+            </ul>
+            <p class="mt-4">Start building your application by modifying <code class="bg-gray-100 px-2 py-1 rounded text-sm">src/index.ts</code></p>
           </div>
         </div>
       </div>
     </main>
   </div>
-
+  
   <script>
-    // Fetch server state
-    async function fetchState() {
+    // Fetch app state from API
+    async function updateState() {
       try {
         const response = await fetch('/api/state');
         const data = await response.json();
-
-        document.getElementById('request-count').textContent = data.requests;
-
-        const started = new Date(data.startedAt);
-        const now = new Date();
-        const diff = Math.floor((now - started) / 1000);
-        const minutes = Math.floor(diff / 60);
-        const seconds = diff % 60;
-        document.getElementById('uptime').textContent = `${minutes}m ${seconds}s`;
-      } catch (err) {
-        document.getElementById('server-status').textContent = 'Server: Disconnected';
+        
+        document.getElementById('requests').textContent = data.requestCount;
+        
+        const uptimeSeconds = Math.floor(data.uptime / 1000);
+        const minutes = Math.floor(uptimeSeconds / 60);
+        const seconds = uptimeSeconds % 60;
+        document.getElementById('uptime').textContent = minutes > 0 
+          ? `${minutes}m ${seconds}s` 
+          : `${seconds}s`;
+      } catch (error) {
+        console.error('Failed to fetch state:', error);
       }
     }
-
+    
     // Update state every 5 seconds
-    fetchState();
-    setInterval(fetchState, 5000);
+    updateState();
+    setInterval(updateState, 5000);
   </script>
 </body>
 </html>

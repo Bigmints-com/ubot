@@ -1,20 +1,38 @@
 {
   "name": "ubot-core",
   "version": "1.0.0",
-  "type": "module",
+  "description": "Empty TypeScript project skeleton. Just the build tooling, entry point, and dev scripts. Nothing else.",
+  "main": "dist/index.js",
   "scripts": {
-    "build": "tsc",
+    "dev": "concurrently \"npm run dev:server\" \"npm run dev:css\"",
+    "dev:server": "tsx watch src/index.ts",
+    "dev:css": "tailwindcss -i ./public/css/input.css -o ./public/css/output.css --watch",
+    "build": "npm run build:css && npm run build:ts",
+    "build:ts": "tsc",
+    "build:css": "tailwindcss -i ./public/css/input.css -o ./public/css/output.css --minify",
     "start": "node dist/index.js",
-    "dev": "tsx src/index.ts",
-    "test": "vitest"
+    "clean": "rm -rf dist public/css/output.css",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
+  "keywords": [
+    "typescript",
+    "node",
+    "skeleton"
+  ],
+  "author": "",
+  "license": "MIT",
   "dependencies": {
-    "node-cron": "*"
+    "dotenv": "*"
   },
   "devDependencies": {
-    "typescript": "*",
     "@types/node": "*",
-    "@types/node-cron": "*",
+    "autoprefixer": "*",
+    "concurrently": "*",
+    "postcss": "*",
+    "tailwindcss": "*",
+    "tslib": "*",
+    "typescript": "*",
     "tsx": "*",
     "vitest": "*"
   }

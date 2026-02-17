@@ -1,114 +1,78 @@
-import { describe, it, expect, beforeEach } from 'vitest';
-import { createServer, getMimeType, getAppState } from './index.js';
-import http from 'node:http';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+import http from 'http';
+import { createServer, getAppState, handleRequest, resetState } from './index';
 
 describe('Ubot Core', () => {
-  describe('getMimeType', () => {
-    it('should return correct mime type for HTML files', () => {
-      expect(getMimeType('index.html')).toBe('text/html');
-    });
-
-    it('should return correct mime type for CSS files', () => {
-      expect(getMimeType('styles.css')).toBe('text/css');
-    });
-
-    it('should return correct mime type for JavaScript files', () => {
-      expect(getMimeType('app.js')).toBe('application/javascript');
-    });
-
-    it('should return correct mime type for JSON files', () => {
-      expect(getMimeType('data.json')).toBe('application/json');
-    });
-
-    it('should return correct mime type for PNG files', () => {
-      expect(getMimeType('image.png')).toBe('image/png');
-    });
-
-    it('should return octet-stream for unknown extensions', () => {
-      expect(getMimeType('file.unknown')).toBe('application/octet-stream');
-    });
-  });
-
   describe('getAppState', () => {
-    it('should return app state with startedAt', () => {
+    it('should return the current application state', () => {
       const state = getAppState();
-      expect(state).toHaveProperty('startedAt');
-      expect(typeof state.startedAt).toBe('string');
-    });
-
-    it('should return app state with requests counter', () => {
-      const state = getAppState();
-      expect(state).toHaveProperty('requests');
-      expect(typeof state.requests).toBe('number');
+      expect(state.name).toBe('Ubot Core');
+      expect(state.version).toBe('1.0.0');
+      expect(state.startedAt).toBeInstanceOf(Date);
+      expect(typeof state.requestCount).toBe('number');
     });
   });
 
   describe('createServer', () => {
-    let server: http.Server;
-
-    beforeEach(() => {
-      server = createServer();
-    });
-
-    it('should create an HTTP server', () => {
+    it('should create an HTTP server instance', () => {
+      const server = createServer();
       expect(server).toBeInstanceOf(http.Server);
     });
+  });
 
-    it('should respond to /api/state endpoint', async () => {
-      await new Promise<void>((resolve) => {
-        server.listen(0, () => {
-          const address = server.address() as { port: number };
-          const options = {
-            hostname: 'localhost',
-            port: address.port,
-            path: '/api/state',
-            method: 'GET',
-          };
+  describe('handleRequest', () => {
+    let mockRes: {
+      writeHead: ReturnType<typeof vi.fn>;
+      end: ReturnType<typeof vi.fn>;
+    };
 
-          const req = http.request(options, (res) => {
-            expect(res.statusCode).toBe(200);
-            expect(res.headers['content-type']).toBe('application/json');
-            
-            let data = '';
-            res.on('data', (chunk) => { data += chunk; });
-            res.on('end', () => {
-              const body = JSON.parse(data);
-              expect(body).toHaveProperty('startedAt');
-              expect(body).toHaveProperty('requests');
-              server.close(() => resolve());
-            });
-          });
-
-          req.on('error', () => {
-            server.close(() => resolve());
-          });
-          req.end();
-        });
-      });
+    beforeEach(() => {
+      resetState();
+      mockRes = {
+        writeHead: vi.fn(),
+        end: vi.fn(),
+      };
     });
 
-    it('should return 404 for non-existent paths', async () => {
-      await new Promise<void>((resolve) => {
-        server.listen(0, () => {
-          const address = server.address() as { port: number };
-          const options = {
-            hostname: 'localhost',
-            port: address.port,
-            path: '/non-existent-path-12345',
-            method: 'GET',
-          };
+    it('should handle /health endpoint', async () => {
+      const req = { url: '/health', method: 'GET' } as http.IncomingMessage;
+      await handleRequest(req, mockRes as unknown as http.ServerResponse);
+      
+      expect(mockRes.writeHead).toHaveBeenCalledWith(200, { 'Content-Type': 'application/json' });
+      const responseData = JSON.parse(mockRes.end.mock.calls[0][0]);
+      expect(responseData.status).toBe('ok');
+      expect(responseData.timestamp).toBeDefined();
+    });
 
-          const req = http.request(options, (res) => {
-            expect(res.statusCode).toBe(404);
-            server.close(() => resolve());
-          });
+    it('should handle /api/state endpoint', async () => {
+      const req = { url: '/api/state', method: 'GET' } as http.IncomingMessage;
+      await handleRequest(req, mockRes as unknown as http.ServerResponse);
+      
+      expect(mockRes.writeHead).toHaveBeenCalledWith(200, { 'Content-Type': 'application/json' });
+      const responseData = JSON.parse(mockRes.end.mock.calls[0][0]);
+      expect(responseData.name).toBe('Ubot Core');
+      expect(responseData.version).toBe('1.0.0');
+      expect(responseData.uptime).toBeDefined();
+    });
 
-          req.on('error', () => {
-            server.close(() => resolve());
-          });
-          req.end();
-        });
-      });
+    it('should increment request count on each request', async () => {
+      const req = { url: '/health', method: 'GET' } as http.IncomingMessage;
+      
+      await handleRequest(req, mockRes as unknown as http.ServerResponse);
+      const state1 = getAppState();
+      
+      await handleRequest(req, mockRes as unknown as http.ServerResponse);
+      const state2 = getAppState();
+      
+      expect(state2.requestCount).toBeGreaterThan(state1.requestCount);
+    });
+
+    it('should return 403 for directory traversal attempts', async () => {
+      const req = { url: '/../../../etc/passwd', method: 'GET' } as http.IncomingMessage;
+      await handleRequest(req, mockRes as unknown as http.ServerResponse);
+      
+      expect(mockRes.writeHead).toHaveBeenCalledWith(403, { 'Content-Type': 'text/plain' });
+      expect(mockRes.end).toHaveBeenCalledWith('Forbidden');
     });
   });
 });
