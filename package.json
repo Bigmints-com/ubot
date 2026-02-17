@@ -1,7 +1,7 @@
 {
   "name": "ubot-core",
   "version": "1.0.0",
-  "type": "module",
+  "main": "dist/index.js",
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
@@ -13,6 +13,7 @@
     "better-sqlite3": "*",
     "express": "*",
     "googleapis": "*",
+    "node-cron": "*",
     "openai": "*",
     "pino": "*",
     "puppeteer": "*",
@@ -20,9 +21,7 @@
     "react": "*",
     "react-dom": "*",
     "uuid": "*",
-    "winston": "*"
-  },
-  "devDependencies": {
+    "winston": "*",
     "@types/better-sqlite3": "*",
     "@types/node": "*",
     "@types/puppeteer": "*",
