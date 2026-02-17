@@ -18,6 +18,7 @@
 ```
 .
 ├── package.json
+├── tsconfig.json
 ├── src/controllers/
 │   ├── browserController.ts
 ├── src/services/
@@ -37,6 +38,7 @@
 ## Key Files
 
 - `package.json`
+- `tsconfig.json`
 - `src/types/browser.ts`
 - `src/services/browserService.ts`
 - `src/controllers/browserController.ts`

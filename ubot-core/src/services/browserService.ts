@@ -1,71 +1,82 @@
 import puppeteer from 'puppeteer';
-import { logger } from '../services/logger.js';
-import { BrowserConfig, BrowserResult } from '../types/browser.js';
+import { logger } from './logger.js';
+import { BrowserConfig, BrowserAction, BrowserResponse } from '../types/browser.js';
 
-export class BrowserService {
+class BrowserService {
   private browser: puppeteer.Browser | null = null;
 
-  async launch(): Promise<puppeteer.Browser> {
-    if (this.browser) {
-      return this.browser;
-    }
-
+  async launch(config: BrowserConfig = { headless: true, args: [] }): Promise<BrowserResponse> {
     try {
-      logger.info('Launching browser...');
+      if (this.browser) {
+        return { success: false, error: 'Browser instance already running' };
+      }
+
       this.browser = await puppeteer.launch({
-        headless: 'new',
-        args: ['--no-sandbox', '--disable-setuid-sandbox'],
+        headless: config.headless,
+        args: config.args,
       });
-      logger.info('Browser launched successfully.');
-      return this.browser;
+
+      logger.info('Browser launched successfully');
+      return { success: true, data: 'Browser instance ready' };
     } catch (error) {
       logger.error('Failed to launch browser', error);
-      throw error;
+      return { success: false, error: String(error) };
     }
   }
 
-  async close(): Promise<void> {
-    if (this.browser) {
-      await this.browser.close();
-      this.browser = null;
-      logger.info('Browser closed.');
+  async navigate(url: string, waitUntil: BrowserAction['waitUntil'] = 'load'): Promise<BrowserResponse> {
+    if (!this.browser) {
+      return { success: false, error: 'Browser not launched' };
     }
-  }
-
-  async execute(config: BrowserConfig): Promise<BrowserResult> {
-    let page: puppeteer.Page | null = null;
 
     try {
-      const browser = await this.launch();
-      page = await browser.newPage();
-
-      await page.goto(config.url, {
-        waitUntil: config.waitUntil || 'domcontentloaded',
-      });
-
-      let result: string;
-
-      if (config.action === 'text') {
-        if (!config.selector) {
-          throw new Error('Selector is required for text action');
-        }
-        result = await page.$eval(config.selector, (el) => el.textContent || '');
-      } else if (config.action === 'html') {
-        result = await page.content();
-      } else if (config.action === 'screenshot') {
-        result = await page.screenshot({ encoding: 'base64' });
-      } else {
-        throw new Error(`Unsupported action: ${config.action}`);
-      }
-
-      return { success: true, data: result };
+      const page = await this.browser.newPage();
+      await page.goto(url, { waitUntil });
+      logger.info(`Navigated to ${url}`);
+      return { success: true, data: { pageId: page.id(), url } };
     } catch (error) {
-      logger.error('Browser execution failed', error);
-      return { success: false, error: error instanceof Error ? error.message : String(error) };
-    } finally {
-      if (page) {
-        await page.close();
+      logger.error(`Failed to navigate to ${url}`, error);
+      return { success: false, error: String(error) };
+    }
+  }
+
+  async screenshot(pageId: string): Promise<BrowserResponse> {
+    if (!this.browser) {
+      return { success: false, error: 'Browser not launched' };
+    }
+
+    try {
+      const pages = await this.browser.pages();
+      const page = pages.find((p) => p.id() === pageId);
+
+      if (!page) {
+        return { success: false, error: 'Page not found' };
       }
+
+      const screenshot = await page.screenshot({ encoding: 'base64' });
+      logger.info('Screenshot captured');
+      return { success: true, data: { image: screenshot, format: 'base64' } };
+    } catch (error) {
+      logger.error('Failed to capture screenshot', error);
+      return { success: false, error: String(error) };
+    }
+  }
+
+  async close(): Promise<BrowserResponse> {
+    if (!this.browser) {
+      return { success: false, error: 'Browser not running' };
+    }
+
+    try {
+      await this.browser.close();
+      this.browser = null;
+      logger.info('Browser closed');
+      return { success: true, data: 'Browser instance closed' };
+    } catch (error) {
+      logger.error('Failed to close browser', error);
+      return { success: false, error: String(error) };
     }
   }
 }
+
+export const browserService = new BrowserService();

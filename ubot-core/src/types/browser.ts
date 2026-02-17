@@ -1,14 +1,16 @@
-export type BrowserAction = 'text' | 'html' | 'screenshot';
-
 export interface BrowserConfig {
+  headless: boolean;
+  args: string[];
+}
+
+export interface BrowserAction {
   url: string;
   selector?: string;
-  action: BrowserAction;
   waitUntil?: 'load' | 'domcontentloaded' | 'networkidle0';
 }
 
-export interface BrowserResult {
+export interface BrowserResponse {
   success: boolean;
-  data?: string;
+  data?: any;
   error?: string;
 }
