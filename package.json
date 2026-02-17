@@ -1,34 +1,37 @@
 {
   "name": "ubot-core",
   "version": "1.0.0",
+  "description": "Empty TypeScript project skeleton. Just the build tooling, entry point, and dev scripts. Nothing else.",
+  "type": "module",
   "main": "dist/index.js",
   "scripts": {
-    "dev": "tsx watch src/index.ts",
-    "build": "tsc",
-    "start": "node dist/index.js"
+    "dev": "concurrently \"npm run dev:css\" \"npm run dev:server\"",
+    "dev:server": "tsx watch src/index.ts",
+    "dev:css": "tailwindcss -i ./src/styles.css -o ./public/styles.css --watch",
+    "build": "tsc && tailwindcss -i ./src/styles.css -o ./public/styles.css --minify",
+    "start": "node dist/index.js",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
   "dependencies": {
-    "@anthropic-ai/sdk": "*",
-    "@whiskeysockets/baileys": "*",
-    "better-sqlite3": "*",
-    "express": "*",
-    "googleapis": "*",
-    "node-cron": "*",
-    "openai": "*",
-    "pino": "*",
-    "puppeteer": "*",
-    "qrcode-terminal": "*",
-    "react": "*",
-    "react-dom": "*",
-    "uuid": "*",
-    "winston": "*",
-    "@types/better-sqlite3": "*",
+    "dotenv": "*",
+    "next": "^16.1.6",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4"
+  },
+  "devDependencies": {
     "@types/node": "*",
-    "@types/puppeteer": "*",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
     "autoprefixer": "*",
+    "concurrently": "*",
     "postcss": "*",
     "tailwindcss": "*",
     "tsx": "*",
-    "typescript": "*"
+    "typescript": "*",
+    "vitest": "*"
   }
 }
