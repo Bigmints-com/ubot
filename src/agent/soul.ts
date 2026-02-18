@@ -96,14 +96,31 @@ export function createSoul(memoryStore: MemoryStore): Soul {
 
     listPersonas(): Array<{ id: string; label: string; updatedAt: Date; contentLength: number }> {
       const docs = memoryStore.listDocuments();
-      return docs.map(d => ({
-        id: d.personaId,
-        label: d.personaId === BOT_SOUL_ID ? 'Bot Persona'
-             : d.personaId === OWNER_SOUL_ID ? 'Owner Profile'
-             : d.personaId,
-        updatedAt: d.updatedAt,
-        contentLength: d.content.length,
-      }));
+      return docs.map(d => {
+        let label = d.personaId;
+        if (d.personaId === BOT_SOUL_ID) {
+          label = 'Bot Persona';
+        } else if (d.personaId === OWNER_SOUL_ID) {
+          label = 'Owner Profile';
+        } else {
+          // Try to extract name from the document content
+          const nameMatch = d.content.match(/name:\s*(.+)/i);
+          if (nameMatch && nameMatch[1].trim()) {
+            label = nameMatch[1].trim();
+          } else if (d.personaId.includes('@')) {
+            // Format JID as readable: "971569737344@s.whatsapp.net" → "+971569737344"
+            label = '+' + d.personaId.replace(/@.*/, '');
+          } else if (d.personaId.startsWith('telegram:')) {
+            label = 'Telegram ' + d.personaId.replace('telegram:', '');
+          }
+        }
+        return {
+          id: d.personaId,
+          label,
+          updatedAt: d.updatedAt,
+          contentLength: d.content.length,
+        };
+      });
     },
 
     buildSoulPrompt(contactId?: string, isOwner?: boolean): string {
@@ -201,3 +218,91 @@ Rules:
 - Keep the document under 2000 characters
 - Respond with ONLY the updated document, nothing else
 - Do NOT add information that was not in the conversation or metadata`;
+
+/* ------------------------------------------------------------------ */
+/*  Owner merge prompt — append-only, never replaces existing content  */
+/* ------------------------------------------------------------------ */
+
+export const OWNER_MERGE_PROMPT = `You are a memory manager for an AI assistant.
+Your job is to extract ONLY NEW facts about the owner from a conversation snippet.
+
+You will be given:
+1. The CURRENT owner profile document
+2. A new CONVERSATION snippet (between the owner and the bot)
+
+Your task:
+- Compare the conversation against the existing document
+- Extract ONLY facts that are NOT already in the existing document
+- If nothing new was learned, respond with exactly: NO_NEW_FACTS
+- If there are new facts, respond with a short block in this format:
+
+## New Facts (YYYY-MM-DD)
+- [section]: [fact]
+- [section]: [fact]
+
+Where [section] is one of: Identity, Contact, Preferences, Work, Schedule, Notes
+
+Example output:
+## New Facts (2026-02-18)
+- Preferences: Prefers morning meetings before 10am
+- Work: Working on a new mobile app called Fikr
+
+Rules:
+- NEVER repeat facts already in the existing document
+- Be conservative — only add facts explicitly stated or strongly implied
+- Keep each fact to one concise line
+- Respond with NO_NEW_FACTS if the conversation didn't reveal anything new
+- Do NOT include greetings, small talk, or bot responses as facts`;
+
+/**
+ * Merge new facts into an existing owner document.
+ * Appends a timestamped section at the end, preserving all existing content.
+ */
+export function mergeIntoOwnerDoc(existingDoc: string, newFacts: string): string {
+  // If LLM says nothing new, return unchanged
+  if (!newFacts || newFacts.trim() === 'NO_NEW_FACTS') {
+    return existingDoc;
+  }
+
+  // Parse the new facts into section → facts map
+  const factLines = newFacts.split('\n').filter(l => l.trim().startsWith('- '));
+  if (factLines.length === 0) return existingDoc;
+
+  // Group facts by section
+  const sectionMap: Record<string, string[]> = {};
+  for (const line of factLines) {
+    const match = line.match(/^-\s*(\w[\w\s]*?):\s*(.+)/);
+    if (match) {
+      const section = match[1].trim();
+      const fact = match[2].trim();
+      if (!sectionMap[section]) sectionMap[section] = [];
+      sectionMap[section].push(fact);
+    }
+  }
+
+  if (Object.keys(sectionMap).length === 0) return existingDoc;
+
+  // Append facts into the existing doc under the right sections
+  let doc = existingDoc.trimEnd();
+  
+  for (const [section, facts] of Object.entries(sectionMap)) {
+    const sectionHeader = `# ${section}`;
+    const sectionIndex = doc.indexOf(sectionHeader);
+    
+    if (sectionIndex !== -1) {
+      // Find the end of this section (next # header or end of doc)
+      const afterHeader = sectionIndex + sectionHeader.length;
+      const nextSection = doc.indexOf('\n# ', afterHeader);
+      const insertPos = nextSection !== -1 ? nextSection : doc.length;
+      
+      // Append facts before the next section
+      const factsText = '\n' + facts.join('\n');
+      doc = doc.slice(0, insertPos) + factsText + doc.slice(insertPos);
+    } else {
+      // Section doesn't exist — add it at the end
+      doc += `\n\n${sectionHeader}\n${facts.join('\n')}`;
+    }
+  }
+
+  return doc;
+}

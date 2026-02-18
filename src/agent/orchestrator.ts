@@ -12,7 +12,7 @@ import type {
 } from './types.js';
 import type { ConversationStore } from './conversation.js';
 import type { MemoryStore } from './memory-store.js';
-import { type Soul, SOUL_REWRITE_PROMPT, OWNER_SOUL_ID } from './soul.js';
+import { type Soul, SOUL_REWRITE_PROMPT, OWNER_MERGE_PROMPT, mergeIntoOwnerDoc, OWNER_SOUL_ID } from './soul.js';
 import { AGENT_TOOLS, formatToolsForAPI, createToolRegistry, getToolsForSource, type ToolRegistry } from './tools.js';
 
 export interface AgentOrchestrator {
@@ -87,42 +87,85 @@ export function createAgentOrchestrator(
   /** Extract/update soul document from a conversation turn */
   async function extractSoulData(sessionId: string, userMessage: string, assistantResponse: string, source?: 'web' | 'whatsapp' | 'telegram', contactName?: string, isOwner: boolean = false): Promise<void> {
     if (!userMessage || !assistantResponse) return;
-    // Read owner name from the owner persona document
-    const ownerDoc = soul.getDocument(OWNER_SOUL_ID);
-    const ownerNameMatch = ownerDoc?.match(/name:\s*(.+)/i);
-    const ownerName = ownerNameMatch ? ownerNameMatch[1].trim() : '';
-
-    // Owner → update owner document; visitor → update contact document
-    const personaId = isOwner ? OWNER_SOUL_ID : sessionId;
 
     const conversationText = `User: ${userMessage}\nAssistant: ${assistantResponse}`;
-    const currentDoc = soul.getDocument(personaId);
-
-    // Add owner context to the prompt so the LLM knows who the owner is
-    const ownerContext = ownerName
-      ? `\nCONTEXT: The owner of this AI assistant is "${ownerName}". The user in this conversation is "${contactName || ownerName || 'unknown'}". Only record facts about the USER in the conversation.`
-      : '';
 
     try {
       const client = createLLMClient();
-      const prompt = currentDoc
-        ? `CURRENT DOCUMENT:\n${currentDoc}\n${ownerContext}\n\nNEW CONVERSATION:\n${conversationText}`
-        : `CURRENT DOCUMENT:\n(empty - this is a new person)\n${ownerContext}\n\nNEW CONVERSATION:\n${conversationText}`;
 
-      const completion = await client.chat.completions.create({
-        model: currentConfig.llmModel,
-        messages: [
-          { role: 'system', content: SOUL_REWRITE_PROMPT },
-          { role: 'user', content: prompt },
-        ],
-        temperature: 0.1,
-        max_tokens: 2000,
-      });
+      if (isOwner) {
+        // ── OWNER: append-only merge ──────────────────────────
+        const currentDoc = soul.getDocument(OWNER_SOUL_ID);
+        if (!currentDoc) return;
 
-      const updatedDoc = completion.choices[0]?.message?.content || '';
-      if (updatedDoc.trim()) {
-        soul.saveDocument(personaId, updatedDoc.trim());
-        console.log(`[Soul] Updated document for ${personaId} (${updatedDoc.length} chars)`);
+        const prompt = `CURRENT OWNER PROFILE:\n${currentDoc}\n\nNEW CONVERSATION (owner talking to bot):\n${conversationText}`;
+
+        const completion = await client.chat.completions.create({
+          model: currentConfig.llmModel,
+          messages: [
+            { role: 'system', content: OWNER_MERGE_PROMPT },
+            { role: 'user', content: prompt },
+          ],
+          temperature: 0.1,
+          max_tokens: 500,
+        });
+
+        const newFacts = completion.choices[0]?.message?.content || '';
+        if (newFacts.trim() && newFacts.trim() !== 'NO_NEW_FACTS') {
+          const merged = mergeIntoOwnerDoc(currentDoc, newFacts);
+          if (merged !== currentDoc) {
+            soul.saveDocument(OWNER_SOUL_ID, merged);
+            console.log(`[Soul] ✏️ Merged new facts into owner profile (${merged.length} chars)`);
+          }
+        } else {
+          console.log('[Soul] Owner conversation — no new facts');
+        }
+      } else {
+        // ── CONTACT: full rewrite (builds/updates profile) ────
+        const personaId = sessionId;
+        const currentDoc = soul.getDocument(personaId);
+
+        // Read owner name for context
+        const ownerDoc = soul.getDocument(OWNER_SOUL_ID);
+        const ownerNameMatch = ownerDoc?.match(/name:\s*(.+)/i);
+        const ownerName = ownerNameMatch ? ownerNameMatch[1].trim() : '';
+
+        // Build metadata block with identifiers
+        const metadataLines: string[] = [];
+        metadataLines.push(`channel: ${source || 'unknown'}`);
+        if (contactName) metadataLines.push(`name: ${contactName}`);
+        if (source === 'whatsapp' && sessionId.includes('@')) {
+          const phone = sessionId.replace(/@.*/, '');
+          metadataLines.push(`phone: +${phone}`);
+        }
+        if (source === 'telegram' && sessionId.startsWith('telegram:')) {
+          metadataLines.push(`telegram_id: ${sessionId.replace('telegram:', '')}`);
+        }
+        const metadata = `METADATA:\n${metadataLines.join('\n')}`;
+
+        const ownerContext = ownerName
+          ? `\nCONTEXT: The owner of this AI assistant is "${ownerName}". The user in this conversation is "${contactName || 'unknown'}". Only record facts about the USER.`
+          : '';
+
+        const prompt = currentDoc
+          ? `CURRENT DOCUMENT:\n${currentDoc}\n\n${metadata}${ownerContext}\n\nNEW CONVERSATION:\n${conversationText}`
+          : `CURRENT DOCUMENT:\n(empty - this is a new person)\n\n${metadata}${ownerContext}\n\nNEW CONVERSATION:\n${conversationText}`;
+
+        const completion = await client.chat.completions.create({
+          model: currentConfig.llmModel,
+          messages: [
+            { role: 'system', content: SOUL_REWRITE_PROMPT },
+            { role: 'user', content: prompt },
+          ],
+          temperature: 0.1,
+          max_tokens: 2000,
+        });
+
+        const updatedDoc = completion.choices[0]?.message?.content || '';
+        if (updatedDoc.trim()) {
+          soul.saveDocument(personaId, updatedDoc.trim());
+          console.log(`[Soul] Updated contact profile for ${personaId} (${updatedDoc.length} chars)`);
+        }
       }
     } catch (err: any) {
       console.error('[Soul] Document rewrite error:', err.message);
