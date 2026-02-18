@@ -17,7 +17,7 @@ import { AGENT_TOOLS, formatToolsForAPI, createToolRegistry, getToolsForSource, 
 
 export interface AgentOrchestrator {
   /** Process a message and return the agent's response */
-  chat(sessionId: string, message: string, source?: 'web' | 'whatsapp' | 'telegram', contactName?: string): Promise<AgentResponse>;
+  chat(sessionId: string, message: string, source?: 'web' | 'whatsapp' | 'telegram', contactName?: string, isOwner?: boolean): Promise<AgentResponse>;
   /** Direct LLM text generation (no tools) — for skill generation, etc. */
   generate(systemPrompt: string, userMessage: string): Promise<string>;
   /** Get the current config */
@@ -57,12 +57,12 @@ export function createAgentOrchestrator(
 
   type ChatMsg = OpenAI.Chat.Completions.ChatCompletionMessageParam;
 
-  function buildMessages(sessionId: string, userMessage: string): ChatMsg[] {
+  function buildMessages(sessionId: string, userMessage: string, isOwner: boolean = false): ChatMsg[] {
     const history = conversationStore.getHistory(sessionId, currentConfig.maxHistoryMessages);
     
     // Build system prompt with soul data (bot persona + owner + contact)
     let systemPrompt = buildSystemPrompt();
-    const soulPrompt = soul.buildSoulPrompt(sessionId);
+    const soulPrompt = soul.buildSoulPrompt(sessionId, isOwner);
     if (soulPrompt) {
       systemPrompt += '\n\n' + soulPrompt;
     }
@@ -85,25 +85,15 @@ export function createAgentOrchestrator(
   }
 
   /** Extract/update soul document from a conversation turn */
-  async function extractSoulData(sessionId: string, userMessage: string, assistantResponse: string, source?: 'web' | 'whatsapp' | 'telegram', contactName?: string): Promise<void> {
+  async function extractSoulData(sessionId: string, userMessage: string, assistantResponse: string, source?: 'web' | 'whatsapp' | 'telegram', contactName?: string, isOwner: boolean = false): Promise<void> {
     if (!userMessage || !assistantResponse) return;
     // Read owner name from the owner persona document
     const ownerDoc = soul.getDocument(OWNER_SOUL_ID);
     const ownerNameMatch = ownerDoc?.match(/name:\s*(.+)/i);
     const ownerName = ownerNameMatch ? ownerNameMatch[1].trim() : '';
 
-    // Smart routing:
-    // - Web-console → always the owner
-    // - WhatsApp where contact name matches owner name → owner
-    // - WhatsApp with different contact → contact document
-    let personaId: string;
-    if (source === 'web' || sessionId === 'web-console') {
-      personaId = OWNER_SOUL_ID;
-    } else if (ownerName && contactName && contactName.toLowerCase().includes(ownerName.toLowerCase())) {
-      personaId = OWNER_SOUL_ID;
-    } else {
-      personaId = sessionId;
-    }
+    // Owner → update owner document; visitor → update contact document
+    const personaId = isOwner ? OWNER_SOUL_ID : sessionId;
 
     const conversationText = `User: ${userMessage}\nAssistant: ${assistantResponse}`;
     const currentDoc = soul.getDocument(personaId);
@@ -208,7 +198,8 @@ export function createAgentOrchestrator(
       sessionId: string,
       message: string,
       source: 'web' | 'whatsapp' | 'telegram' = 'web',
-      contactName?: string
+      contactName?: string,
+      isOwner?: boolean,
     ): Promise<AgentResponse> {
       const startTime = Date.now();
       const toolResults: ToolExecutionResult[] = [];
@@ -228,16 +219,13 @@ export function createAgentOrchestrator(
       };
       conversationStore.addMessage(sessionId, 'user', message, userMetadata);
 
-      // Build the messages array with history
-      let messages = buildMessages(sessionId, message);
-      let lastUsage: { promptTokens: number; completionTokens: number; totalTokens: number } | undefined;
+      // isOwner is now passed in by the unified message handler.
+      // Fallback: if not explicitly provided, assume web === owner (backward compat)
+      const ownerFlag = isOwner ?? (source === 'web');
 
-      // Determine if this is the owner (same logic as extractSoulData)
-      const ownerDoc = soul.getDocument(OWNER_SOUL_ID);
-      const ownerNameMatch = ownerDoc?.match(/name:\s*(.+)/i);
-      const ownerName = ownerNameMatch ? ownerNameMatch[1].trim() : '';
-      const isOwner = source === 'web' || sessionId === 'web-console' ||
-        (!!ownerName && !!contactName && contactName.toLowerCase().includes(ownerName.toLowerCase()));
+      // Build the messages array with history (pass isOwner for soul prompt framing)
+      let messages = buildMessages(sessionId, message, ownerFlag);
+      let lastUsage: { promptTokens: number; completionTokens: number; totalTokens: number } | undefined;
 
       // Agent loop with tool calling
       let iteration = 0;
@@ -246,7 +234,7 @@ export function createAgentOrchestrator(
       while (iteration < currentConfig.maxToolIterations) {
         iteration++;
 
-        const llmResult = await callLLM(messages, isOwner);
+        const llmResult = await callLLM(messages, ownerFlag);
         lastUsage = llmResult.usage;
 
         if (llmResult.toolCalls.length === 0) {
@@ -310,7 +298,7 @@ export function createAgentOrchestrator(
       conversationStore.addMessage(sessionId, 'assistant', finalContent, assistantMetadata);
 
       // Extract soul data in the background (don't block the response)
-      extractSoulData(sessionId, message, finalContent, source, contactName).catch(err => {
+      extractSoulData(sessionId, message, finalContent, source, contactName, ownerFlag).catch(err => {
         console.error('[Soul] Background extraction failed:', err.message);
       });
 

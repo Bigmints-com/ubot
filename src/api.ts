@@ -23,8 +23,10 @@ import type { SkillEvent } from './skills/skill-types.js';
 import { createApprovalStore, type ApprovalStore } from './agent/pending-approvals.js';
 import { getBrowserSkill } from './browser-skill.js';
 import type { AgentOrchestrator } from './agent/orchestrator.js';
+import { handleIncomingMessage, type UnifiedMessage, type UnifiedDeps } from './unified-message.js';
 import { existsSync } from 'fs';
 import { join } from 'path';
+import * as chrono from 'chrono-node';
 
 // In-memory stores for config data (no DB needed for these)
 let safetyConfig: SafetyConfig = { ...DEFAULT_SAFETY_CONFIG };
@@ -72,6 +74,39 @@ let eventBus: EventBus | null = null;
 // Owner approval system
 let approvalStore: ApprovalStore | null = null;
 
+// Database reference for config persistence
+let coreDb: CoreDatabaseConnection | null = null;
+
+/** Save a value to the config_store table */
+function saveConfigValue(key: string, value: string): void {
+  if (!coreDb) return;
+  try {
+    const now = new Date().toISOString();
+    coreDb.execute(
+      `INSERT INTO config_store (key, value, source, created_at, updated_at)
+       VALUES (?, ?, 'database', ?, ?)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+      [key, value, now, now]
+    );
+  } catch (err: any) {
+    console.error(`[Config] Failed to save ${key}:`, err.message);
+  }
+}
+
+/** Load a value from the config_store table */
+function loadConfigValue(key: string): string | null {
+  if (!coreDb) return null;
+  try {
+    const row = coreDb.queryOne<{ value: string }>(
+      `SELECT value FROM config_store WHERE key = ?`,
+      [key]
+    );
+    return row?.value ?? null;
+  } catch {
+    return null;
+  }
+}
+
 /** Relay an approval response to the requester via the correct channel */
 async function relayApprovalResponse(requesterJid: string, message: string): Promise<boolean> {
   // Telegram requester — stored as "telegram:<chatId>"
@@ -105,6 +140,20 @@ async function relayApprovalResponse(requesterJid: string, message: string): Pro
       console.error('[Approvals] Failed to relay to WhatsApp:', err.message);
     }
   }
+
+  // Fallback: bare numeric ID might be a Telegram chatId (LLM sometimes omits the prefix)
+  if (tgConnection && /^\d+$/.test(requesterJid)) {
+    try {
+      const chatId = Number(requesterJid);
+      await tgConnection.sendMessage(chatId, message);
+      console.log(`[Approvals] Relayed response to Telegram (fallback) chat ${chatId}`);
+      tgMessages.push({ from: 'bot', to: requesterJid, body: message, timestamp: new Date().toISOString(), isFromMe: true });
+      return true;
+    } catch (err: any) {
+      console.error('[Approvals] Failed to relay to Telegram (fallback):', err.message);
+    }
+  }
+
   return false;
 }
 
@@ -141,79 +190,39 @@ function setupWhatsAppHandlers(conn: WhatsAppConnection): void {
     });
     if (waMessages.length > MAX_WA_MESSAGES) waMessages.shift();
 
-    // Check if this is the owner replying to a pending approval
-    if (agentOrchestrator && !msg.isFromMe && msg.body && approvalStore) {
-      const config = agentOrchestrator.getConfig();
-      const ownerPhone = config.ownerPhone?.replace(/\D/g, '') || '';
-      const senderNumber = (msg.from || '').replace(/\D/g, '').replace(/@.*/, '');
-      
-      if (ownerPhone && senderNumber.includes(ownerPhone)) {
-        // This message is from the owner — check for pending approvals
-        const pending = approvalStore.getPending();
-        if (pending.length > 0) {
-          // Resolve the most recent pending approval with the owner's response
-          const approval = pending[0];
-          approvalStore.resolve(approval.id, msg.body);
-          console.log(`[Approvals] Owner responded to approval ${approval.id}: "${msg.body.slice(0, 80)}"`);
+    if (!msg.body || msg.isFromMe || !agentOrchestrator) return;
 
-          // Relay via the channel-aware helper
-          await relayApprovalResponse(approval.requesterJid, msg.body);
-          // Skip auto-reply for this message since it's an approval response
-          return;
+    const jid = msg.from || '';
+    const unified: UnifiedMessage = {
+      channel: 'whatsapp',
+      senderId: jid,
+      senderName: msg.from || '',
+      body: msg.body,
+      timestamp: msg.timestamp instanceof Date ? msg.timestamp : new Date(),
+      replyFn: async (text: string) => {
+        const socket = waConnection?.getSocket();
+        if (socket) {
+          await socket.sendMessage(jid, { text });
+          waMessages.push({ from: 'me', to: jid, body: text, timestamp: new Date().toISOString(), isFromMe: true });
         }
-      }
-    }
+      },
+      extra: {
+        participant: msg.participant,
+        hasMedia: msg.hasMedia,
+        quotedMessageId: msg.quotedMessageId,
+      },
+    };
 
-    // Auto-reply if enabled (config-based)
-    if (agentOrchestrator && !msg.isFromMe && msg.body) {
-      const config = agentOrchestrator.getConfig();
-      if (config.autoReplyWhatsApp) {
-        const jid = msg.from || '';
-        const shouldReply = config.autoReplyContacts.length === 0 ||
-          config.autoReplyContacts.some(c => jid.includes(c.replace(/[^0-9]/g, '')));
+    const deps: UnifiedDeps = {
+      orchestrator: agentOrchestrator,
+      approvalStore,
+      eventBus,
+      skillEngine,
+      saveConfigValue,
+      relayMessage: relayApprovalResponse,
+    };
 
-        if (shouldReply) {
-          try {
-            const response = await agentOrchestrator.chat(jid, msg.body, 'whatsapp', msg.from);
-            const socket = waConnection?.getSocket();
-            if (socket && response.content) {
-              await socket.sendMessage(jid, { text: response.content });
-              waMessages.push({
-                from: 'me',
-                to: jid,
-                body: response.content,
-                timestamp: new Date().toISOString(),
-                isFromMe: true,
-              });
-            }
-          } catch (err: any) {
-            console.error('[API] Auto-reply error:', err.message);
-          }
-        }
-      }
-    }
-
-    // Emit to universal event bus — skill engine handles matching & execution
-    if (!msg.isFromMe && msg.body) {
-      if (eventBus) {
-        const event: SkillEvent = {
-          source: 'whatsapp',
-          type: 'message',
-          from: msg.from || '',
-          to: msg.to || '',
-          body: msg.body || '',
-          timestamp: msg.timestamp instanceof Date ? msg.timestamp : new Date(),
-          data: {
-            participant: msg.participant,
-            hasMedia: msg.hasMedia,
-            quotedMessageId: msg.quotedMessageId,
-          },
-        };
-        eventBus.emit(event);
-      } else {
-        console.log('[API] ⚠️ No eventBus — skill triggering disabled');
-      }
-    }
+    await handleIncomingMessage(unified, deps);
   });
 }
 
@@ -253,14 +262,126 @@ async function autoConnectWhatsApp(): Promise<void> {
   }
 }
 
+/** Set up all event handlers on a TelegramConnection instance */
+function setupTelegramHandlers(conn: TelegramConnection): void {
+  // Clear any previously registered handlers to prevent duplicate responses
+  conn.removeAllListeners();
+  conn.on('connection.update', (status) => {
+    tgStatus = status;
+    if (status === 'connected') {
+      console.log('[Telegram] ✅ Connected');
+      tgProvider = new TelegramMessagingProvider(conn);
+      messagingRegistry.register(tgProvider);
+      console.log('[Telegram] 📬 Messaging provider registered');
+    }
+    if (status === 'error') {
+      tgError = 'Connection error';
+    }
+  });
+
+  conn.on('message.received', async (msg) => {
+    tgMessages.push({
+      from: msg.from || '',
+      to: 'bot',
+      body: msg.body || '',
+      timestamp: msg.timestamp?.toISOString() || new Date().toISOString(),
+      isFromMe: msg.isFromMe || false,
+    });
+    if (tgMessages.length > MAX_TG_MESSAGES) tgMessages.shift();
+
+    if (!msg.body || msg.isFromMe || !agentOrchestrator) return;
+
+    const senderChatId = String(msg.chatId);
+    const unified: UnifiedMessage = {
+      channel: 'telegram',
+      senderId: senderChatId,
+      senderName: msg.from || '',
+      senderUsername: (msg.fromUsername || '').toLowerCase(),
+      body: msg.body,
+      timestamp: msg.timestamp instanceof Date ? msg.timestamp : new Date(),
+      replyFn: async (text: string) => {
+        if (conn) {
+          await conn.sendMessage(msg.chatId, text);
+          tgMessages.push({ from: 'bot', to: senderChatId, body: text, timestamp: new Date().toISOString(), isFromMe: true });
+        }
+      },
+      extra: { chatId: msg.chatId },
+    };
+
+    const deps: UnifiedDeps = {
+      orchestrator: agentOrchestrator,
+      approvalStore,
+      eventBus,
+      skillEngine,
+      saveConfigValue,
+      relayMessage: relayApprovalResponse,
+    };
+
+    await handleIncomingMessage(unified, deps);
+  });
+
+  conn.on('error', (err) => {
+    tgError = err.message;
+    console.error('[Telegram] Error:', err.message);
+  });
+}
+
+/** Auto-connect Telegram if a saved bot token exists in the database */
+async function autoConnectTelegram(): Promise<void> {
+  const savedToken = loadConfigValue('telegram_bot_token');
+  if (!savedToken) {
+    console.log('[Telegram] No saved bot token — waiting for manual connect via UI');
+    return;
+  }
+
+  console.log('[Telegram] 🔄 Found saved bot token, auto-reconnecting...');
+  tgStatus = 'connecting';
+
+  try {
+    if (tgConnection) {
+      try { await tgConnection.disconnect(); } catch { /* ignore */ }
+    }
+    tgConnection = new TelegramConnection({ botToken: savedToken });
+    setupTelegramHandlers(tgConnection);
+    await tgConnection.connect();
+    console.log('[Telegram] ✅ Auto-reconnected successfully');
+  } catch (e: any) {
+    console.error('[Telegram] Auto-connect failed:', e.message);
+    tgStatus = 'disconnected';
+    tgError = e.message;
+  }
+}
+
 export function initializeApi(db?: DatabaseConnection, agent?: AgentOrchestrator): void {
   if (db) {
     skillsService = createSkillsService(db);
     // Initialize universal skill engine + event bus
     skillRepo = createSkillRepository(db as unknown as CoreDatabaseConnection);
+    coreDb = db as unknown as CoreDatabaseConnection;
     eventBus = createEventBus();
     // Initialize approval store
     approvalStore = createApprovalStore(db as unknown as CoreDatabaseConnection);
+
+    // Load saved owner identity + auto-reply settings from DB
+    if (agent) {
+      const savedOwnerPhone = loadConfigValue('ownerPhone');
+      const savedOwnerTelegramId = loadConfigValue('ownerTelegramId');
+      const savedOwnerTelegramUsername = loadConfigValue('ownerTelegramUsername');
+      const savedAutoReplyWA = loadConfigValue('autoReplyWhatsApp');
+      const savedAutoReplyTG = loadConfigValue('autoReplyTelegram');
+
+      const configUpdates: Record<string, unknown> = {};
+      if (savedOwnerPhone) configUpdates.ownerPhone = savedOwnerPhone;
+      if (savedOwnerTelegramId) configUpdates.ownerTelegramId = savedOwnerTelegramId;
+      if (savedOwnerTelegramUsername) configUpdates.ownerTelegramUsername = savedOwnerTelegramUsername;
+      if (savedAutoReplyWA) configUpdates.autoReplyWhatsApp = savedAutoReplyWA === 'true';
+      if (savedAutoReplyTG) configUpdates.autoReplyTelegram = savedAutoReplyTG === 'true';
+
+      if (Object.keys(configUpdates).length > 0) {
+        agent.updateConfig(configUpdates);
+        console.log('[Config] Loaded saved settings:', Object.keys(configUpdates).join(', '));
+      }
+    }
     if (agent) {
       skillEngine = createSkillEngine(
         skillRepo,
@@ -346,6 +467,8 @@ export function initializeApi(db?: DatabaseConnection, agent?: AgentOrchestrator
 
   // Auto-reconnect WhatsApp if a saved session exists
   autoConnectWhatsApp();
+  // Auto-reconnect Telegram if a saved token exists
+  autoConnectTelegram();
 }
 
 /** Register platform-agnostic tool executors on the agent */
@@ -491,15 +614,14 @@ function registerAgentTools(agent: AgentOrchestrator): void {
       return { toolName: 'schedule_message', success: false, error: 'Missing required parameters (to, body/message, time)', duration: 0 };
     }
 
-    // Parse the time string into a Date
-    const scheduledDate = new Date(time);
-    if (isNaN(scheduledDate.getTime())) {
-      return { toolName: 'schedule_message', success: false, error: `Could not parse time: "${time}". Please use ISO 8601 format or a recognisable date/time string.`, duration: 0 };
+    // Parse time with chrono-node (natural language) then fallback to Date
+    const scheduledDate = chrono.parseDate(time, new Date()) || new Date(time);
+    if (!scheduledDate || isNaN(scheduledDate.getTime())) {
+      return { toolName: 'schedule_message', success: false, error: `Could not parse time: "${time}". Try "in 30 minutes", "at 3pm", "tomorrow at 9am", or ISO format.`, duration: 0 };
     }
 
-    // Ensure the date is in the future
     if (scheduledDate.getTime() <= Date.now()) {
-      return { toolName: 'schedule_message', success: false, error: `Scheduled time "${time}" is in the past.`, duration: 0 };
+      return { toolName: 'schedule_message', success: false, error: `Scheduled time "${time}" resolves to the past (${scheduledDate.toLocaleString()}).`, duration: 0 };
     }
 
     if (!scheduler) {
@@ -507,7 +629,6 @@ function registerAgentTools(agent: AgentOrchestrator): void {
     }
 
     try {
-      // Sanitize the task name — only alphanumeric, underscore, hyphen, dot, space allowed
       const safeTo = to.replace(/[^a-zA-Z0-9_\-.\s]/g, '');
       const taskName = `Send message to ${safeTo || 'recipient'}`;
 
@@ -586,6 +707,12 @@ function registerAgentTools(agent: AgentOrchestrator): void {
 
     console.log(`[Approvals] Created approval ${approval.id}: "${question.slice(0, 80)}"`);
 
+    // Inject approval notification into Command Center chat
+    const convStore = agent.getConversationStore();
+    convStore.getOrCreateSession('web-console', 'web', 'Command Center');
+    const approvalNotification = `🔔 **Approval Request** (ID: ${approval.id})\n\n**From:** ${context || 'Unknown'}\n**Question:** ${question}\n\n👉 Go to the Approvals page to respond, or reply here with your answer.`;
+    convStore.addMessage('web-console', 'assistant', approvalNotification, { source: 'web' });
+
     // Try to notify the owner via WhatsApp if they have a different number
     const config = agent.getConfig();
     const ownerPhone = config.ownerPhone?.replace(/\D/g, '') || '';
@@ -606,17 +733,112 @@ function registerAgentTools(agent: AgentOrchestrator): void {
     }
 
     // Also try notifying via Telegram if connected
-    if (tgConnection) {
-      // If the requester is on Telegram, the owner might be chatting there too.
-      // We can notify the owner in the same Telegram chat if they set up the bot.
-      // For now, log that Telegram approval was created.
-      console.log(`[Approvals] Telegram approval pending — owner can respond via any channel`);
+    if (tgConnection && config.ownerTelegramId) {
+      try {
+        const chatId = Number(config.ownerTelegramId);
+        if (!isNaN(chatId)) {
+          const notificationText = `🔔 *Approval Request*\n\n${context}\n\n*Question:* ${question}\n\nReply to this message with your response.`;
+          await tgConnection.sendMessage(chatId, notificationText);
+          console.log(`[Approvals] Sent notification to owner via Telegram at ${chatId}`);
+        }
+      } catch (err: any) {
+        console.error('[Approvals] Failed to notify owner via Telegram:', err.message);
+      }
     }
 
     return {
       toolName: 'ask_owner',
       success: true,
       result: `Approval request created (ID: ${approval.id}). The owner "${ownerName}" has been notified. Tell the requester you'll check with ${ownerName} and get back to them.`,
+      duration: 0,
+    };
+  });
+
+  // respond_to_approval — owner responds to a pending approval from Command Center
+  registry.register('respond_to_approval', async (args) => {
+    if (!approvalStore) {
+      return { toolName: 'respond_to_approval', success: false, error: 'Approval system not initialized', duration: 0 };
+    }
+
+    const response = String(args.response || '');
+    if (!response) {
+      return { toolName: 'respond_to_approval', success: false, error: 'Missing "response" parameter', duration: 0 };
+    }
+
+    let approvalId = String(args.approval_id || '');
+
+    // If no approval ID provided, use the most recent pending one
+    if (!approvalId) {
+      const pending = approvalStore.getPending();
+      if (pending.length === 0) {
+        return { toolName: 'respond_to_approval', success: true, result: 'No pending approvals to respond to.', duration: 0 };
+      }
+      approvalId = pending[0].id;
+    }
+
+    const approval = approvalStore.getById(approvalId);
+    if (!approval) {
+      return { toolName: 'respond_to_approval', success: false, error: `Approval not found: ${approvalId}`, duration: 0 };
+    }
+    if (approval.status === 'resolved') {
+      return { toolName: 'respond_to_approval', success: true, result: `Approval ${approvalId} was already resolved.`, duration: 0 };
+    }
+
+    // Resolve the approval
+    approvalStore.resolve(approvalId, response);
+    console.log(`[Approvals] Owner responded via Command Center to approval ${approvalId}: "${response.slice(0, 80)}"`);
+
+    // Relay response to the requester via their channel
+    if (approval.requesterJid && agentOrchestrator) {
+      const source = approval.requesterJid.startsWith('telegram:') ? 'telegram' : 'whatsapp';
+      const sessionId = approval.requesterJid;
+      const systemMessage = `[SYSTEM] The owner responded to your approval request (ID: ${approvalId}): "${response}"\n\nPlease relay this information to the visitor appropriately.`;
+
+      agentOrchestrator.chat(sessionId, systemMessage, source).then(result => {
+        if (result.content) {
+          if (source === 'telegram' && tgConnection) {
+            const chatId = Number(sessionId.replace('telegram:', ''));
+            tgConnection.sendMessage(chatId, result.content);
+          } else if (source === 'whatsapp' && waConnection) {
+            const socket = waConnection.getSocket();
+            const jid = sessionId.includes('@') ? sessionId : `${sessionId.replace(/\D/g, '')}@s.whatsapp.net`;
+            socket?.sendMessage(jid, { text: result.content });
+          }
+        }
+        console.log(`[Approvals] Relayed owner response to ${sessionId}`);
+      }).catch(err => {
+        console.error(`[Approvals] Failed to relay response to ${sessionId}:`, err.message);
+      });
+    }
+
+    return {
+      toolName: 'respond_to_approval',
+      success: true,
+      result: `Approval ${approvalId} resolved. Your response "${response}" is being relayed to the requester.`,
+      duration: 0,
+    };
+  });
+
+  // list_pending_approvals — show pending approvals to the owner
+  registry.register('list_pending_approvals', async () => {
+    if (!approvalStore) {
+      return { toolName: 'list_pending_approvals', success: false, error: 'Approval system not initialized', duration: 0 };
+    }
+
+    const pending = approvalStore.getPending();
+    if (pending.length === 0) {
+      return { toolName: 'list_pending_approvals', success: true, result: 'No pending approvals.', duration: 0 };
+    }
+
+    const summary = pending.map(a => {
+      const ago = Math.round((Date.now() - new Date(a.createdAt).getTime()) / 60000);
+      return `• [${a.id}] "${a.question}" — from: ${a.context || a.requesterJid} (${ago}m ago)`;
+    }).join('\n');
+
+    return {
+      toolName: 'list_pending_approvals',
+      success: true,
+      result: `${pending.length} pending approval(s):\n${summary}`,
       duration: 0,
     };
   });
@@ -853,6 +1075,170 @@ function registerAgentTools(agent: AgentOrchestrator): void {
       duration: 0,
     };
   });
+
+  // ── Scheduler & Reminder Tools ──────────────────────────
+
+  registry.register('create_reminder', async (args) => {
+    const message = String(args.message || '');
+    const time = String(args.time || '');
+    const recurrence = String(args.recurrence || 'once') as 'once' | 'daily' | 'weekly' | 'monthly';
+    if (!message || !time) {
+      return { toolName: 'create_reminder', success: false, error: 'Missing required parameters (message, time)', duration: 0 };
+    }
+
+    const scheduledDate = chrono.parseDate(time, new Date()) || new Date(time);
+    if (!scheduledDate || isNaN(scheduledDate.getTime())) {
+      return { toolName: 'create_reminder', success: false, error: `Could not parse time: "${time}". Try "in 30 minutes", "at 3pm", "tomorrow at 9am".`, duration: 0 };
+    }
+
+    if (scheduledDate.getTime() <= Date.now() && recurrence === 'once') {
+      return { toolName: 'create_reminder', success: false, error: `Time "${time}" resolves to the past (${scheduledDate.toLocaleString()}).`, duration: 0 };
+    }
+
+    if (!scheduler) {
+      return { toolName: 'create_reminder', success: false, error: 'Scheduler service not initialized', duration: 0 };
+    }
+
+    try {
+      const config = agentOrchestrator?.getConfig();
+      const ownerTelegramId = config?.ownerTelegramId;
+
+      const task = await scheduler.createTask({
+        name: `Reminder: ${message.slice(0, 50)}`,
+        description: `Remind owner: "${message}" at ${scheduledDate.toLocaleString()}`,
+        schedule: {
+          recurrence,
+          startDate: scheduledDate,
+        },
+        data: { message, ownerTelegramId },
+        tags: ['reminder'],
+        metadata: { createdBy: 'chat', message },
+        handler: async (_ctx, data: { message: string; ownerTelegramId?: string }) => {
+          const reminderText = `⏰ **Reminder:** ${data.message}`;
+          // Try Telegram first, then WhatsApp, then web-console
+          if (data.ownerTelegramId && tgConnection) {
+            try {
+              await tgConnection.sendMessage(Number(data.ownerTelegramId), reminderText);
+              console.log(`[Scheduler] Sent reminder to owner via Telegram`);
+              return { sent: true, channel: 'telegram' };
+            } catch (err: any) {
+              console.error(`[Scheduler] Telegram reminder failed:`, err.message);
+            }
+          }
+          const socket = waConnection?.getSocket();
+          const ownerPhone = config?.ownerPhone;
+          if (socket && ownerPhone) {
+            try {
+              const jid = `${ownerPhone.replace(/\D/g, '')}@s.whatsapp.net`;
+              await socket.sendMessage(jid, { text: reminderText });
+              console.log(`[Scheduler] Sent reminder to owner via WhatsApp`);
+              return { sent: true, channel: 'whatsapp' };
+            } catch (err: any) {
+              console.error(`[Scheduler] WhatsApp reminder failed:`, err.message);
+            }
+          }
+          console.log(`[Scheduler] Reminder stored (no messaging channel available): ${data.message}`);
+          return { sent: false, stored: true };
+        },
+      });
+
+      return {
+        toolName: 'create_reminder',
+        success: true,
+        result: `Reminder set: "${message}" at ${scheduledDate.toLocaleString()}${recurrence !== 'once' ? ` (${recurrence})` : ''}. Task ID: ${task.id}`,
+        duration: 0,
+      };
+    } catch (err: any) {
+      return { toolName: 'create_reminder', success: false, error: `Failed to create reminder: ${err.message}`, duration: 0 };
+    }
+  });
+
+  registry.register('list_schedules', async (args) => {
+    if (!scheduler) {
+      return { toolName: 'list_schedules', success: false, error: 'Scheduler service not initialized', duration: 0 };
+    }
+
+    const statusFilter = args.status ? String(args.status) as any : undefined;
+    const filter = statusFilter ? { status: statusFilter } : { enabled: true };
+    const result = scheduler.listTasks(filter, { field: 'createdAt', direction: 'desc' });
+
+    if (result.tasks.length === 0) {
+      return { toolName: 'list_schedules', success: true, result: 'No scheduled tasks found.', duration: 0 };
+    }
+
+    const lines = result.tasks.map(t => {
+      const nextRun = t.nextRunAt ? t.nextRunAt.toLocaleString() : 'N/A';
+      const tags = t.tags.length > 0 ? ` [${t.tags.join(', ')}]` : '';
+      return `• **${t.name}** (ID: ${t.id})\n  Status: ${t.status} | Next run: ${nextRun} | Recurrence: ${t.schedule.recurrence}${tags}`;
+    });
+
+    return {
+      toolName: 'list_schedules',
+      success: true,
+      result: `Found ${result.tasks.length} scheduled task(s):\n\n${lines.join('\n\n')}`,
+      duration: 0,
+    };
+  });
+
+  registry.register('delete_schedule', async (args) => {
+    const taskId = String(args.task_id || '');
+    if (!taskId) {
+      return { toolName: 'delete_schedule', success: false, error: 'Missing required parameter: task_id', duration: 0 };
+    }
+    if (!scheduler) {
+      return { toolName: 'delete_schedule', success: false, error: 'Scheduler service not initialized', duration: 0 };
+    }
+
+    const deleted = await scheduler.deleteTask(taskId);
+    if (deleted) {
+      return { toolName: 'delete_schedule', success: true, result: `Deleted scheduled task ${taskId}.`, duration: 0 };
+    }
+    return { toolName: 'delete_schedule', success: false, error: `Task ${taskId} not found.`, duration: 0 };
+  });
+
+  registry.register('trigger_schedule', async (args) => {
+    const taskId = String(args.task_id || '');
+    if (!taskId) {
+      return { toolName: 'trigger_schedule', success: false, error: 'Missing required parameter: task_id', duration: 0 };
+    }
+    if (!scheduler) {
+      return { toolName: 'trigger_schedule', success: false, error: 'Scheduler service not initialized', duration: 0 };
+    }
+
+    try {
+      const result = await scheduler.runTaskNow(taskId);
+      return {
+        toolName: 'trigger_schedule',
+        success: result.success,
+        result: result.success ? `Task ${taskId} executed successfully.` : `Task ${taskId} execution failed: ${result.error}`,
+        duration: result.duration,
+      };
+    } catch (err: any) {
+      return { toolName: 'trigger_schedule', success: false, error: `Failed to trigger task: ${err.message}`, duration: 0 };
+    }
+  });
+
+  registry.register('forward_message', async (args) => {
+    const to = String(args.to || '');
+    const text = String(args.text || '');
+    const channel = String(args.channel || '');
+    if (!to || !text) {
+      return { toolName: 'forward_message', success: false, error: 'Missing required parameters (to, text)', duration: 0 };
+    }
+
+    try {
+      const provider = messagingRegistry.resolveProvider(channel || undefined);
+      await provider.sendMessage(to, `↩️ Forwarded:\n\n${text}`);
+      return {
+        toolName: 'forward_message',
+        success: true,
+        result: `Message forwarded to ${to}.`,
+        duration: 0,
+      };
+    } catch (err: any) {
+      return { toolName: 'forward_message', success: false, error: `Failed to forward message: ${err.message}`, duration: 0 };
+    }
+  });
 }
 
 async function parseBody(req: http.IncomingMessage): Promise<unknown> {
@@ -994,8 +1380,11 @@ export async function handleApiRoute(
       maxTokens: config.maxTokens,
       maxHistoryMessages: config.maxHistoryMessages,
       autoReplyWhatsApp: config.autoReplyWhatsApp,
+      autoReplyTelegram: config.autoReplyTelegram,
       autoReplyContacts: config.autoReplyContacts,
       ownerPhone: config.ownerPhone || '',
+      ownerTelegramId: config.ownerTelegramId || '',
+      ownerTelegramUsername: config.ownerTelegramUsername || '',
     });
     return true;
   }
@@ -1007,13 +1396,24 @@ export async function handleApiRoute(
     }
     const body = await parseBody(req) as any;
     const updated = agentOrchestrator.updateConfig(body);
+
+    // Persist owner identity + auto-reply settings to DB
+    if (body.ownerPhone !== undefined) saveConfigValue('ownerPhone', updated.ownerPhone || '');
+    if (body.ownerTelegramId !== undefined) saveConfigValue('ownerTelegramId', updated.ownerTelegramId || '');
+    if (body.ownerTelegramUsername !== undefined) saveConfigValue('ownerTelegramUsername', updated.ownerTelegramUsername || '');
+    if (body.autoReplyWhatsApp !== undefined) saveConfigValue('autoReplyWhatsApp', String(updated.autoReplyWhatsApp));
+    if (body.autoReplyTelegram !== undefined) saveConfigValue('autoReplyTelegram', String(updated.autoReplyTelegram));
+
     json(res, {
       llmBaseUrl: updated.llmBaseUrl,
       llmModel: updated.llmModel,
       temperature: updated.temperature,
       maxTokens: updated.maxTokens,
       autoReplyWhatsApp: updated.autoReplyWhatsApp,
+      autoReplyTelegram: updated.autoReplyTelegram,
       ownerPhone: updated.ownerPhone || '',
+      ownerTelegramId: updated.ownerTelegramId || '',
+      ownerTelegramUsername: updated.ownerTelegramUsername || '',
       saved: true,
     });
     return true;
@@ -1268,100 +1668,13 @@ export async function handleApiRoute(
 
       tgConnection = new TelegramConnection({ botToken });
 
-      tgConnection.on('connection.update', (status) => {
-        tgStatus = status;
-        if (status === 'connected') {
-          console.log('[Telegram] ✅ Connected');
-          // Register the Telegram provider with the messaging registry
-          tgProvider = new TelegramMessagingProvider(tgConnection!);
-          messagingRegistry.register(tgProvider);
-          console.log('[Telegram] 📬 Messaging provider registered');
-        }
-        if (status === 'error') {
-          tgError = 'Connection error';
-        }
-      });
-
-      // Wire incoming Telegram messages to the agent
-      tgConnection.on('message.received', async (msg) => {
-        tgMessages.push({
-          from: msg.from || '',
-          to: 'bot',
-          body: msg.body || '',
-          timestamp: msg.timestamp?.toISOString() || new Date().toISOString(),
-          isFromMe: msg.isFromMe || false,
-        });
-        if (tgMessages.length > MAX_TG_MESSAGES) tgMessages.shift();
-
-        // Emit event for skill engine
-        if (eventBus && !msg.isFromMe && msg.body) {
-          const event: import('./skills/skill-types.js').SkillEvent = {
-            source: 'telegram',
-            type: 'message',
-            from: String(msg.chatId),
-            to: 'bot',
-            body: msg.body || '',
-            timestamp: msg.timestamp instanceof Date ? msg.timestamp : new Date(),
-            data: {
-              senderName: msg.from,
-              chatId: msg.chatId,
-            },
-          };
-          eventBus.emit(event);
-        }
-        // Check if this is the owner replying to a pending approval via Telegram
-        if (agentOrchestrator && !msg.isFromMe && msg.body && approvalStore) {
-          const config = agentOrchestrator.getConfig();
-          const ownerName = config.ownerName || '';
-          const senderName = msg.from || '';
-          // Match by name (Telegram doesn't use phone numbers the same way)
-          if (ownerName && senderName.toLowerCase().includes(ownerName.toLowerCase())) {
-            const pending = approvalStore.getPending();
-            if (pending.length > 0) {
-              const approval = pending[0];
-              approvalStore.resolve(approval.id, msg.body);
-              console.log(`[Approvals] Owner responded via Telegram to approval ${approval.id}: "${msg.body.slice(0, 80)}"`);
-              await relayApprovalResponse(approval.requesterJid, msg.body);
-              return;
-            }
-          }
-        }
-
-        // Auto-reply via agent (only if no skill handled it)
-        // Check if any telegram:message skill exists — if so, the skill engine handles the response
-        const hasTelegramSkill = skillEngine?.getMatchingSkills({
-          source: 'telegram', type: 'message', from: String(msg.chatId),
-          body: msg.body || '', timestamp: new Date(), data: {},
-        }).length ?? 0;
-
-        if (agentOrchestrator && !msg.isFromMe && msg.body && hasTelegramSkill === 0) {
-          const config = agentOrchestrator.getConfig();
-          if (config.autoReplyWhatsApp) { // Reuse the same auto-reply flag for now
-            try {
-              const chatId = `telegram:${msg.chatId}`;
-              const response = await agentOrchestrator.chat(chatId, msg.body, 'telegram', msg.from);
-              if (tgConnection && response.content) {
-                await tgConnection.sendMessage(msg.chatId, response.content);
-                tgMessages.push({
-                  from: 'bot',
-                  to: String(msg.chatId),
-                  body: response.content,
-                  timestamp: new Date().toISOString(),
-                  isFromMe: true,
-                });
-              }
-            } catch (err: any) {
-              console.error('[API] Telegram auto-reply error:', err.message);
-            }
-          }
-        }
-      });
-      tgConnection.on('error', (err) => {
-        tgError = err.message;
-        console.error('[Telegram] Error:', err.message);
-      });
+      setupTelegramHandlers(tgConnection);
 
       await tgConnection.connect();
+
+      // Persist the token so it survives restarts
+      saveConfigValue('telegram_bot_token', botToken);
+      console.log('[Telegram] Bot token saved to database');
 
       json(res, {
         status: 'connected',
@@ -1390,6 +1703,8 @@ export async function handleApiRoute(
     }
     tgStatus = 'disconnected';
     tgError = null;
+    // Clear the saved token so we don't auto-reconnect on next restart
+    saveConfigValue('telegram_bot_token', '');
     json(res, { status: 'disconnected' });
     return true;
   }
@@ -1558,9 +1873,30 @@ export async function handleApiRoute(
     // Resolve the approval
     const resolved = approvalStore.resolve(approvalId, response);
 
-    // Send the response to the requester via the correct channel
-    if (approval.requesterJid) {
-      await relayApprovalResponse(approval.requesterJid, response);
+    // Instead of direct relay, feed it back to the agent loop
+    if (approval.requesterJid && agentOrchestrator) {
+      const source = approval.requesterJid.startsWith('telegram:') ? 'telegram' : 'whatsapp';
+      const sessionId = approval.requesterJid;
+      
+      // Inject the owner's response as a system-originated message to the agent
+      // The orchestrator will handle sending the resulting LLM response to the visitor
+      const systemMessage = `[SYSTEM] The owner responded to your approval request (ID: ${approvalId}): "${response}"\n\nPlease relay this information to the visitor appropriately.`;
+      
+      agentOrchestrator.chat(sessionId, systemMessage, source).then(result => {
+        if (result.content) {
+          if (source === 'telegram' && tgConnection) {
+            const chatId = Number(sessionId.replace('telegram:', ''));
+            tgConnection.sendMessage(chatId, result.content);
+          } else if (source === 'whatsapp' && waConnection) {
+            const socket = waConnection.getSocket();
+            const jid = sessionId.includes('@') ? sessionId : `${sessionId.replace(/\D/g, '')}@s.whatsapp.net`;
+            socket?.sendMessage(jid, { text: result.content });
+          }
+        }
+        console.log(`[Approvals] Follow-up chat turn completed for ${sessionId}. Response: ${result.content.slice(0, 100)}...`);
+      }).catch(err => {
+        console.error(`[Approvals] Follow-up chat turn failed for ${sessionId}:`, err.message);
+      });
     }
 
     json(res, { approval: resolved, relayed: true });

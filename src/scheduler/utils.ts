@@ -230,7 +230,7 @@ export function paginateTasks(
 }
 
 export function validateTaskName(name: string): boolean {
-  return name.length >= 1 && name.length <= 200 && /^[a-zA-Z0-9_\-.\s]+$/.test(name);
+  return name.length >= 1 && name.length <= 200 && /^[a-zA-Z0-9_\-.\s:,()'"!]+$/.test(name);
 }
 
 export function validateSchedule(schedule: TaskSchedule): { valid: boolean; error?: string } {
