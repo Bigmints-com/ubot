@@ -243,9 +243,10 @@ export class WhatsAppConnection {
   }
 
   private parseMessage(msg: any, body: string): WhatsAppMessage {
-    let from = msg.key.remoteJid || '';
+    const rawJid = msg.key.remoteJid || '';
+    let from = rawJid;
 
-    // Resolve LID → phone number if needed
+    // Resolve LID → phone number if needed (for identification only)
     if (from.endsWith('@lid')) {
       if (msg.key.participant) {
         from = msg.key.participant;
@@ -260,10 +261,11 @@ export class WhatsAppConnection {
       }
     }
 
-    console.log(`[WhatsApp] ✅ Parsed: from=${from} body="${body.slice(0, 60)}"`);
+    console.log(`[WhatsApp] ✅ Parsed: from=${from} rawJid=${rawJid} body="${body.slice(0, 60)}"`);
     return {
       id: msg.key.id,
       from,
+      rawJid,
       to: msg.key.fromMe ? msg.key.remoteJid : '',
       body,
       timestamp: new Date(msg.messageTimestamp * 1000),
