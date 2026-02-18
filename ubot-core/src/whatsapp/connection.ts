@@ -73,28 +73,25 @@ export class WhatsAppConnection {
       );
       this.saveCreds = saveCreds;
       
-      // Fetch WA Web version with validation — the API sometimes returns garbage
-      const KNOWN_GOOD_VERSION: [number, number, number] = [2, 3000, 1015901307];
+      // Fetch WA Web version
       let version: [number, number, number];
       try {
         const fetched = await fetchLatestBaileysVersion();
-        // Validate: third version number should be reasonable (normal: under 100K)
-        if (fetched.version && fetched.version[2] < 100_000) {
+        if (fetched.version && Array.isArray(fetched.version) && fetched.version.length === 3) {
           version = fetched.version as [number, number, number];
         } else {
-          console.warn('[WhatsApp] ⚠️ Invalid version from API:', fetched.version, '— using fallback');
-          version = KNOWN_GOOD_VERSION;
+          console.warn('[WhatsApp] ⚠️ Invalid version format from API — using fallback');
+          version = [2, 3000, 1015901307];
         }
       } catch {
         console.warn('[WhatsApp] ⚠️ Failed to fetch version — using fallback');
-        version = KNOWN_GOOD_VERSION;
+        version = [2, 3000, 1015901307];
       }
       console.log('[WhatsApp] Using WA Web version:', version);
       
       this.socket = makeWASocket({
         version,
         auth: state,
-        printQRInTerminal: this.config.printQRInTerminal,
         connectTimeoutMs: this.config.connectTimeoutMs,
         keepAliveIntervalMs: this.config.keepAliveIntervalMs,
         retryRequestDelayMs: this.config.retryRequestDelayMs,
@@ -187,9 +184,7 @@ export class WhatsAppConnection {
       
       if (qr) {
         this.state.qrCode = qr;
-        if (this.config.printQRInTerminal) {
-          qrcode.generate(qr, { small: true });
-        }
+        console.log('[WhatsApp] 📱 QR code generated — scan with your phone');
         this.emit('connection.update', 'connecting', qr);
       }
       

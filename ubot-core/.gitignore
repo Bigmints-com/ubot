@@ -26,3 +26,5 @@ npm-debug.log*
 # Testing
 coverage/sessions/
 browser-profile/
+sessions/
+sessions/
