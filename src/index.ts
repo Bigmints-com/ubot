@@ -129,7 +129,7 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
     if (handled) return;
   }
   
-  // Serve static files
+  // Serve static files (Next.js static export)
   let filePath = url === '/' ? '/index.html' : url;
   
   // Security: prevent directory traversal
@@ -139,10 +139,19 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
     return;
   }
   
-  const file = await serveStatic(filePath);
+  // Try exact path, then .html suffix, then /index.html (Next.js static export routes)
+  let file = await serveStatic(filePath);
+  if (!file && !path.extname(filePath)) {
+    file = await serveStatic(filePath + '.html');
+    if (!file) file = await serveStatic(filePath + '/index.html');
+  }
   
   if (file) {
-    res.writeHead(200, { 'Content-Type': file.contentType, 'Cache-Control': 'no-cache, no-store, must-revalidate' });
+    // Cache static assets, no-cache for HTML
+    const cacheControl = file.contentType === 'text/html' 
+      ? 'no-cache, no-store, must-revalidate' 
+      : 'public, max-age=31536000, immutable';
+    res.writeHead(200, { 'Content-Type': file.contentType, 'Cache-Control': cacheControl });
     res.end(file.content);
   } else {
     // SPA fallback: serve index.html for non-API, non-static routes

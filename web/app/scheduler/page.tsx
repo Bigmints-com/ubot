@@ -16,14 +16,43 @@ import {
 import { Clock, RefreshCw, Play, Pause } from "lucide-react";
 import { api } from "@/lib/api";
 
+interface TaskSchedule {
+  recurrence: string;
+  cronExpression?: string;
+  intervalMs?: number;
+  startDate?: string;
+  endDate?: string;
+}
+
 interface ScheduledTask {
   id: string;
   name: string;
-  schedule: string;
-  skill: string;
+  description?: string;
+  schedule: TaskSchedule;
+  status: string;
   enabled: boolean;
-  lastRun?: string;
-  nextRun?: string;
+  tags: string[];
+  metadata: Record<string, unknown>;
+  lastRunAt?: string;
+  nextRunAt?: string;
+  runCount: number;
+  failureCount: number;
+}
+
+function formatSchedule(schedule: TaskSchedule): string {
+  if (schedule.recurrence === 'cron' && schedule.cronExpression) {
+    return schedule.cronExpression;
+  }
+  if (schedule.recurrence === 'once' && schedule.startDate) {
+    return `Once at ${new Date(schedule.startDate).toLocaleString()}`;
+  }
+  if (schedule.recurrence === 'interval' && schedule.intervalMs) {
+    const secs = schedule.intervalMs / 1000;
+    if (secs < 60) return `Every ${secs}s`;
+    if (secs < 3600) return `Every ${Math.round(secs / 60)}m`;
+    return `Every ${Math.round(secs / 3600)}h`;
+  }
+  return schedule.recurrence;
 }
 
 export default function SchedulerPage() {
@@ -101,8 +130,9 @@ export default function SchedulerPage() {
               <TableRow>
                 <TableHead>Task</TableHead>
                 <TableHead>Schedule</TableHead>
-                <TableHead>Skill</TableHead>
+                <TableHead>Tags</TableHead>
                 <TableHead>Status</TableHead>
+                <TableHead>Next Run</TableHead>
                 <TableHead>Last Run</TableHead>
               </TableRow>
             </TableHeader>
@@ -110,7 +140,7 @@ export default function SchedulerPage() {
               {tasks.length === 0 ? (
                 <TableRow>
                   <TableCell
-                    colSpan={5}
+                    colSpan={6}
                     className="text-center text-muted-foreground py-8"
                   >
                     {loading ? "Loading tasks..." : "No scheduled tasks"}
@@ -119,13 +149,20 @@ export default function SchedulerPage() {
               ) : (
                 tasks.map((task) => (
                   <TableRow key={task.id}>
-                    <TableCell className="font-medium">{task.name}</TableCell>
+                    <TableCell>
+                      <div className="font-medium">{task.name}</div>
+                      {task.description && (
+                        <div className="text-xs text-muted-foreground mt-0.5 max-w-xs truncate">{task.description}</div>
+                      )}
+                    </TableCell>
                     <TableCell>
                       <Badge variant="outline" className="font-mono text-xs">
-                        {task.schedule}
+                        {formatSchedule(task.schedule)}
                       </Badge>
                     </TableCell>
-                    <TableCell className="text-sm">{task.skill}</TableCell>
+                    <TableCell className="text-sm">
+                      {task.tags?.length ? task.tags.join(', ') : '—'}
+                    </TableCell>
                     <TableCell>
                       <Badge
                         variant={task.enabled ? "default" : "secondary"}
@@ -133,7 +170,7 @@ export default function SchedulerPage() {
                         {task.enabled ? (
                           <>
                             <Play className="size-3 mr-1" />
-                            Active
+                            {task.status || 'Active'}
                           </>
                         ) : (
                           <>
@@ -144,8 +181,13 @@ export default function SchedulerPage() {
                       </Badge>
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground">
-                      {task.lastRun
-                        ? new Date(task.lastRun).toLocaleString()
+                      {task.nextRunAt
+                        ? new Date(task.nextRunAt).toLocaleString()
+                        : "—"}
+                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground">
+                      {task.lastRunAt
+                        ? new Date(task.lastRunAt).toLocaleString()
                         : "Never"}
                     </TableCell>
                   </TableRow>

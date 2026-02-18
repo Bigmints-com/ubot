@@ -2,6 +2,7 @@
  * Memory Store
  * SQLite-backed long-term memory for contacts and facts.
  * Stores key-value facts per contact that persist across sessions.
+ * Also stores YAML soul documents per persona.
  */
 
 import { v4 as uuidv4 } from 'uuid';
@@ -55,7 +56,31 @@ export const memoryMigrations: Migration[] = [
       DROP TABLE IF EXISTS agent_memories;
     `,
   },
+  {
+    id: '004',
+    name: 'create_soul_documents',
+    up: `
+      CREATE TABLE IF NOT EXISTS soul_documents (
+        persona_id TEXT PRIMARY KEY,
+        content TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+    `,
+    down: `
+      DROP TABLE IF EXISTS soul_documents;
+    `,
+  },
 ];
+
+/* ------------------------------------------------------------------ */
+/*  Soul Document Types                                                */
+/* ------------------------------------------------------------------ */
+
+export interface SoulDocument {
+  personaId: string;
+  content: string;
+  updatedAt: Date;
+}
 
 /* ------------------------------------------------------------------ */
 /*  Store interface & implementation                                   */
@@ -108,6 +133,20 @@ export interface MemoryStore {
 
   /** Format a contact's memories as a readable string for injection into prompts */
   formatForPrompt(contactId: string): string;
+
+  /* ---- Soul Documents ---- */
+
+  /** Get a soul document for a persona */
+  getDocument(personaId: string): SoulDocument | null;
+
+  /** Save or update a soul document */
+  saveDocument(personaId: string, content: string): SoulDocument;
+
+  /** Delete a soul document */
+  deleteDocument(personaId: string): boolean;
+
+  /** List all soul documents */
+  listDocuments(): SoulDocument[];
 }
 
 export function createMemoryStore(db: DatabaseConnection): MemoryStore {
@@ -215,6 +254,50 @@ export function createMemoryStore(db: DatabaseConnection): MemoryStore {
         }
       }
       return result;
+    },
+
+    /* ---- Soul Documents ---- */
+
+    getDocument(personaId): SoulDocument | null {
+      const row = db.queryOne<{ persona_id: string; content: string; updated_at: string }>(
+        'SELECT * FROM soul_documents WHERE persona_id = ?',
+        [personaId]
+      );
+      if (!row) return null;
+      return { personaId: row.persona_id, content: row.content, updatedAt: new Date(row.updated_at) };
+    },
+
+    saveDocument(personaId, content): SoulDocument {
+      const now = new Date().toISOString();
+      const existing = db.queryOne<{ persona_id: string }>(
+        'SELECT persona_id FROM soul_documents WHERE persona_id = ?',
+        [personaId]
+      );
+      if (existing) {
+        db.execute(
+          'UPDATE soul_documents SET content = ?, updated_at = ? WHERE persona_id = ?',
+          [content, now, personaId]
+        );
+      } else {
+        db.execute(
+          'INSERT INTO soul_documents (persona_id, content, updated_at) VALUES (?, ?, ?)',
+          [personaId, content, now]
+        );
+      }
+      console.log(`[Soul] Document saved for ${personaId} (${content.length} chars)`);
+      return { personaId, content, updatedAt: new Date(now) };
+    },
+
+    deleteDocument(personaId): boolean {
+      const result = db.execute('DELETE FROM soul_documents WHERE persona_id = ?', [personaId]);
+      return result.changes > 0;
+    },
+
+    listDocuments(): SoulDocument[] {
+      const rows = db.query<{ persona_id: string; content: string; updated_at: string }>(
+        'SELECT * FROM soul_documents ORDER BY updated_at DESC'
+      );
+      return rows.map(r => ({ personaId: r.persona_id, content: r.content, updatedAt: new Date(r.updated_at) }));
     },
   };
 }

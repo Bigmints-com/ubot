@@ -5,10 +5,12 @@ import {
   MessageSquare,
   Puzzle,
   MessageCircle,
+  Send,
   Shield,
   Clock,
   Settings,
   Bot,
+  Brain,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -29,8 +31,11 @@ import {
 const navItems = [
   { title: "Dashboard", href: "/", icon: LayoutDashboard },
   { title: "Command Center", href: "/chat", icon: MessageSquare },
+  { title: "Approvals", href: "/approvals", icon: Shield },
   { title: "Skills", href: "/skills", icon: Puzzle },
+  { title: "Personas", href: "/personas", icon: Brain },
   { title: "WhatsApp", href: "/whatsapp", icon: MessageCircle },
+  { title: "Telegram", href: "/telegram", icon: Send },
   { title: "Safety Rules", href: "/safety", icon: Shield },
   { title: "Scheduler", href: "/scheduler", icon: Clock },
   { title: "Settings", href: "/settings", icon: Settings },

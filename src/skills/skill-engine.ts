@@ -15,7 +15,7 @@ import type { SkillRepository } from './skill-repository.js';
 export type LLMGenerateFn = (systemPrompt: string, userMessage: string) => Promise<string>;
 
 /** The agent chat function — runs a message through the full agent loop with tools */
-export type AgentChatFn = (message: string, sessionId: string) => Promise<{
+export type AgentChatFn = (message: string, sessionId: string, source?: string, contactName?: string) => Promise<{
   response: string;
   toolCalls: Array<{ tool: string; args: Record<string, unknown>; result?: string }>;
 }>;
@@ -152,8 +152,15 @@ Does this event match the condition? Respond with ONLY "yes" or "no".`;
     }
 
     try {
-      const sessionId = `skill-${skill.id}-${Date.now()}`;
+      // Use the event's from field as session ID for proper conversation context
+      // For Telegram, this is the chatId; for WhatsApp, this is the JID
+      const sessionId = event.source === 'telegram' 
+        ? `telegram:${event.from}` 
+        : (event.from || `skill-${skill.id}-${Date.now()}`);
       
+      // Extract contact name from event data
+      const contactName = (event.data?.senderName as string) || event.from || undefined;
+
       // Build context from the event
       const context = [
         `[AUTOMATED SKILL EXECUTION — NO CONFIRMATION NEEDED]`,
@@ -164,17 +171,19 @@ Does this event match the condition? Respond with ONLY "yes" or "no".`;
         ``,
         `Event context:`,
         `- Source: ${event.source}`,
-        `- From: ${event.from || 'unknown'}`,
+        `- From: ${contactName || event.from || 'unknown'}`,
         `- Body: ${event.body || '(no body)'}`,
         event.data ? `- Data: ${JSON.stringify(event.data)}` : '',
         ``,
         `Instructions:`,
         skill.processor.instructions,
         ``,
-        `Execute now using the available tools.`,
+        `IMPORTANT: The reply will be sent automatically by the skill engine.`,
+        `Do NOT use send_message, reply_to_message, or ask_owner tools.`,
+        `Just generate the response text directly.`,
       ].filter(Boolean).join('\n');
 
-      const result = await agentChat(context, sessionId);
+      const result = await agentChat(context, sessionId, event.source, contactName);
 
       return {
         skillId: skill.id,

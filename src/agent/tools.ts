@@ -95,6 +95,15 @@ export const AGENT_TOOLS: ToolDefinition[] = [
     ],
   },
   {
+    name: 'ask_owner',
+    description: 'LAST RESORT: Ask the owner for approval ONLY when a third party requests specific private information you genuinely cannot find in your persona docs (e.g. exact phone numbers, bank details, scheduling commitments). Do NOT use for general questions, greetings, or anything you can answer from persona knowledge. Answer autonomously whenever possible.',
+    parameters: [
+      { name: 'question', type: 'string', description: 'The specific sensitive question requiring owner input', required: true },
+      { name: 'context', type: 'string', description: 'Who is asking and why this cannot be answered from persona (e.g. "Ahmed wants your exact bank account number")', required: true },
+      { name: 'requester_jid', type: 'string', description: 'The JID or phone number of the person waiting for a response', required: true },
+    ],
+  },
+  {
     name: 'list_skills',
     description: 'List all skills (automated pipelines). Each skill has a Trigger → Processor → Outcome pipeline.',
     parameters: [],
@@ -143,7 +152,60 @@ export const AGENT_TOOLS: ToolDefinition[] = [
       { name: 'skill_id', type: 'string', description: 'ID of the skill to delete', required: true },
     ],
   },
+  // ── Browser Automation Tools ────────────────────────────
+  {
+    name: 'browse_url',
+    description: 'Open a URL in the browser and return the page title and visible text content. Use this to visit websites, read Gmail, view Google Calendar, etc.',
+    parameters: [
+      { name: 'url', type: 'string', description: 'Full URL to navigate to (e.g. https://mail.google.com)', required: true },
+    ],
+  },
+  {
+    name: 'browser_click',
+    description: 'Click an element on the current browser page using a CSS selector',
+    parameters: [
+      { name: 'selector', type: 'string', description: 'CSS selector of the element to click (e.g. "button.compose", "a[href=\'/inbox\']", "#submit-btn")', required: true },
+    ],
+  },
+  {
+    name: 'browser_type',
+    description: 'Type text into an input field on the current browser page',
+    parameters: [
+      { name: 'selector', type: 'string', description: 'CSS selector of the input field', required: true },
+      { name: 'text', type: 'string', description: 'Text to type into the field', required: true },
+    ],
+  },
+  {
+    name: 'browser_read_page',
+    description: 'Read the visible text content from the current browser page, or from a specific element. Use after browse_url to read page content.',
+    parameters: [
+      { name: 'selector', type: 'string', description: 'Optional CSS selector to read text from a specific element. Omit to read the full page.', required: false },
+    ],
+  },
+  {
+    name: 'browser_screenshot',
+    description: 'Take a screenshot of the current browser page. Returns a base64-encoded image.',
+    parameters: [],
+  },
 ];
+
+/**
+ * Tools safe for visitor (non-owner) sessions.
+ * The bot acts as a secretary for the owner:
+ *   - Answers from persona knowledge (no tool needed)
+ *   - Escalates to owner when unsure (ask_owner)
+ * Everything else (browse, messages, contacts, skills, web search, etc.)
+ * is OWNER-ONLY to prevent information leakage and misuse.
+ */
+export const VISITOR_SAFE_TOOL_NAMES: ReadonlySet<string> = new Set([
+  'ask_owner',
+]);
+
+/** Get the filtered tool list based on whether the caller is the owner */
+export function getToolsForSource(isOwner: boolean): ToolDefinition[] {
+  if (isOwner) return AGENT_TOOLS;
+  return AGENT_TOOLS.filter(t => VISITOR_SAFE_TOOL_NAMES.has(t.name));
+}
 
 /** Format tools for the system prompt (text-based fallback) */
 export function formatToolsForPrompt(tools: ToolDefinition[]): string {

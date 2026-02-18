@@ -8,8 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Send, Trash2, Bot, User, Wrench, Sparkles } from "lucide-react";
+import { Send, Trash2, Bot, User, Wrench, Sparkles, Loader2 } from "lucide-react";
 import { api } from "@/lib/api";
 
 interface ChatMessage {
@@ -56,13 +55,53 @@ export default function ChatPage() {
     }, 50);
   };
 
+  /** Normalize history messages from backend shape to frontend shape */
+  const normalizeMessage = (msg: Record<string, unknown>): ChatMessage => {
+    const meta = msg.metadata as Record<string, unknown> | undefined;
+    let tokenUsage = undefined;
+    let toolCalls = undefined;
+
+    if (meta) {
+      // Backend returns usage.totalTokens; frontend expects tokenUsage.total
+      const usage = meta.usage as Record<string, number> | undefined;
+      if (usage) {
+        tokenUsage = {
+          prompt: usage.promptTokens ?? 0,
+          completion: usage.completionTokens ?? 0,
+          total: usage.totalTokens ?? 0,
+        };
+      }
+
+      // Backend returns toolCall (singular object); frontend expects toolCalls (array)
+      const tc = meta.toolCall as Record<string, unknown> | undefined;
+      if (tc?.toolName) {
+        const names = String(tc.toolName).split(", ").filter(Boolean);
+        toolCalls = names.map((n) => ({ name: n }));
+      }
+    }
+
+    return {
+      role: msg.role as "user" | "assistant",
+      content: (msg.content as string) ?? "",
+      timestamp: msg.timestamp as string | undefined,
+      metadata: meta
+        ? {
+            model: meta.model as string | undefined,
+            tokenUsage,
+            toolCalls,
+            duration: meta.duration as number | undefined,
+          }
+        : undefined,
+    };
+  };
+
   const loadHistory = async () => {
     try {
-      const data = await api<{ messages: ChatMessage[] }>(
+      const data = await api<{ messages: Record<string, unknown>[] }>(
         "/api/chat/history?sessionId=web-console&limit=50"
       );
       if (data.messages?.length) {
-        setMessages(data.messages);
+        setMessages(data.messages.map(normalizeMessage));
       }
     } catch {
       /* empty history */
@@ -96,8 +135,11 @@ export default function ChatPage() {
 
     try {
       const res = await api<{
-        response: string;
-        metadata?: ChatMessage["metadata"];
+        content: string;
+        toolCalls?: Array<{ toolName: string }>;
+        usage?: { promptTokens: number; completionTokens: number; totalTokens: number };
+        model?: string;
+        duration?: number;
       }>("/api/chat", {
         method: "POST",
         body: { message: trimmed, sessionId: "web-console" },
@@ -107,9 +149,20 @@ export default function ChatPage() {
         ...prev,
         {
           role: "assistant",
-          content: res.response,
+          content: res.content ?? "",
           timestamp: new Date().toISOString(),
-          metadata: res.metadata,
+          metadata: {
+            model: res.model,
+            tokenUsage: res.usage
+              ? {
+                  prompt: res.usage.promptTokens,
+                  completion: res.usage.completionTokens,
+                  total: res.usage.totalTokens,
+                }
+              : undefined,
+            toolCalls: res.toolCalls?.map((tc) => ({ name: tc.toolName })),
+            duration: res.duration,
+          },
         },
       ]);
     } catch (err: unknown) {
@@ -147,6 +200,7 @@ export default function ChatPage() {
   };
 
   const formatContent = (text: string) => {
+    if (!text) return "";
     return text
       .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
       .replace(/`(.+?)`/g, '<code class="bg-muted px-1 py-0.5 rounded text-xs">$1</code>')
@@ -287,16 +341,23 @@ export default function ChatPage() {
           ))}
 
           {loading && (
-            <div className="flex gap-3">
+            <div className="flex gap-3 items-start">
               <Avatar className="size-8 shrink-0">
                 <AvatarFallback className="bg-primary text-primary-foreground text-xs">
                   <Bot className="size-4" />
                 </AvatarFallback>
               </Avatar>
-              <div className="space-y-2">
-                <Skeleton className="h-4 w-60" />
-                <Skeleton className="h-4 w-40" />
-              </div>
+              <Card className="px-4 py-3 bg-muted">
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Loader2 className="size-4 animate-spin text-primary" />
+                  <span>Thinking</span>
+                  <span className="inline-flex gap-0.5">
+                    <span className="animate-bounce" style={{ animationDelay: "0ms" }}>.</span>
+                    <span className="animate-bounce" style={{ animationDelay: "150ms" }}>.</span>
+                    <span className="animate-bounce" style={{ animationDelay: "300ms" }}>.</span>
+                  </span>
+                </div>
+              </Card>
             </div>
           )}
         </div>

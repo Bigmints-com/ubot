@@ -24,4 +24,5 @@ Thumbs.db
 npm-debug.log*
 
 # Testing
-coverage/
+coverage/sessions/
+browser-profile/
