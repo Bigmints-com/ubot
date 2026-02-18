@@ -1602,33 +1602,25 @@ export async function handleApiRoute(
         });
         if (waMessages.length > MAX_WA_MESSAGES) waMessages.shift();
 
-        // Auto-reply if enabled
+        // Always respond to incoming messages — skills govern behavior
         if (agentOrchestrator && !msg.isFromMe && msg.body) {
-          const config = agentOrchestrator.getConfig();
-          if (config.autoReplyWhatsApp) {
-            const jid = msg.from || '';
-            const shouldReply = config.autoReplyContacts.length === 0 ||
-              config.autoReplyContacts.some(c => jid.includes(c.replace(/[^0-9]/g, '')));
-            
-            if (shouldReply) {
-              try {
-                const response = await agentOrchestrator.chat(jid, msg.body, 'whatsapp', msg.from);
-                // Send the reply back via WhatsApp
-                const socket = waConnection?.getSocket();
-                if (socket && response.content) {
-                  await socket.sendMessage(jid, { text: response.content });
-                  waMessages.push({
-                    from: 'me',
-                    to: jid,
-                    body: response.content,
-                    timestamp: new Date().toISOString(),
-                    isFromMe: true,
-                  });
-                }
-              } catch (err: any) {
-                console.error('[API] Auto-reply error:', err.message);
-              }
+          const jid = msg.from || '';
+          try {
+            const response = await agentOrchestrator.chat(jid, msg.body, 'whatsapp', msg.from);
+            // Send the reply back via WhatsApp
+            const socket = waConnection?.getSocket();
+            if (socket && response.content) {
+              await socket.sendMessage(jid, { text: response.content });
+              waMessages.push({
+                from: 'me',
+                to: jid,
+                body: response.content,
+                timestamp: new Date().toISOString(),
+                isFromMe: true,
+              });
             }
+          } catch (err: any) {
+            console.error('[API] WhatsApp reply error:', err.message);
           }
         }
       });
