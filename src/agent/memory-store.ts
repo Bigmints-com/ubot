@@ -13,7 +13,7 @@ import type { Migration } from '../database/types.js';
 /*  Types                                                              */
 /* ------------------------------------------------------------------ */
 
-export type MemoryCategory = 'identity' | 'preference' | 'fact' | 'relationship' | 'note';
+export type MemoryCategory = 'identity' | 'preference' | 'fact' | 'relationship' | 'note' | 'summary';
 
 export interface MemoryEntry {
   id: string;

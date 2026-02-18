@@ -137,25 +137,48 @@ export function createSoul(memoryStore: MemoryStore): Soul {
       const ownerDoc = memoryStore.getDocument(OWNER_SOUL_ID);
       if (ownerDoc && ownerDoc.content.trim() && ownerDoc.content !== DEFAULT_OWNER_SOUL) {
         if (isOwner) {
-          // Talking TO the owner — use their profile as context, not personality to adopt
           sections.push('\n## About Your Owner (You Are Talking To Them Right Now)');
-          sections.push('The person you are chatting with IS your owner. Use this info to assist them. Do NOT adopt their personality or speech patterns — you are their assistant, not their impersonator:');
+          sections.push('The person you are chatting with IS your owner. Use this info to assist them:');
         } else {
-          // Talking to a third party — owner profile is background context
           sections.push('\n## About Your Owner');
           sections.push('This is who you work for. Use this context to serve them better:');
         }
         sections.push(ownerDoc.content.trim());
       }
 
-      // 3. Contact profile (if replying to a specific person)
+      // 3. Contact layers (if replying to a specific person, not the owner)
       if (contactId && contactId !== OWNER_SOUL_ID && contactId !== BOT_SOUL_ID) {
+        // Layer 1: Persona (qualitative)
         const contactDoc = memoryStore.getDocument(contactId);
         if (contactDoc && contactDoc.content.trim()) {
           sections.push('\n## About This Contact');
-          sections.push('What you know about the person you are currently talking to:');
+          sections.push('### Personality & Style');
           sections.push(contactDoc.content.trim());
-          sections.push('\nUse this naturally in conversation. Do not explicitly say "I remember you said..."');
+        }
+
+        // Layer 2: Personal Details (from agent_memories)
+        const memories = memoryStore.getMemories(contactId);
+        const detailMemories = memories.filter(m => m.category !== 'summary');
+        if (detailMemories.length > 0) {
+          if (!contactDoc || !contactDoc.content.trim()) {
+            sections.push('\n## About This Contact');
+          }
+          sections.push('\n### Personal Details');
+          for (const m of detailMemories) {
+            sections.push(`- ${m.key}: ${m.value}`);
+          }
+        }
+
+        // Layer 3: Chat Summary (rolling digest)
+        const summaryMemories = memories.filter(m => m.category === 'summary');
+        const chatDigest = summaryMemories.find(m => m.key === 'chat_digest');
+        if (chatDigest && chatDigest.value.trim()) {
+          sections.push('\n### Conversation History');
+          sections.push(chatDigest.value.trim());
+        }
+
+        if (contactDoc?.content.trim() || detailMemories.length > 0 || chatDigest) {
+          sections.push('\nUse this context naturally. Do not explicitly say "I remember you said..."');
         }
       }
 
@@ -172,59 +195,52 @@ export function createSoul(memoryStore: MemoryStore): Soul {
 /*  Soul document rewrite prompt                                       */
 /* ------------------------------------------------------------------ */
 
-export const SOUL_REWRITE_PROMPT = `You are a memory manager for an AI assistant called Ubot.
-Your job is to maintain a living document about a person, updating it with new information from conversations.
+export const SOUL_REWRITE_PROMPT = `You are a persona manager for an AI assistant called Ubot.
+Your job is to maintain a PERSONALITY PROFILE about a person — who they are qualitatively.
 
 You will be given:
 1. The CURRENT persona document (may be empty for new contacts)
-2. METADATA about the contact (channel, phone/handle, name)
+2. METADATA about the contact (channel, name)
 3. A new CONVERSATION snippet
 
 Your task:
-- Merge new facts from the conversation into the existing document
-- Always include known identifiers (phone number, Telegram handle, name) from the METADATA
-- Track what they have asked about or requested
+- Update the persona with personality and relationship insights from the conversation
+- Focus on WHO they are, not WHAT they discussed
 - Keep it concise, well-organized, and in YAML-like format
-- Preserve existing facts unless clearly outdated/corrected
-- If nothing new was said, return the document unchanged
+- Preserve existing traits unless clearly outdated/corrected
+- If nothing new about their personality was revealed, return the document unchanged
 
 Format the document with these sections:
-# Identity
-name: [their display name]
-occupation: [if known]
-location: [if known]
+# Personality
+tone: [how they communicate — formal, casual, brief, verbose, etc.]
+language: [preferred language if apparent]
+style: [any notable communication patterns]
 
-# Contact
-phone: [from WhatsApp JID or if shared]
-telegram: [chat ID or username]
-email: [if shared]
+# Relationship
+role: [their relation to the owner — friend, client, colleague, family, unknown]
+context: [brief description of who they are and how they relate to the owner]
 
-# About
-[Brief description: who they are, their relation to the owner, key context]
-
-# Asks & Topics
-[What they have asked about or discussed — e.g. "Asked about owner's schedule", "Wanted to set up a meeting", "Asked for phone number"]
+# Traits
+[Key personality traits, interests, or notable characteristics observed from conversations]
 
 # Preferences
-[Communication style, language, interests]
-
-# Notes
-[Any other relevant context]
+[Any stated preferences — communication channel, timing, topics they care about]
 
 Rules:
-- Always populate Identity and Contact from METADATA even if the conversation doesn't mention them
-- Keep Asks & Topics as a running log of what they've discussed (most recent first)
-- Be conservative — only add facts explicitly stated or strongly implied
-- Keep the document under 2000 characters
+- This is a PERSONALITY profile, NOT a conversation log
+- Do NOT include what they asked about or discussed (that goes in chat summary)
+- Do NOT include contact details like phone, email, etc. (that goes in personal details)
+- Be conservative — only add traits explicitly demonstrated or strongly implied
+- Keep the document under 1000 characters
 - Respond with ONLY the updated document, nothing else
-- Do NOT add information that was not in the conversation or metadata`;
+- Do NOT add information that was not in the conversation`;
 
 /* ------------------------------------------------------------------ */
 /*  Owner merge prompt — append-only, never replaces existing content  */
 /* ------------------------------------------------------------------ */
 
-export const OWNER_MERGE_PROMPT = `You are a memory manager for an AI assistant.
-Your job is to extract ONLY NEW facts about the owner from a conversation snippet.
+export const OWNER_MERGE_PROMPT = `You are a persona manager for an AI assistant.
+Your job is to extract ONLY NEW personality/preference facts about the owner from a conversation.
 
 You will be given:
 1. The CURRENT owner profile document
@@ -232,26 +248,27 @@ You will be given:
 
 Your task:
 - Compare the conversation against the existing document
-- Extract ONLY facts that are NOT already in the existing document
+- Extract ONLY personality, preference, or identity facts NOT already in the document
 - If nothing new was learned, respond with exactly: NO_NEW_FACTS
 - If there are new facts, respond with a short block in this format:
 
-## New Facts (YYYY-MM-DD)
+## New Facts
 - [section]: [fact]
 - [section]: [fact]
 
-Where [section] is one of: Identity, Contact, Preferences, Work, Schedule, Notes
+Where [section] is one of: Personality, Preferences, Traits, Relationship, Context
 
 Example output:
-## New Facts (2026-02-18)
+## New Facts
 - Preferences: Prefers morning meetings before 10am
-- Work: Working on a new mobile app called Fikr
+- Traits: Entrepreneurial, runs a tech startup
 
 Rules:
 - NEVER repeat facts already in the existing document
-- Be conservative — only add facts explicitly stated or strongly implied
+- Focus on WHO the owner is, not WHAT they discussed
+- Do NOT log conversation topics or questions asked
 - Keep each fact to one concise line
-- Respond with NO_NEW_FACTS if the conversation didn't reveal anything new
+- Respond with NO_NEW_FACTS if nothing new about their personality was revealed
 - Do NOT include greetings, small talk, or bot responses as facts`;
 
 /**
@@ -306,3 +323,51 @@ export function mergeIntoOwnerDoc(existingDoc: string, newFacts: string): string
 
   return doc;
 }
+
+/* ------------------------------------------------------------------ */
+/*  Fact extraction prompt — structured personal details as JSON       */
+/* ------------------------------------------------------------------ */
+
+export const FACT_EXTRACTION_PROMPT = `Extract structured personal details from this conversation.
+Return a JSON object with key-value pairs of facts learned about the USER (not the assistant).
+
+Only include facts that are explicitly stated or very strongly implied.
+If no new facts are found, return an empty object: {}
+
+Use these standard keys when applicable:
+- name: their full name or display name
+- occupation: job title or profession
+- company: where they work
+- location: city or country
+- email: email address
+- language: preferred language
+- timezone: their timezone if mentioned
+
+You may also use custom keys for other facts (e.g. "birthday", "spouse_name").
+
+Rules:
+- Return ONLY valid JSON, nothing else
+- Do NOT include conversation topics or what they asked about
+- Do NOT include contact channel info (phone, telegram) — that's handled separately
+- Keep values concise (single line)`;
+
+/* ------------------------------------------------------------------ */
+/*  Chat summary prompt — rolling conversation digest                  */
+/* ------------------------------------------------------------------ */
+
+export const SUMMARY_UPDATE_PROMPT = `You maintain a rolling summary of conversations between a person and an AI assistant.
+
+You will be given:
+1. The CURRENT summary (may be empty for first conversation)
+2. A new CONVERSATION snippet
+
+Your task:
+- Update the summary to include key points from the new conversation
+- Keep it as a concise digest of all past interactions
+- Focus on: what was discussed, what was asked, what was decided/resolved
+- Drop trivial details (greetings, small talk)
+- Keep the summary under 500 characters
+- Most recent topics should appear first
+
+If the current summary is empty, create a new one from the conversation.
+Respond with ONLY the updated summary text, nothing else.`;
