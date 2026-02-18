@@ -2,37 +2,60 @@
  * Soul Module
  * Ubot's identity, personality, and evolving knowledge about its owner and contacts.
  * 
- * Three soul layers:
+ * Three soul layers stored as YAML documents:
  * 1. Bot Soul   — Ubot's own persona (tone, style, personality traits)
  * 2. Owner Soul — Deep profile of the owner (you) — preferences, habits, context
  * 3. Contact Souls — Profiles for each person the owner interacts with
  */
 
-import type { MemoryStore, MemoryCategory } from './memory-store.js';
+import type { MemoryStore } from './memory-store.js';
 
 /* ------------------------------------------------------------------ */
 /*  Constants                                                          */
 /* ------------------------------------------------------------------ */
 
-/** Special contact IDs for bot and owner souls */
+/** Special persona IDs for bot and owner souls */
 export const BOT_SOUL_ID = '__bot__';
 export const OWNER_SOUL_ID = '__owner__';
 
-/** Soul-specific memory categories */
-export type SoulCategory = MemoryCategory | 'personality' | 'style' | 'context';
+/* ------------------------------------------------------------------ */
+/*  Default bot persona (YAML seed)                                    */
+/* ------------------------------------------------------------------ */
+
+const DEFAULT_BOT_SOUL = `# Bot Persona
+name: Ubot
+role: Personal AI assistant
+purpose: Help the owner manage their communications and automate tasks
+
+# Personality
+tone: Warm, conversational, and helpful
+style: Concise but friendly. Uses emoji occasionally. Adapts to the conversation.
+boundaries: Always acts on behalf of the owner. Never reveals it is an AI unless asked directly.
+`;
+
+const DEFAULT_OWNER_SOUL = `# Owner Profile
+# This document is automatically updated as the bot learns about you from conversations.
+# You can also edit it manually.
+`;
 
 /* ------------------------------------------------------------------ */
 /*  Soul interface                                                     */
 /* ------------------------------------------------------------------ */
 
 export interface Soul {
-  /** Save or update a piece of soul data */
-  learn(soulId: string, category: MemoryCategory, key: string, value: string): void;
+  /** Get the raw YAML document for a persona */
+  getDocument(personaId: string): string;
 
-  /** Get all soul data for a contact/entity */
-  recall(soulId: string): Record<string, string>;
+  /** Save a YAML document for a persona */
+  saveDocument(personaId: string, content: string): void;
 
-  /** Build a comprehensive system prompt section from all soul data */
+  /** Delete a persona document */
+  deleteDocument(personaId: string): boolean;
+
+  /** List all persona IDs with metadata */
+  listPersonas(): Array<{ id: string; label: string; updatedAt: Date; contentLength: number }>;
+
+  /** Build a comprehensive system prompt section from all soul documents */
   buildSoulPrompt(contactId?: string): string;
 
   /** Get the raw memory store for direct access */
@@ -40,96 +63,74 @@ export interface Soul {
 }
 
 /* ------------------------------------------------------------------ */
-/*  Default bot persona (seed values)                                  */
-/* ------------------------------------------------------------------ */
-
-const DEFAULT_BOT_SOUL: Record<string, Record<string, string>> = {
-  identity: {
-    name: 'Ubot',
-    role: 'Personal AI assistant',
-    purpose: 'Help the owner manage their communications and automate tasks',
-  },
-  personality: {
-    tone: 'Warm, conversational, and helpful',
-    style: 'Concise but friendly. Uses emoji occasionally. Adapts to the conversation.',
-    boundaries: 'Always acts on behalf of the owner. Never reveals it is an AI unless asked directly.',
-  },
-};
-
-/* ------------------------------------------------------------------ */
 /*  Implementation                                                     */
 /* ------------------------------------------------------------------ */
 
 export function createSoul(memoryStore: MemoryStore): Soul {
-  // Seed bot persona if not already present
-  const existingBot = memoryStore.getMemories(BOT_SOUL_ID);
-  if (existingBot.length === 0) {
-    for (const [category, entries] of Object.entries(DEFAULT_BOT_SOUL)) {
-      for (const [key, value] of Object.entries(entries)) {
-        memoryStore.saveMemory(BOT_SOUL_ID, category as MemoryCategory, key, value, 'seed', 1.0);
-      }
-    }
-    console.log('[Soul] 🧠 Seeded default bot persona');
+  // Seed default documents if not already present
+  const existingBot = memoryStore.getDocument(BOT_SOUL_ID);
+  if (!existingBot) {
+    memoryStore.saveDocument(BOT_SOUL_ID, DEFAULT_BOT_SOUL);
+    console.log('[Soul] 🧠 Seeded default bot persona document');
+  }
+
+  const existingOwner = memoryStore.getDocument(OWNER_SOUL_ID);
+  if (!existingOwner) {
+    memoryStore.saveDocument(OWNER_SOUL_ID, DEFAULT_OWNER_SOUL);
+    console.log('[Soul] 🧠 Seeded default owner profile document');
   }
 
   return {
-    learn(soulId: string, category: MemoryCategory, key: string, value: string): void {
-      memoryStore.saveMemory(soulId, category, key, value, 'extracted', 0.8);
+    getDocument(personaId: string): string {
+      const doc = memoryStore.getDocument(personaId);
+      return doc?.content || '';
     },
 
-    recall(soulId: string): Record<string, string> {
-      const memories = memoryStore.getMemories(soulId);
-      const result: Record<string, string> = {};
-      for (const m of memories) {
-        result[`${m.category}.${m.key}`] = m.value;
-      }
-      return result;
+    saveDocument(personaId: string, content: string): void {
+      memoryStore.saveDocument(personaId, content);
+    },
+
+    deleteDocument(personaId: string): boolean {
+      return memoryStore.deleteDocument(personaId);
+    },
+
+    listPersonas(): Array<{ id: string; label: string; updatedAt: Date; contentLength: number }> {
+      const docs = memoryStore.listDocuments();
+      return docs.map(d => ({
+        id: d.personaId,
+        label: d.personaId === BOT_SOUL_ID ? 'Bot Persona'
+             : d.personaId === OWNER_SOUL_ID ? 'Owner Profile'
+             : d.personaId,
+        updatedAt: d.updatedAt,
+        contentLength: d.content.length,
+      }));
     },
 
     buildSoulPrompt(contactId?: string): string {
       const sections: string[] = [];
 
       // 1. Bot persona
-      const botMemories = memoryStore.getMemories(BOT_SOUL_ID);
-      if (botMemories.length > 0) {
+      const botDoc = memoryStore.getDocument(BOT_SOUL_ID);
+      if (botDoc && botDoc.content.trim()) {
         sections.push('## Your Identity');
-        const grouped = groupByCategory(botMemories);
-        for (const [cat, items] of grouped) {
-          for (const item of items) {
-            sections.push(`- ${item.key}: ${item.value}`);
-          }
-        }
+        sections.push(botDoc.content.trim());
       }
 
       // 2. Owner profile
-      const ownerMemories = memoryStore.getMemories(OWNER_SOUL_ID);
-      if (ownerMemories.length > 0) {
+      const ownerDoc = memoryStore.getDocument(OWNER_SOUL_ID);
+      if (ownerDoc && ownerDoc.content.trim() && ownerDoc.content !== DEFAULT_OWNER_SOUL) {
         sections.push('\n## About Your Owner');
         sections.push('This is who you work for. Use this context to serve them better:');
-        const grouped = groupByCategory(ownerMemories);
-        for (const [cat, items] of grouped) {
-          const catLabel = cat.charAt(0).toUpperCase() + cat.slice(1);
-          sections.push(`**${catLabel}:**`);
-          for (const item of items) {
-            sections.push(`- ${item.key}: ${item.value}`);
-          }
-        }
+        sections.push(ownerDoc.content.trim());
       }
 
       // 3. Contact profile (if replying to a specific person)
       if (contactId && contactId !== OWNER_SOUL_ID && contactId !== BOT_SOUL_ID) {
-        const contactMemories = memoryStore.getMemories(contactId);
-        if (contactMemories.length > 0) {
+        const contactDoc = memoryStore.getDocument(contactId);
+        if (contactDoc && contactDoc.content.trim()) {
           sections.push('\n## About This Contact');
           sections.push('What you know about the person you are currently talking to:');
-          const grouped = groupByCategory(contactMemories);
-          for (const [cat, items] of grouped) {
-            const catLabel = cat.charAt(0).toUpperCase() + cat.slice(1);
-            sections.push(`**${catLabel}:**`);
-            for (const item of items) {
-              sections.push(`- ${item.key}: ${item.value}`);
-            }
-          }
+          sections.push(contactDoc.content.trim());
           sections.push('\nUse this naturally in conversation. Do not explicitly say "I remember you said..."');
         }
       }
@@ -144,43 +145,52 @@ export function createSoul(memoryStore: MemoryStore): Soul {
 }
 
 /* ------------------------------------------------------------------ */
-/*  Helpers                                                            */
+/*  Soul document rewrite prompt                                       */
 /* ------------------------------------------------------------------ */
 
-function groupByCategory(memories: { category: string; key: string; value: string }[]): Map<string, { key: string; value: string }[]> {
-  const grouped = new Map<string, { key: string; value: string }[]>();
-  for (const m of memories) {
-    const list = grouped.get(m.category) || [];
-    list.push({ key: m.key, value: m.value });
-    grouped.set(m.category, list);
-  }
-  return grouped;
-}
+export const SOUL_REWRITE_PROMPT = `You are a memory manager for an AI assistant called Ubot.
+Your job is to maintain a living document about a person, updating it with new information from conversations.
 
-/* ------------------------------------------------------------------ */
-/*  Extraction prompt for soul data                                    */
-/* ------------------------------------------------------------------ */
+You will be given:
+1. The CURRENT persona document (may be empty for new contacts)
+2. METADATA about the contact (channel, phone/handle, name)
+3. A new CONVERSATION snippet
 
-export const SOUL_EXTRACTION_PROMPT = `You are a soul extraction system for an AI assistant called Ubot. 
-Ubot is learning about the people it interacts with.
+Your task:
+- Merge new facts from the conversation into the existing document
+- Always include known identifiers (phone number, Telegram handle, name) from the METADATA
+- Track what they have asked about or requested
+- Keep it concise, well-organized, and in YAML-like format
+- Preserve existing facts unless clearly outdated/corrected
+- If nothing new was said, return the document unchanged
 
-Analyze the conversation and extract facts about the USER (not the assistant). Return a JSON array:
+Format the document with these sections:
+# Identity
+name: [their display name]
+occupation: [if known]
+location: [if known]
 
-[
-  {"category": "identity", "key": "name", "value": "John", "confidence": 0.95},
-  {"category": "preference", "key": "language", "value": "English", "confidence": 0.8}
-]
+# Contact
+phone: [from WhatsApp JID or if shared]
+telegram: [chat ID or username]
+email: [if shared]
 
-Categories:
-- identity: name, age, location, occupation, phone, email
-- preference: language, communication style, interests, habits
-- fact: specific things they mentioned (e.g. "has a dog named Max")
-- relationship: their relation to the owner (friend, colleague, family, etc.)
-- note: anything else notable
+# About
+[Brief description: who they are, their relation to the owner, key context]
+
+# Asks & Topics
+[What they have asked about or discussed — e.g. "Asked about owner's schedule", "Wanted to set up a meeting", "Asked for phone number"]
+
+# Preferences
+[Communication style, language, interests]
+
+# Notes
+[Any other relevant context]
 
 Rules:
-- ONLY extract facts the USER explicitly stated or strongly implied
-- Return [] if nothing noteworthy was said
-- Be conservative — high confidence only for clear statements
-- Key names should be lowercase, simple labels
-- Respond with ONLY the JSON array, nothing else`;
+- Always populate Identity and Contact from METADATA even if the conversation doesn't mention them
+- Keep Asks & Topics as a running log of what they've discussed (most recent first)
+- Be conservative — only add facts explicitly stated or strongly implied
+- Keep the document under 2000 characters
+- Respond with ONLY the updated document, nothing else
+- Do NOT add information that was not in the conversation or metadata`;

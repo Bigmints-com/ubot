@@ -73,7 +73,23 @@ export class WhatsAppConnection {
       );
       this.saveCreds = saveCreds;
       
-      const { version } = await fetchLatestBaileysVersion();
+      // Fetch WA Web version with validation — the API sometimes returns garbage
+      const KNOWN_GOOD_VERSION: [number, number, number] = [2, 3000, 1015901307];
+      let version: [number, number, number];
+      try {
+        const fetched = await fetchLatestBaileysVersion();
+        // Validate: third version number should be reasonable (normal: under 100K)
+        if (fetched.version && fetched.version[2] < 100_000) {
+          version = fetched.version as [number, number, number];
+        } else {
+          console.warn('[WhatsApp] ⚠️ Invalid version from API:', fetched.version, '— using fallback');
+          version = KNOWN_GOOD_VERSION;
+        }
+      } catch {
+        console.warn('[WhatsApp] ⚠️ Failed to fetch version — using fallback');
+        version = KNOWN_GOOD_VERSION;
+      }
+      console.log('[WhatsApp] Using WA Web version:', version);
       
       this.socket = makeWASocket({
         version,

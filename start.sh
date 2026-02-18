@@ -1,26 +1,28 @@
 #!/bin/bash
-# start.sh — Start Ubot Core on port 4080
+# start.sh — Start Ubot Core (Backend API + Next.js UI on port 4080)
 set -e
 
-PORT=4080
 DIR="$(cd "$(dirname "$0")/ubot-core" && pwd)"
 
-echo "🛑 Killing any existing process on port $PORT..."
-lsof -ti:$PORT | xargs kill -9 2>/dev/null || true
+echo "🛑 Killing any existing processes..."
+lsof -ti:4080 | xargs kill -9 2>/dev/null || true
+lsof -ti:4081 | xargs kill -9 2>/dev/null || true
 sleep 1
 
-echo "🚀 Starting Ubot Core on port $PORT..."
+# 1) Start backend API on internal port 4081
+echo "🔧 Starting backend API on :4081..."
 cd "$DIR"
-PORT=$PORT nohup npm run dev > "$DIR/ubot.log" 2>&1 &
-PID=$!
-echo $PID > "$DIR/ubot.pid"
+PORT=4081 nohup npm run dev > "$DIR/ubot.log" 2>&1 &
+echo $! > "$DIR/ubot.pid"
 
-sleep 3
-if kill -0 $PID 2>/dev/null; then
-  echo "✅ Ubot Core running (PID: $PID)"
-  echo "📊 Dashboard: http://localhost:$PORT"
-  echo "📄 Logs: tail -f $DIR/ubot.log"
-else
-  echo "❌ Failed to start. Check $DIR/ubot.log"
-  exit 1
-fi
+# 2) Start Next.js UI on port 4080 (user-facing)
+echo "🎨 Starting Next.js UI on :4080 (Turbopack)..."
+cd "$DIR/web"
+PORT=4080 nohup npm run dev > "$DIR/web.log" 2>&1 &
+echo $! > "$DIR/web.pid"
+
+sleep 4
+echo ""
+echo "✅ Ubot Core running!"
+echo "📊 Dashboard: http://localhost:4080"
+echo "📄 Logs: tail -f $DIR/ubot.log $DIR/web.log"

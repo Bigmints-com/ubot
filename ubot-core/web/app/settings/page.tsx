@@ -19,6 +19,7 @@ interface AgentConfig {
   maxHistoryMessages: number;
   autoReplyWhatsApp: boolean;
   autoReplyContacts: string[];
+  ownerPhone: string;
 }
 
 export default function SettingsPage() {
@@ -150,6 +151,28 @@ export default function SettingsPage() {
                     updateField("autoReplyWhatsApp", v)
                   }
                 />
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Owner Phone</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="ownerPhone">Phone Number</Label>
+                <Input
+                  id="ownerPhone"
+                  value={config?.ownerPhone || ""}
+                  onChange={(e) => updateField("ownerPhone", e.target.value)}
+                  placeholder="+971569737344"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Your WhatsApp phone number. When a third party asks the bot
+                  something sensitive, approval requests will be sent to this
+                  number.
+                </p>
               </div>
             </CardContent>
           </Card>

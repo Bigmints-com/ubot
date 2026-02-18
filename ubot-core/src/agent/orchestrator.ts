@@ -12,12 +12,12 @@ import type {
 } from './types.js';
 import type { ConversationStore } from './conversation.js';
 import type { MemoryStore } from './memory-store.js';
-import { type Soul, SOUL_EXTRACTION_PROMPT } from './soul.js';
-import { AGENT_TOOLS, formatToolsForAPI, createToolRegistry, type ToolRegistry } from './tools.js';
+import { type Soul, SOUL_REWRITE_PROMPT, OWNER_SOUL_ID } from './soul.js';
+import { AGENT_TOOLS, formatToolsForAPI, createToolRegistry, getToolsForSource, type ToolRegistry } from './tools.js';
 
 export interface AgentOrchestrator {
   /** Process a message and return the agent's response */
-  chat(sessionId: string, message: string, source?: 'web' | 'whatsapp', contactName?: string): Promise<AgentResponse>;
+  chat(sessionId: string, message: string, source?: 'web' | 'whatsapp' | 'telegram', contactName?: string): Promise<AgentResponse>;
   /** Direct LLM text generation (no tools) — for skill generation, etc. */
   generate(systemPrompt: string, userMessage: string): Promise<string>;
   /** Get the current config */
@@ -84,59 +84,73 @@ export function createAgentOrchestrator(
     return messages;
   }
 
-  /** Extract soul data (facts about contacts) from a conversation turn */
-  async function extractSoulData(sessionId: string, userMessage: string, assistantResponse: string): Promise<void> {
+  /** Extract/update soul document from a conversation turn */
+  async function extractSoulData(sessionId: string, userMessage: string, assistantResponse: string, source?: 'web' | 'whatsapp' | 'telegram', contactName?: string): Promise<void> {
     if (!userMessage || !assistantResponse) return;
+    // Read owner name from the owner persona document
+    const ownerDoc = soul.getDocument(OWNER_SOUL_ID);
+    const ownerNameMatch = ownerDoc?.match(/name:\s*(.+)/i);
+    const ownerName = ownerNameMatch ? ownerNameMatch[1].trim() : '';
+
+    // Smart routing:
+    // - Web-console → always the owner
+    // - WhatsApp where contact name matches owner name → owner
+    // - WhatsApp with different contact → contact document
+    let personaId: string;
+    if (source === 'web' || sessionId === 'web-console') {
+      personaId = OWNER_SOUL_ID;
+    } else if (ownerName && contactName && contactName.toLowerCase().includes(ownerName.toLowerCase())) {
+      personaId = OWNER_SOUL_ID;
+    } else {
+      personaId = sessionId;
+    }
 
     const conversationText = `User: ${userMessage}\nAssistant: ${assistantResponse}`;
+    const currentDoc = soul.getDocument(personaId);
+
+    // Add owner context to the prompt so the LLM knows who the owner is
+    const ownerContext = ownerName
+      ? `\nCONTEXT: The owner of this AI assistant is "${ownerName}". The user in this conversation is "${contactName || ownerName || 'unknown'}". Only record facts about the USER in the conversation.`
+      : '';
 
     try {
       const client = createLLMClient();
+      const prompt = currentDoc
+        ? `CURRENT DOCUMENT:\n${currentDoc}\n${ownerContext}\n\nNEW CONVERSATION:\n${conversationText}`
+        : `CURRENT DOCUMENT:\n(empty - this is a new person)\n${ownerContext}\n\nNEW CONVERSATION:\n${conversationText}`;
+
       const completion = await client.chat.completions.create({
         model: currentConfig.llmModel,
         messages: [
-          { role: 'system', content: SOUL_EXTRACTION_PROMPT },
-          { role: 'user', content: conversationText },
+          { role: 'system', content: SOUL_REWRITE_PROMPT },
+          { role: 'user', content: prompt },
         ],
-        temperature: 0.1,  // Low temperature for factual extraction
-        max_tokens: 500,
+        temperature: 0.1,
+        max_tokens: 2000,
       });
 
-      const raw = completion.choices[0]?.message?.content || '[]';
-      // Parse — handle markdown code blocks
-      const cleaned = raw.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-      const facts = JSON.parse(cleaned);
-
-      if (Array.isArray(facts) && facts.length > 0) {
-        for (const fact of facts) {
-          if (fact.category && fact.key && fact.value) {
-            memoryStore.saveMemory(
-              sessionId,
-              fact.category,
-              fact.key,
-              fact.value,
-              'extracted',
-              fact.confidence || 0.8
-            );
-          }
-        }
-        console.log(`[Memory] Extracted ${facts.length} facts from conversation with ${sessionId}`);
+      const updatedDoc = completion.choices[0]?.message?.content || '';
+      if (updatedDoc.trim()) {
+        soul.saveDocument(personaId, updatedDoc.trim());
+        console.log(`[Soul] Updated document for ${personaId} (${updatedDoc.length} chars)`);
       }
     } catch (err: any) {
-      // Memory extraction is best-effort — don't fail the conversation
-      console.error('[Memory] Extraction error:', err.message);
+      console.error('[Soul] Document rewrite error:', err.message);
     }
   }
 
   async function callLLM(
     messages: ChatMsg[],
+    isOwner: boolean = true,
   ): Promise<{
     content: string;
     toolCalls: Array<{ id: string; toolName: string; arguments: Record<string, unknown> }>;
     usage?: { promptTokens: number; completionTokens: number; totalTokens: number };
   }> {
     const client = createLLMClient();
-    const tools = formatToolsForAPI(AGENT_TOOLS);
+    const filteredTools = getToolsForSource(isOwner);
+    const tools = formatToolsForAPI(filteredTools);
+    console.log(`[Agent] Tools available: ${filteredTools.length} (isOwner: ${isOwner})`);
     
     try {
       const completion = await client.chat.completions.create({
@@ -193,7 +207,7 @@ export function createAgentOrchestrator(
     async chat(
       sessionId: string,
       message: string,
-      source: 'web' | 'whatsapp' = 'web',
+      source: 'web' | 'whatsapp' | 'telegram' = 'web',
       contactName?: string
     ): Promise<AgentResponse> {
       const startTime = Date.now();
@@ -218,6 +232,13 @@ export function createAgentOrchestrator(
       let messages = buildMessages(sessionId, message);
       let lastUsage: { promptTokens: number; completionTokens: number; totalTokens: number } | undefined;
 
+      // Determine if this is the owner (same logic as extractSoulData)
+      const ownerDoc = soul.getDocument(OWNER_SOUL_ID);
+      const ownerNameMatch = ownerDoc?.match(/name:\s*(.+)/i);
+      const ownerName = ownerNameMatch ? ownerNameMatch[1].trim() : '';
+      const isOwner = source === 'web' || sessionId === 'web-console' ||
+        (!!ownerName && !!contactName && contactName.toLowerCase().includes(ownerName.toLowerCase()));
+
       // Agent loop with tool calling
       let iteration = 0;
       let finalContent = '';
@@ -225,7 +246,7 @@ export function createAgentOrchestrator(
       while (iteration < currentConfig.maxToolIterations) {
         iteration++;
 
-        const llmResult = await callLLM(messages);
+        const llmResult = await callLLM(messages, isOwner);
         lastUsage = llmResult.usage;
 
         if (llmResult.toolCalls.length === 0) {
@@ -289,7 +310,7 @@ export function createAgentOrchestrator(
       conversationStore.addMessage(sessionId, 'assistant', finalContent, assistantMetadata);
 
       // Extract soul data in the background (don't block the response)
-      extractSoulData(sessionId, message, finalContent).catch(err => {
+      extractSoulData(sessionId, message, finalContent, source, contactName).catch(err => {
         console.error('[Soul] Background extraction failed:', err.message);
       });
 

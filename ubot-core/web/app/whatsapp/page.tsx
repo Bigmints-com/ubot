@@ -4,20 +4,31 @@ import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Switch } from "@/components/ui/switch";
-import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Wifi, WifiOff, QrCode, RefreshCw, Power, PowerOff } from "lucide-react";
 import { api } from "@/lib/api";
+import QRCode from "qrcode";
 
 export default function WhatsAppPage() {
   const [status, setStatus] = useState("disconnected");
   const [qrCode, setQrCode] = useState<string | null>(null);
+  const [qrImage, setQrImage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [connecting, setConnecting] = useState(false);
   const [messages, setMessages] = useState<
     Array<{ from: string; body: string; timestamp: string; isFromMe: boolean }>
   >([]);
+
+  // Generate QR image locally whenever qrCode data changes
+  useEffect(() => {
+    if (!qrCode) {
+      setQrImage(null);
+      return;
+    }
+    QRCode.toDataURL(qrCode, { width: 256, margin: 2 })
+      .then((url: string) => setQrImage(url))
+      .catch(() => setQrImage(null));
+  }, [qrCode]);
 
   const poll = async () => {
     try {
@@ -154,10 +165,10 @@ export default function WhatsAppPage() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            {qrCode ? (
+            {qrImage ? (
               <div className="bg-white p-4 rounded-lg inline-block">
                 <img
-                  src={`https://api.qrserver.com/v1/create-qr-code/?data=${encodeURIComponent(qrCode)}&size=200x200`}
+                  src={qrImage}
                   alt="WhatsApp QR"
                   className="w-48 h-48"
                 />
