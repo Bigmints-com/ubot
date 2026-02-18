@@ -78,6 +78,7 @@ export function parseWhatsAppMessage(rawMessage: any): WhatsAppMessage | null {
   return {
     id: rawMessage.key.id,
     from: rawMessage.key.remoteJid || '',
+    rawJid: rawMessage.key.remoteJid || '',
     to: rawMessage.key.fromMe ? rawMessage.key.remoteJid || '' : '',
     body: extractMessageBody(rawMessage),
     timestamp: new Date(rawMessage.messageTimestamp * 1000),

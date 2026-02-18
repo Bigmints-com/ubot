@@ -140,9 +140,9 @@ describe('WhatsApp Utils', () => {
 
   describe('filterMessagesByDate', () => {
     const messages: WhatsAppMessage[] = [
-      { id: '1', from: 'a', to: 'b', body: '1', timestamp: new Date('2024-01-01'), isFromMe: false, hasMedia: false },
-      { id: '2', from: 'a', to: 'b', body: '2', timestamp: new Date('2024-01-15'), isFromMe: false, hasMedia: false },
-      { id: '3', from: 'a', to: 'b', body: '3', timestamp: new Date('2024-01-31'), isFromMe: false, hasMedia: false }
+      { id: '1', from: 'a', rawJid: 'a', to: 'b', body: '1', timestamp: new Date('2024-01-01'), isFromMe: false, hasMedia: false },
+      { id: '2', from: 'a', rawJid: 'a', to: 'b', body: '2', timestamp: new Date('2024-01-15'), isFromMe: false, hasMedia: false },
+      { id: '3', from: 'a', rawJid: 'a', to: 'b', body: '3', timestamp: new Date('2024-01-31'), isFromMe: false, hasMedia: false }
     ];
 
     it('should filter by start date', () => {
@@ -163,9 +163,9 @@ describe('WhatsApp Utils', () => {
 
   describe('sortMessagesByTimestamp', () => {
     const messages: WhatsAppMessage[] = [
-      { id: '1', from: 'a', to: 'b', body: '1', timestamp: new Date('2024-01-15'), isFromMe: false, hasMedia: false },
-      { id: '2', from: 'a', to: 'b', body: '2', timestamp: new Date('2024-01-01'), isFromMe: false, hasMedia: false },
-      { id: '3', from: 'a', to: 'b', body: '3', timestamp: new Date('2024-01-31'), isFromMe: false, hasMedia: false }
+      { id: '1', from: 'a', rawJid: 'a', to: 'b', body: '1', timestamp: new Date('2024-01-15'), isFromMe: false, hasMedia: false },
+      { id: '2', from: 'a', rawJid: 'a', to: 'b', body: '2', timestamp: new Date('2024-01-01'), isFromMe: false, hasMedia: false },
+      { id: '3', from: 'a', rawJid: 'a', to: 'b', body: '3', timestamp: new Date('2024-01-31'), isFromMe: false, hasMedia: false }
     ];
 
     it('should sort ascending by default', () => {

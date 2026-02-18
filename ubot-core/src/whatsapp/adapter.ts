@@ -109,6 +109,7 @@ export class WhatsAppAdapterImpl implements WhatsAppAdapter {
     const message: WhatsAppMessage = {
       id: sent.key.id,
       from: sent.key.fromMe ? '' : jid,
+      rawJid: jid,
       to: jid,
       body,
       timestamp: new Date(),
