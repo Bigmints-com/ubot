@@ -200,6 +200,22 @@ export const AGENT_TOOLS: ToolDefinition[] = [
     description: 'Take a screenshot of the current browser page. Returns a base64-encoded image.',
     parameters: [],
   },
+  // ── Gmail & Calendar (Browser-based) ──────────────────
+  {
+    name: 'read_emails',
+    description: 'Read emails from Gmail inbox using the browser. Returns sender, subject, snippet, date for recent emails. Requires Gmail to be logged in via the browser profile. Use this when the owner asks to check email, read inbox, find specific emails, etc.',
+    parameters: [
+      { name: 'query', type: 'string', description: 'Gmail search query (e.g. "is:unread", "from:john@example.com", "subject:invoice"). Default: recent inbox.', required: false },
+      { name: 'max_results', type: 'number', description: 'Max emails to return (default 15)', required: false },
+    ],
+  },
+  {
+    name: 'read_calendar',
+    description: 'Read events from Google Calendar for a specific day using the browser. Returns event title, time, and location. Requires Google Calendar to be logged in via the browser profile. Use this when the owner asks about their schedule, agenda, meetings, etc.',
+    parameters: [
+      { name: 'date', type: 'string', description: 'Date to check (e.g. "today", "tomorrow", "2026-02-20"). Default: today.', required: false },
+    ],
+  },
   // ── Scheduler & Reminder Tools ────────────────────────
   {
     name: 'create_reminder',

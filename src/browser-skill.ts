@@ -157,6 +157,193 @@ export class BrowserSkill {
     }
   }
 
+  /** Read emails from Gmail inbox using Puppeteer */
+  async readGmail(options?: { query?: string; maxEmails?: number }): Promise<BrowserActionResult> {
+    const maxEmails = options?.maxEmails ?? 15;
+    try {
+      const page = await this.ensureBrowser();
+      
+      // Navigate to Gmail (with optional search query)
+      const searchQuery = options?.query || '';
+      const gmailUrl = searchQuery
+        ? `https://mail.google.com/mail/u/0/#search/${encodeURIComponent(searchQuery)}`
+        : 'https://mail.google.com/mail/u/0/#inbox';
+      
+      await page.goto(gmailUrl, { waitUntil: 'networkidle2', timeout: this.config.defaultTimeout });
+      
+      // Check if we're on a login page (not logged in)
+      const currentUrl = page.url();
+      if (currentUrl.includes('accounts.google.com') || currentUrl.includes('signin')) {
+        return {
+          success: false,
+          error: 'Not logged into Gmail. Please open Chrome manually and log into your Google account first. The browser profile at ./browser-profile/ will remember the session.',
+        };
+      }
+      
+      // Wait for inbox rows to appear
+      // Gmail uses various selectors — try common ones
+      try {
+        await page.waitForSelector('tr.zA, div[role="main"] table tr', { timeout: 10000 });
+      } catch {
+        // Maybe the inbox is empty or selectors changed
+        const bodyText = await this.getPageText(page);
+        if (bodyText.includes('No new mail') || bodyText.includes('Your Primary tab is empty')) {
+          return { success: true, data: JSON.stringify({ emails: [], message: 'Inbox is empty' }) };
+        }
+        // Return whatever text we can read
+        return { success: true, data: `Gmail loaded but could not parse emails. Page content:\n${bodyText.slice(0, 3000)}` };
+      }
+      
+      // Extract email data from visible rows
+      const emails = await page.evaluate((max) => {
+        const rows = (document as any).querySelectorAll('tr.zA');
+        const results: any[] = [];
+        
+        for (let i = 0; i < Math.min(rows.length, max); i++) {
+          const row = rows[i] as any;
+          const unread = row.classList.contains('zE');
+          
+          const senderEl = row.querySelector('.yW span[email], .yW .bA4, .yW span, td.yX span') as any;
+          const sender = senderEl?.getAttribute('email') || senderEl?.textContent?.trim() || '';
+          
+          const subjectEl = row.querySelector('.bog span, .y2') as any;
+          const subject = subjectEl?.textContent?.trim() || '';
+          
+          const snippetEl = row.querySelector('.y2 .y2') as any;
+          const snippet = snippetEl?.textContent?.trim().replace(/^\s*-\s*/, '') || '';
+          
+          const dateEl = row.querySelector('.xW span, td.xW span') as any;
+          const date = dateEl?.getAttribute('title') || dateEl?.textContent?.trim() || '';
+          
+          if (sender || subject) {
+            results.push({ sender, subject, snippet, date, unread });
+          }
+        }
+        
+        return results;
+      }, maxEmails);
+      
+      const summary = emails.map((e, i) => {
+        const flag = e.unread ? '📬' : '📭';
+        return `${flag} ${i + 1}. **${e.sender}** — ${e.subject}${e.snippet ? ` (${e.snippet})` : ''} — ${e.date}`;
+      }).join('\n');
+      
+      return {
+        success: true,
+        data: `Found ${emails.length} email(s)${searchQuery ? ` matching "${searchQuery}"` : ' in inbox'}:\n\n${summary}\n\n---\nRaw data: ${JSON.stringify(emails)}`,
+      };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : 'Failed to read Gmail' };
+    }
+  }
+
+  /** Read events from Google Calendar using Puppeteer */
+  async readCalendar(options?: { date?: string }): Promise<BrowserActionResult> {
+    try {
+      const page = await this.ensureBrowser();
+      
+      // Navigate to Calendar day view
+      let calendarUrl = 'https://calendar.google.com/calendar/r/day';
+      
+      // If a specific date is provided, append it
+      if (options?.date && options.date !== 'today') {
+        // Parse the date — support "tomorrow", ISO strings, etc.
+        let targetDate: Date;
+        const dateStr = options.date.toLowerCase();
+        if (dateStr === 'tomorrow') {
+          targetDate = new Date();
+          targetDate.setDate(targetDate.getDate() + 1);
+        } else {
+          targetDate = new Date(options.date);
+        }
+        
+        if (!isNaN(targetDate.getTime())) {
+          const y = targetDate.getFullYear();
+          const m = targetDate.getMonth() + 1;
+          const d = targetDate.getDate();
+          calendarUrl = `https://calendar.google.com/calendar/r/day/${y}/${m}/${d}`;
+        }
+      }
+      
+      await page.goto(calendarUrl, { waitUntil: 'networkidle2', timeout: this.config.defaultTimeout });
+      
+      // Check if we're on a login page
+      const currentUrl = page.url();
+      if (currentUrl.includes('accounts.google.com') || currentUrl.includes('signin')) {
+        return {
+          success: false,
+          error: 'Not logged into Google Calendar. Please open Chrome manually and log into your Google account first.',
+        };
+      }
+      
+      // Wait for calendar to render
+      await new Promise(r => setTimeout(r, 2000)); // Extra wait for Calendar JS rendering
+      
+      // Extract event data from the day view
+      const events = await page.evaluate(() => {
+        const results: any[] = [];
+        
+        const eventEls = (document as any).querySelectorAll(
+          '[data-eventid], [data-eventchip], div[data-eventchip] span, .FAxxKc, .WBi6vc, .NlL62b, .gVNoLb'
+        );
+        
+        eventEls.forEach((el: any) => {
+          const title = el.getAttribute('aria-label') || el.textContent?.trim() || '';
+          if (title && title.length > 1) {
+            const timeMatch = title.match(/(\d{1,2}:\d{2}\s*(?:AM|PM)?(?:\s*[–-]\s*\d{1,2}:\d{2}\s*(?:AM|PM)?)?)/i);
+            const time = timeMatch ? timeMatch[1] : '';
+            const cleanTitle = title.replace(timeMatch?.[0] || '', '').replace(/^[,\s]+|[,\s]+$/g, '').trim();
+            
+            if (cleanTitle && !results.some((r: any) => r.title === cleanTitle)) {
+              results.push({ title: cleanTitle, time, location: '' });
+            }
+          }
+        });
+        
+        if (results.length === 0) {
+          const mainContent = (document as any).querySelector('[data-view-heading], [role="main"]');
+          if (mainContent) {
+            const text = mainContent.textContent || '';
+            const lines = text.split('\n').filter((l: any) => l.trim());
+            for (const line of lines) {
+              const timeMatch = line.match(/(\d{1,2}:\d{2}\s*(?:AM|PM)?)/i);
+              if (timeMatch) {
+                const evTitle = line.replace(timeMatch[0], '').trim();
+                if (evTitle && !results.some((r: any) => r.title === evTitle)) {
+                  results.push({ title: evTitle, time: timeMatch[1], location: '' });
+                }
+              }
+            }
+          }
+        }
+        
+        return results;
+      });
+      
+      if (events.length === 0) {
+        // Fallback: just read the page text
+        const bodyText = await this.getPageText(page);
+        const dateInfo = options?.date || 'today';
+        return {
+          success: true,
+          data: `No structured events found for ${dateInfo}. Calendar page content:\n${bodyText.slice(0, 3000)}`,
+        };
+      }
+      
+      const dateInfo = options?.date || 'today';
+      const summary = events.map((e, i) => {
+        return `📅 ${i + 1}. **${e.title}**${e.time ? ` — ${e.time}` : ''}${e.location ? ` @ ${e.location}` : ''}`;
+      }).join('\n');
+      
+      return {
+        success: true,
+        data: `Found ${events.length} event(s) for ${dateInfo}:\n\n${summary}\n\n---\nRaw data: ${JSON.stringify(events)}`,
+      };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : 'Failed to read Calendar' };
+    }
+  }
+
   async close(): Promise<void> {
     if (this.idleTimer) clearTimeout(this.idleTimer);
     if (this.browser) {
