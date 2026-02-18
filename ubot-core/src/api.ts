@@ -848,15 +848,14 @@ function registerAgentTools(agent: AgentOrchestrator): void {
     };
   });
 
-  // web_search (placeholder)
+  // web_search — real Puppeteer-based Google/DuckDuckGo search
   registry.register('web_search', async (args) => {
-    const query = String(args.query || '');
-    return {
-      toolName: 'web_search',
-      success: true,
-      result: `Web search for "${query}" — this feature is coming soon.`,
-      duration: 0,
-    };
+    const { executeWebSearch } = await import('./skills/web-search/tool.js');
+    return executeWebSearch({
+      query: String(args.query || ''),
+      max_results: args.max_results ? Number(args.max_results) : undefined,
+      deep_read: args.deep_read === true || args.deep_read === 'true',
+    });
   });
 
   // ── Skill Management Tools ──────────────────────
@@ -1806,6 +1805,39 @@ export async function handleApiRoute(
     const personaId = decodeURIComponent(parts[3]);
     const deleted = agentOrchestrator.getSoul().deleteDocument(personaId);
     json(res, { deleted, personaId });
+    return true;
+  }
+
+  // ── Memories (Structured Profile Data) ──────────────────
+  if (url.match(/^\/api\/memories\/[^/]+$/) && method === 'GET') {
+    if (!agentOrchestrator) { json(res, { memories: [] }); return true; }
+    const parts = url.split('/');
+    const contactId = decodeURIComponent(parts[3]);
+    const memories = agentOrchestrator.getMemoryStore().getMemories(contactId);
+    json(res, { memories });
+    return true;
+  }
+
+  if (url === '/api/memories' && method === 'POST') {
+    if (!agentOrchestrator) { json(res, { error: 'Agent not initialized' }, 500); return true; }
+    const body = await parseBody(req) as any;
+    if (!body.contactId || !body.category || !body.key || !body.value) {
+      json(res, { error: 'contactId, category, key, and value are required' }, 400);
+      return true;
+    }
+    const memory = agentOrchestrator.getMemoryStore().saveMemory(
+      body.contactId, body.category, body.key, body.value, body.source || 'manual', body.confidence || 1.0
+    );
+    json(res, { memory });
+    return true;
+  }
+
+  if (url.match(/^\/api\/memories\/[^/]+$/) && method === 'DELETE') {
+    if (!agentOrchestrator) { json(res, { error: 'Agent not initialized' }, 500); return true; }
+    const parts = url.split('/');
+    const memoryId = decodeURIComponent(parts[3]);
+    const deleted = agentOrchestrator.getMemoryStore().deleteMemory(memoryId);
+    json(res, { deleted });
     return true;
   }
 

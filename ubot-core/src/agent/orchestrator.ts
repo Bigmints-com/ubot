@@ -98,7 +98,9 @@ export function createAgentOrchestrator(
         const currentDoc = soul.getDocument(OWNER_SOUL_ID);
         if (!currentDoc) return;
 
-        const prompt = `CURRENT OWNER PROFILE:\n${currentDoc}\n\nNEW CONVERSATION (owner talking to bot):\n${conversationText}`;
+        // Only send the user's message — the assistant response confuses the LLM
+        // into thinking facts are already handled when it says "I updated your persona"
+        const prompt = `CURRENT OWNER PROFILE:\n${currentDoc}\n\nOWNER'S MESSAGE:\n${userMessage}`;
 
         const completion = await client.chat.completions.create({
           model: currentConfig.llmModel,
@@ -107,7 +109,7 @@ export function createAgentOrchestrator(
             { role: 'user', content: prompt },
           ],
           temperature: 0.1,
-          max_tokens: 500,
+          max_tokens: 800,
         });
 
         const newFacts = completion.choices[0]?.message?.content || '';
