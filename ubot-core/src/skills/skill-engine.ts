@@ -183,6 +183,8 @@ Does this event match the condition? Respond with ONLY "yes" or "no".`;
         `Just generate the response text directly.`,
       ].filter(Boolean).join('\n');
 
+      // Use the real session ID so the LLM has full conversation history.
+      // The [AUTOMATED SKILL EXECUTION] preamble is just an instruction prefix.
       const result = await agentChat(context, sessionId, event.source, contactName);
 
       return {

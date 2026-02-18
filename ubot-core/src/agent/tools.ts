@@ -96,12 +96,25 @@ export const AGENT_TOOLS: ToolDefinition[] = [
   },
   {
     name: 'ask_owner',
-    description: 'LAST RESORT: Ask the owner for approval ONLY when a third party requests specific private information you genuinely cannot find in your persona docs (e.g. exact phone numbers, bank details, scheduling commitments). Do NOT use for general questions, greetings, or anything you can answer from persona knowledge. Answer autonomously whenever possible.',
+    description: 'Ask the owner for approval or guidance. Use when a third party requests specific private information, wants to make financial or scheduling commitments, or asks for anything sensitive that you cannot confidently answer from your persona docs. You MUST actually call this tool — do not just say you will check with the owner without calling it.',
     parameters: [
       { name: 'question', type: 'string', description: 'The specific sensitive question requiring owner input', required: true },
       { name: 'context', type: 'string', description: 'Who is asking and why this cannot be answered from persona (e.g. "Ahmed wants your exact bank account number")', required: true },
       { name: 'requester_jid', type: 'string', description: 'The JID or phone number of the person waiting for a response', required: true },
     ],
+  },
+  {
+    name: 'respond_to_approval',
+    description: 'Respond to a pending approval request. Use when the owner provides their answer to an approval in the Command Center chat. The response will be relayed back to the original requester.',
+    parameters: [
+      { name: 'approval_id', type: 'string', description: 'The approval ID (e.g. "apr_..."). If not provided, responds to the most recent pending approval.', required: false },
+      { name: 'response', type: 'string', description: 'The owner\'s response message to relay to the requester', required: true },
+    ],
+  },
+  {
+    name: 'list_pending_approvals',
+    description: 'List all pending approval requests that are waiting for the owner\'s response.',
+    parameters: [],
   },
   {
     name: 'list_skills',
@@ -186,6 +199,46 @@ export const AGENT_TOOLS: ToolDefinition[] = [
     name: 'browser_screenshot',
     description: 'Take a screenshot of the current browser page. Returns a base64-encoded image.',
     parameters: [],
+  },
+  // ── Scheduler & Reminder Tools ────────────────────────
+  {
+    name: 'create_reminder',
+    description: 'Create a reminder for the owner. The reminder message will be sent back to the owner at the specified time via their connected messaging channel (Telegram/WhatsApp). Use this when the owner says things like "Remind me to...", "Don\'t forget to...", "Set a reminder for...".',
+    parameters: [
+      { name: 'message', type: 'string', description: 'What to remind about (e.g. "Call home", "Take medicine", "Meeting with John")', required: true },
+      { name: 'time', type: 'string', description: 'When to remind. Supports natural language: "in 30 minutes", "at 3:00pm", "tomorrow at 9am", "next Monday at 10am", or ISO date string.', required: true },
+      { name: 'recurrence', type: 'string', description: 'Optional recurrence: "once" (default), "daily", "weekly", "monthly"', required: false },
+    ],
+  },
+  {
+    name: 'list_schedules',
+    description: 'List all active scheduled tasks, reminders, and scheduled messages. Shows task ID, name, status, next run time, and recurrence.',
+    parameters: [
+      { name: 'status', type: 'string', description: 'Filter by status: "pending", "running", "completed", "failed", "cancelled", "paused". Default: show all active.', required: false },
+    ],
+  },
+  {
+    name: 'delete_schedule',
+    description: 'Delete/cancel a scheduled task or reminder by its ID.',
+    parameters: [
+      { name: 'task_id', type: 'string', description: 'The ID of the scheduled task to delete', required: true },
+    ],
+  },
+  {
+    name: 'trigger_schedule',
+    description: 'Run a scheduled task immediately, regardless of its next scheduled time.',
+    parameters: [
+      { name: 'task_id', type: 'string', description: 'The ID of the scheduled task to trigger now', required: true },
+    ],
+  },
+  {
+    name: 'forward_message',
+    description: 'Forward a message to another contact. Finds the message in history and sends its content to the specified recipient.',
+    parameters: [
+      { name: 'to', type: 'string', description: 'Recipient phone number with country code or contact ID', required: true },
+      { name: 'text', type: 'string', description: 'The text to forward. Use search_messages first to find the exact content.', required: true },
+      { name: 'channel', type: 'string', description: 'Messaging channel (whatsapp, telegram). Defaults to connected one.', required: false },
+    ],
   },
 ];
 

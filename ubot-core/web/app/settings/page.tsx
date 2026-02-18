@@ -18,8 +18,11 @@ interface AgentConfig {
   systemPrompt: string;
   maxHistoryMessages: number;
   autoReplyWhatsApp: boolean;
+  autoReplyTelegram: boolean;
   autoReplyContacts: string[];
   ownerPhone: string;
+  ownerTelegramId: string;
+  ownerTelegramUsername: string;
 }
 
 export default function SettingsPage() {
@@ -152,16 +155,37 @@ export default function SettingsPage() {
                   }
                 />
               </div>
+
+              <Separator />
+
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <Label>Telegram Auto-Reply</Label>
+                  <p className="text-xs text-muted-foreground">
+                    Automatically respond to incoming Telegram messages from visitors
+                  </p>
+                </div>
+                <Switch
+                  checked={config?.autoReplyTelegram || false}
+                  onCheckedChange={(v) =>
+                    updateField("autoReplyTelegram", v)
+                  }
+                />
+              </div>
             </CardContent>
           </Card>
 
           <Card>
             <CardHeader>
-              <CardTitle>Owner Phone</CardTitle>
+              <CardTitle>Owner Identity</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
+              <p className="text-xs text-muted-foreground">
+                Your identity across messaging channels. Used to recognize you as the owner when you message the bot.
+              </p>
+
               <div className="space-y-2">
-                <Label htmlFor="ownerPhone">Phone Number</Label>
+                <Label htmlFor="ownerPhone">WhatsApp Number</Label>
                 <Input
                   id="ownerPhone"
                   value={config?.ownerPhone || ""}
@@ -169,11 +193,43 @@ export default function SettingsPage() {
                   placeholder="+971569737344"
                 />
                 <p className="text-xs text-muted-foreground">
-                  Your WhatsApp phone number. When a third party asks the bot
-                  something sensitive, approval requests will be sent to this
-                  number.
+                  Your WhatsApp phone number — used to detect owner messages.
                 </p>
               </div>
+
+              <Separator />
+
+              <div className="space-y-2">
+                <Label htmlFor="ownerTelegramUsername">Telegram Username</Label>
+                <Input
+                  id="ownerTelegramUsername"
+                  value={config?.ownerTelegramUsername || ""}
+                  onChange={(e) => updateField("ownerTelegramUsername", e.target.value)}
+                  placeholder="singsungwong"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Your Telegram username (without @). This is the primary way to detect you on Telegram.
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="ownerTelegramId">Telegram Chat ID</Label>
+                <Input
+                  id="ownerTelegramId"
+                  value={config?.ownerTelegramId || ""}
+                  onChange={(e) => updateField("ownerTelegramId", e.target.value)}
+                  placeholder="Auto-detected on first message"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Auto-saved after your first message to the bot. You can also set it manually from @userinfobot.
+                </p>
+              </div>
+
+              <Separator />
+
+              <p className="text-xs text-muted-foreground">
+                Approval requests from third parties will be forwarded to your configured channels.
+              </p>
             </CardContent>
           </Card>
         </TabsContent>

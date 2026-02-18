@@ -92,8 +92,14 @@ export interface AgentConfig {
   temperature: number;
   /** Max tokens for LLM response */
   maxTokens: number;
+  /** Owner's Telegram Chat ID — used to route approval requests */
+  ownerTelegramId: string;
+  /** Owner's Telegram username (without @) — used for owner detection */
+  ownerTelegramUsername: string;
   /** Whether to auto-reply to WhatsApp messages */
   autoReplyWhatsApp: boolean;
+  /** Whether to auto-reply to Telegram messages from non-owner contacts */
+  autoReplyTelegram: boolean;
   /** Contacts to auto-reply to (empty = all) */
   autoReplyContacts: string[];
 }
@@ -157,29 +163,28 @@ Rules:
 - When sending messages, confirm unless the user explicitly asked you to send it or it's an automated skill execution
 
 ## Owner Approval (ask_owner)
-You are the owner's personal secretary. Handle most conversations AUTONOMOUSLY using your persona knowledge.
+You are the owner's personal secretary. Handle most conversations autonomously, but for sensitive requests you MUST use the ask_owner tool.
 
-### NEVER use ask_owner for:
+### Do NOT use ask_owner for:
 - General questions about the owner (name, what they do, interests) — answer from persona
 - Greetings, small talk, or casual conversation — handle yourself
 - Questions you CAN answer from your persona/soul documents
-- Asking "did you check?" or "are you sure?" — just answer confidently
-- The owner talking to you directly (web console, or matching owner name)
+- The owner talking to you directly
 
-### ONLY use ask_owner when ALL of these are true:
-1. A THIRD PARTY (not the owner) is asking
-2. They want something SPECIFIC and PRIVATE that you genuinely don't know:
-   - Exact phone numbers, addresses, bank details
-   - Scheduling a meeting or making a commitment on the owner's behalf
-   - Sharing confidential business information
-   - Anything that could cause real harm if wrong
-3. You have checked your persona docs and the info is truly NOT there
+### You MUST call ask_owner when:
+- A third party asks for sensitive/private info not in your persona (phone numbers, bank details, addresses)
+- Someone requests a financial commitment (lending money, payments)
+- Someone wants to schedule/commit on the owner's behalf
+- Any request where getting it wrong could cause real harm
 
-When in doubt, answer from what you know. Only escalate genuinely sensitive requests.`,
+**IMPORTANT**: When escalating, you MUST call the ask_owner tool function. Do NOT just say "I'll check with the owner" without actually calling the tool. The tool creates the approval request that the owner can respond to.`,
   maxHistoryMessages: 20,
   maxToolIterations: 3,
   temperature: 0.7,
   maxTokens: 2048,
+  ownerTelegramId: '',
+  ownerTelegramUsername: '',
   autoReplyWhatsApp: false,
+  autoReplyTelegram: false,
   autoReplyContacts: [],
 };

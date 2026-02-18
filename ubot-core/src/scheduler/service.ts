@@ -343,11 +343,29 @@ export class TaskSchedulerService {
 
       const currentTask = this.tasks.get(task.id);
       if (currentTask && currentTask.enabled) {
+        // 'once' tasks should NOT reschedule after execution
+        if (currentTask.schedule.recurrence === 'once') {
+          const completedTask = { ...currentTask, enabled: false, status: 'completed' as const };
+          this.tasks.set(task.id, completedTask);
+          this.jobs.delete(task.id);
+          return;
+        }
+
         const nextRun = calculateNextRun(currentTask.schedule);
         if (nextRun) {
           const updatedTask = { ...currentTask, nextRunAt: nextRun };
           this.tasks.set(task.id, updatedTask);
-          await scheduleJob();
+          const delay = nextRun.getTime() - Date.now();
+          if (delay > 0) {
+            const timeoutId = setTimeout(scheduleJob, delay);
+            const fakeJob = {
+              taskId: task.id,
+              job: { stop: () => clearTimeout(timeoutId) },
+            } as ScheduledJob;
+            this.jobs.set(task.id, fakeJob);
+          } else {
+            await scheduleJob();
+          }
         }
       }
     };

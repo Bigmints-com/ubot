@@ -164,6 +164,11 @@ export class TelegramConnection {
     this.eventListeners.get(event)?.delete(handler);
   }
 
+  /** Remove all listeners for all events */
+  removeAllListeners(): void {
+    this.eventListeners.clear();
+  }
+
   private emit<K extends keyof TelegramConnectionEvents>(
     event: K,
     ...args: Parameters<TelegramConnectionEvents[K]>

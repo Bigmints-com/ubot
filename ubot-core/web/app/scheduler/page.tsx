@@ -107,17 +107,17 @@ export default function SchedulerPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-green-500">
-              {tasks.filter((t) => t.enabled).length}
+              {tasks.filter((t) => t.enabled && t.status !== 'completed' && t.status !== 'failed').length}
             </div>
           </CardContent>
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Paused</CardTitle>
+            <CardTitle className="text-sm font-medium">Completed</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-muted-foreground">
-              {tasks.filter((t) => !t.enabled).length}
+              {tasks.filter((t) => t.status === 'completed').length}
             </div>
           </CardContent>
         </Card>
@@ -165,19 +165,24 @@ export default function SchedulerPage() {
                     </TableCell>
                     <TableCell>
                       <Badge
-                        variant={task.enabled ? "default" : "secondary"}
+                        variant={
+                          task.status === 'completed' ? 'default' :
+                          task.status === 'failed' ? 'destructive' :
+                          task.status === 'running' ? 'default' :
+                          task.enabled ? 'default' : 'secondary'
+                        }
+                        className={task.status === 'completed' ? 'bg-green-600' : undefined}
                       >
-                        {task.enabled ? (
-                          <>
-                            <Play className="size-3 mr-1" />
-                            {task.status || 'Active'}
-                          </>
-                        ) : (
-                          <>
-                            <Pause className="size-3 mr-1" />
-                            Paused
-                          </>
-                        )}
+                        {task.status === 'completed' ? '✓ Completed' :
+                         task.status === 'failed' ? '✗ Failed' :
+                         task.status === 'running' ? (
+                          <><Play className="size-3 mr-1" /> Running</>
+                         ) :
+                         task.enabled ? (
+                          <><Clock className="size-3 mr-1" /> {task.status || 'Pending'}</>
+                         ) : (
+                          <><Pause className="size-3 mr-1" /> Paused</>
+                         )}
                       </Badge>
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground">

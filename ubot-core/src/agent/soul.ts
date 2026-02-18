@@ -56,7 +56,7 @@ export interface Soul {
   listPersonas(): Array<{ id: string; label: string; updatedAt: Date; contentLength: number }>;
 
   /** Build a comprehensive system prompt section from all soul documents */
-  buildSoulPrompt(contactId?: string): string;
+  buildSoulPrompt(contactId?: string, isOwner?: boolean): string;
 
   /** Get the raw memory store for direct access */
   getStore(): MemoryStore;
@@ -106,7 +106,7 @@ export function createSoul(memoryStore: MemoryStore): Soul {
       }));
     },
 
-    buildSoulPrompt(contactId?: string): string {
+    buildSoulPrompt(contactId?: string, isOwner?: boolean): string {
       const sections: string[] = [];
 
       // 1. Bot persona
@@ -116,11 +116,18 @@ export function createSoul(memoryStore: MemoryStore): Soul {
         sections.push(botDoc.content.trim());
       }
 
-      // 2. Owner profile
+      // 2. Owner profile — framing depends on who we're talking to
       const ownerDoc = memoryStore.getDocument(OWNER_SOUL_ID);
       if (ownerDoc && ownerDoc.content.trim() && ownerDoc.content !== DEFAULT_OWNER_SOUL) {
-        sections.push('\n## About Your Owner');
-        sections.push('This is who you work for. Use this context to serve them better:');
+        if (isOwner) {
+          // Talking TO the owner — use their profile as context, not personality to adopt
+          sections.push('\n## About Your Owner (You Are Talking To Them Right Now)');
+          sections.push('The person you are chatting with IS your owner. Use this info to assist them. Do NOT adopt their personality or speech patterns — you are their assistant, not their impersonator:');
+        } else {
+          // Talking to a third party — owner profile is background context
+          sections.push('\n## About Your Owner');
+          sections.push('This is who you work for. Use this context to serve them better:');
+        }
         sections.push(ownerDoc.content.trim());
       }
 
