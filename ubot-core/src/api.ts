@@ -193,20 +193,23 @@ function setupWhatsAppHandlers(conn: WhatsAppConnection): void {
     if (!msg.body || msg.isFromMe || !agentOrchestrator) return;
 
     const jid = msg.from || '';
+    const replyJid = msg.rawJid || jid; // Use original LID/JID for replies
     const unified: UnifiedMessage = {
       channel: 'whatsapp',
-      senderId: jid,
+      senderId: jid,  // Resolved phone JID for identification
       senderName: msg.from || '',
       body: msg.body,
       timestamp: msg.timestamp instanceof Date ? msg.timestamp : new Date(),
       replyFn: async (text: string) => {
         const socket = waConnection?.getSocket();
         if (socket) {
-          await socket.sendMessage(jid, { text });
+          console.log(`[WhatsApp] 📤 Sending reply to rawJid=${replyJid} (resolved=${jid})`);
+          await socket.sendMessage(replyJid, { text });
           waMessages.push({ from: 'me', to: jid, body: text, timestamp: new Date().toISOString(), isFromMe: true });
         }
       },
       extra: {
+        rawJid: replyJid,
         participant: msg.participant,
         hasMedia: msg.hasMedia,
         quotedMessageId: msg.quotedMessageId,
@@ -425,12 +428,14 @@ export function initializeApi(db?: DatabaseConnection, agent?: AgentOrchestrator
                 tgMessages.push({ from: 'bot', to: String(chatId), body: result.response, timestamp: new Date().toISOString(), isFromMe: true });
               }
             } else {
-              // Reply via WhatsApp
+              // Reply via WhatsApp — use rawJid (original LID) for delivery
               const socket = waConnection?.getSocket();
               if (socket) {
-                const jid = event.from?.includes('@') ? event.from : `${event.from}@s.whatsapp.net`;
-                await socket.sendMessage(jid, { text: result.response });
-                console.log(`[SkillOutcome] Replied via WhatsApp to ${jid}`);
+                const rawJid = event.data?.rawJid as string | undefined;
+                const resolvedJid = event.from?.includes('@') ? event.from : `${event.from}@s.whatsapp.net`;
+                const replyJid = rawJid || resolvedJid;
+                await socket.sendMessage(replyJid, { text: result.response });
+                console.log(`[SkillOutcome] Replied via WhatsApp to ${replyJid} (resolved=${resolvedJid})`);
               }
             }
           } else if (outcome.action === 'send' && outcome.target) {
@@ -1590,40 +1595,8 @@ export async function handleApiRoute(
         }
       });
 
-      // Wire incoming WhatsApp messages to the agent
-      waConnection.on('message.received', async (msg) => {
-        // Log the message
-        waMessages.push({
-          from: msg.from || '',
-          to: msg.to || '',
-          body: msg.body || '',
-          timestamp: msg.timestamp?.toISOString() || new Date().toISOString(),
-          isFromMe: msg.isFromMe || false,
-        });
-        if (waMessages.length > MAX_WA_MESSAGES) waMessages.shift();
-
-        // Always respond to incoming messages — skills govern behavior
-        if (agentOrchestrator && !msg.isFromMe && msg.body) {
-          const jid = msg.from || '';
-          try {
-            const response = await agentOrchestrator.chat(jid, msg.body, 'whatsapp', msg.from);
-            // Send the reply back via WhatsApp
-            const socket = waConnection?.getSocket();
-            if (socket && response.content) {
-              await socket.sendMessage(jid, { text: response.content });
-              waMessages.push({
-                from: 'me',
-                to: jid,
-                body: response.content,
-                timestamp: new Date().toISOString(),
-                isFromMe: true,
-              });
-            }
-          } catch (err: any) {
-            console.error('[API] WhatsApp reply error:', err.message);
-          }
-        }
-      });
+      // NOTE: Message handling is done by wireWhatsAppMessageHandler() above
+      //  — do NOT add a duplicate handler here
 
       // Start connection in the background (don't await — it blocks until connected)
       waConnection.connect().catch((err: Error) => {

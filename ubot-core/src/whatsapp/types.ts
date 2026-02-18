@@ -9,7 +9,10 @@ export type WhatsAppConnectionStatus =
 
 export interface WhatsAppMessage {
   id: string;
+  /** Resolved sender (phone JID for identification/routing) */
   from: string;
+  /** Original remoteJid from Baileys (may be LID — use this for replying) */
+  rawJid: string;
   to: string;
   body: string;
   timestamp: Date;
