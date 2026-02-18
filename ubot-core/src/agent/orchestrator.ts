@@ -12,7 +12,7 @@ import type {
 } from './types.js';
 import type { ConversationStore } from './conversation.js';
 import type { MemoryStore } from './memory-store.js';
-import { type Soul, SOUL_REWRITE_PROMPT, OWNER_MERGE_PROMPT, mergeIntoOwnerDoc, OWNER_SOUL_ID } from './soul.js';
+import { type Soul, SOUL_REWRITE_PROMPT, OWNER_MERGE_PROMPT, FACT_EXTRACTION_PROMPT, SUMMARY_UPDATE_PROMPT, mergeIntoOwnerDoc, OWNER_SOUL_ID } from './soul.js';
 import { AGENT_TOOLS, formatToolsForAPI, createToolRegistry, getToolsForSource, type ToolRegistry } from './tools.js';
 
 export interface AgentOrchestrator {
@@ -84,7 +84,7 @@ export function createAgentOrchestrator(
     return messages;
   }
 
-  /** Extract/update soul document from a conversation turn */
+  /** Extract/update all three data layers from a conversation turn */
   async function extractSoulData(sessionId: string, userMessage: string, assistantResponse: string, source?: 'web' | 'whatsapp' | 'telegram', contactName?: string, isOwner: boolean = false): Promise<void> {
     if (!userMessage || !assistantResponse) return;
 
@@ -94,7 +94,7 @@ export function createAgentOrchestrator(
       const client = createLLMClient();
 
       if (isOwner) {
-        // ── OWNER: append-only merge ──────────────────────────
+        // ── OWNER: append-only persona merge ──────────────────
         const currentDoc = soul.getDocument(OWNER_SOUL_ID);
         if (!currentDoc) return;
 
@@ -121,7 +121,7 @@ export function createAgentOrchestrator(
           console.log('[Soul] Owner conversation — no new facts');
         }
       } else {
-        // ── CONTACT: full rewrite (builds/updates profile) ────
+        // ── CONTACT: three-layer extraction ───────────────────
         const personaId = sessionId;
         const currentDoc = soul.getDocument(personaId);
 
@@ -130,45 +130,116 @@ export function createAgentOrchestrator(
         const ownerNameMatch = ownerDoc?.match(/name:\s*(.+)/i);
         const ownerName = ownerNameMatch ? ownerNameMatch[1].trim() : '';
 
-        // Build metadata block with identifiers
-        const metadataLines: string[] = [];
-        metadataLines.push(`channel: ${source || 'unknown'}`);
-        if (contactName) metadataLines.push(`name: ${contactName}`);
-        if (source === 'whatsapp' && sessionId.includes('@')) {
-          const phone = sessionId.replace(/@.*/, '');
-          metadataLines.push(`phone: +${phone}`);
-        }
-        if (source === 'telegram' && sessionId.startsWith('telegram:')) {
-          metadataLines.push(`telegram_id: ${sessionId.replace('telegram:', '')}`);
-        }
-        const metadata = `METADATA:\n${metadataLines.join('\n')}`;
-
         const ownerContext = ownerName
           ? `\nCONTEXT: The owner of this AI assistant is "${ownerName}". The user in this conversation is "${contactName || 'unknown'}". Only record facts about the USER.`
           : '';
 
-        const prompt = currentDoc
-          ? `CURRENT DOCUMENT:\n${currentDoc}\n\n${metadata}${ownerContext}\n\nNEW CONVERSATION:\n${conversationText}`
-          : `CURRENT DOCUMENT:\n(empty - this is a new person)\n\n${metadata}${ownerContext}\n\nNEW CONVERSATION:\n${conversationText}`;
+        // Save contact details from metadata immediately (no LLM needed)
+        if (contactName) {
+          memoryStore.saveMemory(personaId, 'identity', 'name', contactName, 'metadata');
+        }
+        if (source === 'whatsapp' && sessionId.includes('@')) {
+          const phone = '+' + sessionId.replace(/@.*/, '');
+          memoryStore.saveMemory(personaId, 'identity', 'phone', phone, 'metadata');
+          memoryStore.saveMemory(personaId, 'identity', 'channel', 'whatsapp', 'metadata');
+        }
+        if (source === 'telegram' && sessionId.startsWith('telegram:')) {
+          memoryStore.saveMemory(personaId, 'identity', 'telegram_id', sessionId.replace('telegram:', ''), 'metadata');
+          memoryStore.saveMemory(personaId, 'identity', 'channel', 'telegram', 'metadata');
+        }
 
-        const completion = await client.chat.completions.create({
-          model: currentConfig.llmModel,
-          messages: [
-            { role: 'system', content: SOUL_REWRITE_PROMPT },
-            { role: 'user', content: prompt },
-          ],
-          temperature: 0.1,
-          max_tokens: 2000,
-        });
+        // Run three LLM calls in parallel for efficiency
+        const [personaResult, factsResult, summaryResult] = await Promise.allSettled([
+          // Layer 1: Persona (qualitative personality profile)
+          client.chat.completions.create({
+            model: currentConfig.llmModel,
+            messages: [
+              { role: 'system', content: SOUL_REWRITE_PROMPT },
+              { role: 'user', content: currentDoc
+                ? `CURRENT DOCUMENT:\n${currentDoc}\n\nMETADATA:\nname: ${contactName || 'unknown'}${ownerContext}\n\nNEW CONVERSATION:\n${conversationText}`
+                : `CURRENT DOCUMENT:\n(empty - this is a new person)\n\nMETADATA:\nname: ${contactName || 'unknown'}${ownerContext}\n\nNEW CONVERSATION:\n${conversationText}`
+              },
+            ],
+            temperature: 0.1,
+            max_tokens: 1000,
+          }),
 
-        const updatedDoc = completion.choices[0]?.message?.content || '';
-        if (updatedDoc.trim()) {
-          soul.saveDocument(personaId, updatedDoc.trim());
-          console.log(`[Soul] Updated contact profile for ${personaId} (${updatedDoc.length} chars)`);
+          // Layer 2: Structured facts (personal details as JSON)
+          client.chat.completions.create({
+            model: currentConfig.llmModel,
+            messages: [
+              { role: 'system', content: FACT_EXTRACTION_PROMPT },
+              { role: 'user', content: conversationText },
+            ],
+            temperature: 0.0,
+            max_tokens: 300,
+          }),
+
+          // Layer 3: Chat summary (rolling digest)
+          (() => {
+            const existingSummary = memoryStore.getMemories(personaId, 'summary')
+              .find(m => m.key === 'chat_digest');
+            return client.chat.completions.create({
+              model: currentConfig.llmModel,
+              messages: [
+                { role: 'system', content: SUMMARY_UPDATE_PROMPT },
+                { role: 'user', content: existingSummary
+                  ? `CURRENT SUMMARY:\n${existingSummary.value}\n\nNEW CONVERSATION:\n${conversationText}`
+                  : `CURRENT SUMMARY:\n(empty - first conversation)\n\nNEW CONVERSATION:\n${conversationText}`
+                },
+              ],
+              temperature: 0.1,
+              max_tokens: 300,
+            });
+          })(),
+        ]);
+
+        // Process Layer 1: Persona document
+        if (personaResult.status === 'fulfilled') {
+          const updatedDoc = personaResult.value.choices[0]?.message?.content || '';
+          if (updatedDoc.trim()) {
+            soul.saveDocument(personaId, updatedDoc.trim());
+            console.log(`[Soul] 🧠 Updated persona for ${personaId} (${updatedDoc.length} chars)`);
+          }
+        } else {
+          console.error('[Soul] Persona extraction failed:', personaResult.reason?.message);
+        }
+
+        // Process Layer 2: Structured facts
+        if (factsResult.status === 'fulfilled') {
+          const factsRaw = factsResult.value.choices[0]?.message?.content || '{}';
+          try {
+            // Strip markdown code fences if present
+            const cleaned = factsRaw.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+            const facts = JSON.parse(cleaned);
+            let count = 0;
+            for (const [key, value] of Object.entries(facts)) {
+              if (typeof value === 'string' && value.trim()) {
+                memoryStore.saveMemory(personaId, 'identity', key, value.trim(), 'extracted');
+                count++;
+              }
+            }
+            if (count > 0) {
+              console.log(`[Soul] 📋 Extracted ${count} facts for ${personaId}`);
+            }
+          } catch {
+            // JSON parse failed — skip silently
+          }
+        }
+
+        // Process Layer 3: Chat summary
+        if (summaryResult.status === 'fulfilled') {
+          const summary = summaryResult.value.choices[0]?.message?.content || '';
+          if (summary.trim()) {
+            memoryStore.saveMemory(personaId, 'summary', 'chat_digest', summary.trim(), 'extracted');
+            console.log(`[Soul] 💬 Updated chat summary for ${personaId}`);
+          }
+        } else {
+          console.error('[Soul] Summary update failed:', summaryResult.reason?.message);
         }
       }
     } catch (err: any) {
-      console.error('[Soul] Document rewrite error:', err.message);
+      console.error('[Soul] Data extraction error:', err.message);
     }
   }
 
