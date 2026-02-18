@@ -1076,6 +1076,35 @@ function registerAgentTools(agent: AgentOrchestrator): void {
     };
   });
 
+  // ── Gmail & Calendar (Browser-based) ──────────────────
+
+  registry.register('read_emails', async (args) => {
+    const browser = getBrowserSkill();
+    const query = args.query ? String(args.query) : undefined;
+    const maxResults = args.max_results ? Number(args.max_results) : undefined;
+    const result = await browser.readGmail({ query, maxEmails: maxResults });
+    return {
+      toolName: 'read_emails',
+      success: result.success,
+      result: result.data || '',
+      error: result.error,
+      duration: 0,
+    };
+  });
+
+  registry.register('read_calendar', async (args) => {
+    const browser = getBrowserSkill();
+    const date = args.date ? String(args.date) : undefined;
+    const result = await browser.readCalendar({ date });
+    return {
+      toolName: 'read_calendar',
+      success: result.success,
+      result: result.data || '',
+      error: result.error,
+      duration: 0,
+    };
+  });
+
   // ── Scheduler & Reminder Tools ──────────────────────────
 
   registry.register('create_reminder', async (args) => {
