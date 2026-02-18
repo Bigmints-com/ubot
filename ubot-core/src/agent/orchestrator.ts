@@ -94,33 +94,102 @@ export function createAgentOrchestrator(
       const client = createLLMClient();
 
       if (isOwner) {
-        // ── OWNER: append-only persona merge ──────────────────
+        // ── OWNER: persona merge + fact extraction + summary ──
         const currentDoc = soul.getDocument(OWNER_SOUL_ID);
         if (!currentDoc) return;
 
-        // Only send the user's message — the assistant response confuses the LLM
-        // into thinking facts are already handled when it says "I updated your persona"
-        const prompt = `CURRENT OWNER PROFILE:\n${currentDoc}\n\nOWNER'S MESSAGE:\n${userMessage}`;
+        // Run all three layers in parallel (same as contacts)
+        const [mergeResult, factsResult, summaryResult] = await Promise.allSettled([
+          // Layer 1: Persona merge (append-only)
+          (() => {
+            const prompt = `CURRENT OWNER PROFILE:\n${currentDoc}\n\nOWNER'S MESSAGE:\n${userMessage}`;
+            return client.chat.completions.create({
+              model: currentConfig.llmModel,
+              messages: [
+                { role: 'system', content: OWNER_MERGE_PROMPT },
+                { role: 'user', content: prompt },
+              ],
+              temperature: 0.1,
+              max_tokens: 800,
+            });
+          })(),
 
-        const completion = await client.chat.completions.create({
-          model: currentConfig.llmModel,
-          messages: [
-            { role: 'system', content: OWNER_MERGE_PROMPT },
-            { role: 'user', content: prompt },
-          ],
-          temperature: 0.1,
-          max_tokens: 800,
-        });
+          // Layer 2: Structured facts (personal details)
+          client.chat.completions.create({
+            model: currentConfig.llmModel,
+            messages: [
+              { role: 'system', content: FACT_EXTRACTION_PROMPT },
+              { role: 'user', content: `User: ${userMessage}` },
+            ],
+            temperature: 0.0,
+            max_tokens: 300,
+          }),
 
-        const newFacts = completion.choices[0]?.message?.content || '';
-        if (newFacts.trim() && newFacts.trim() !== 'NO_NEW_FACTS') {
-          const merged = mergeIntoOwnerDoc(currentDoc, newFacts);
-          if (merged !== currentDoc) {
-            soul.saveDocument(OWNER_SOUL_ID, merged);
-            console.log(`[Soul] ✏️ Merged new facts into owner profile (${merged.length} chars)`);
+          // Layer 3: Chat summary (rolling digest)
+          (() => {
+            const existingSummary = memoryStore.getMemories(OWNER_SOUL_ID, 'summary')
+              .find(m => m.key === 'chat_digest');
+            return client.chat.completions.create({
+              model: currentConfig.llmModel,
+              messages: [
+                { role: 'system', content: SUMMARY_UPDATE_PROMPT },
+                { role: 'user', content: existingSummary
+                  ? `CURRENT SUMMARY:\n${existingSummary.value}\n\nNEW CONVERSATION:\n${conversationText}`
+                  : `CURRENT SUMMARY:\n(empty - first conversation)\n\nNEW CONVERSATION:\n${conversationText}`
+                },
+              ],
+              temperature: 0.1,
+              max_tokens: 300,
+            });
+          })(),
+        ]);
+
+        // Process Layer 1: Persona merge
+        if (mergeResult.status === 'fulfilled') {
+          const newFacts = mergeResult.value.choices[0]?.message?.content || '';
+          if (newFacts.trim() && newFacts.trim() !== 'NO_NEW_FACTS') {
+            const merged = mergeIntoOwnerDoc(currentDoc, newFacts);
+            if (merged !== currentDoc) {
+              soul.saveDocument(OWNER_SOUL_ID, merged);
+              console.log(`[Soul] ✏️ Merged new facts into owner profile (${merged.length} chars)`);
+            }
+          } else {
+            console.log('[Soul] Owner conversation — no new persona facts');
           }
         } else {
-          console.log('[Soul] Owner conversation — no new facts');
+          console.error('[Soul] Owner merge failed:', mergeResult.reason?.message);
+        }
+
+        // Process Layer 2: Structured facts
+        if (factsResult.status === 'fulfilled') {
+          const factsRaw = factsResult.value.choices[0]?.message?.content || '{}';
+          try {
+            const cleaned = factsRaw.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+            const facts = JSON.parse(cleaned);
+            let count = 0;
+            for (const [key, value] of Object.entries(facts)) {
+              if (typeof value === 'string' && value.trim()) {
+                memoryStore.saveMemory(OWNER_SOUL_ID, 'identity', key, value.trim(), 'extracted');
+                count++;
+              }
+            }
+            if (count > 0) console.log(`[Soul] 📋 Saved ${count} owner facts to agent_memories`);
+          } catch {
+            console.log('[Soul] Owner fact extraction — no valid JSON returned');
+          }
+        } else {
+          console.error('[Soul] Owner fact extraction failed:', factsResult.reason?.message);
+        }
+
+        // Process Layer 3: Summary
+        if (summaryResult.status === 'fulfilled') {
+          const summary = summaryResult.value.choices[0]?.message?.content || '';
+          if (summary.trim()) {
+            memoryStore.saveMemory(OWNER_SOUL_ID, 'summary', 'chat_digest', summary.trim(), 'system');
+            console.log(`[Soul] 📝 Updated owner chat summary (${summary.length} chars)`);
+          }
+        } else {
+          console.error('[Soul] Owner summary update failed:', summaryResult.reason?.message);
         }
       } else {
         // ── CONTACT: three-layer extraction ───────────────────
