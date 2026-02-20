@@ -4,27 +4,27 @@
  */
 
 import http from 'http';
-import { createSkillsService, type SkillsService } from '../skills/service.js';
-import type { DatabaseConnection } from '../skills/repository.js';
-import type { DatabaseConnection as CoreDatabaseConnection } from '../database/types.js';
-import { createTaskScheduler, type TaskSchedulerService } from '../scheduler/service.js';
-import { DEFAULT_SAFETY_CONFIG, type SafetyConfig, type SafetyRule } from '../safety/types.js';
-import { DEFAULT_SAFETY_RULES } from '../safety/utils.js';
-import { DEFAULT_WHATSAPP_CONFIG, type WhatsAppConnectionConfig } from '../whatsapp/types.js';
-import { WhatsAppConnection } from '../whatsapp/connection.js';
-import { WhatsAppMessagingProvider } from '../whatsapp/messaging-provider.js';
-import { TelegramConnection } from '../telegram/connection.js';
-import { TelegramMessagingProvider } from '../telegram/messaging-provider.js';
-import { MessagingRegistry } from '../messaging/registry.js';
-import { createSkillRepository, type SkillRepository } from '../skills/skill-repository.js';
-import { createSkillEngine, type SkillEngine } from '../skills/skill-engine.js';
-import { createEventBus, type EventBus } from '../skills/event-bus.js';
-import type { SkillEvent } from '../skills/skill-types.js';
-import { createApprovalStore, type ApprovalStore } from '../agent/pending-approvals.js';
-import { getBrowserSkill } from '../browser/skill.js';
-import type { AgentOrchestrator } from '../agent/orchestrator.js';
+import { createSkillsService, type SkillsService } from '../capabilities/skills/service.js';
+import type { DatabaseConnection } from '../capabilities/skills/repository.js';
+import type { DatabaseConnection as CoreDatabaseConnection } from '../data/database/types.js';
+import { createTaskScheduler, type TaskSchedulerService } from '../capabilities/scheduler/service.js';
+import { DEFAULT_SAFETY_CONFIG, type SafetyConfig, type SafetyRule } from '../data/safety/types.js';
+import { DEFAULT_SAFETY_RULES } from '../data/safety/utils.js';
+import { DEFAULT_WHATSAPP_CONFIG, type WhatsAppConnectionConfig } from '../channels/whatsapp/types.js';
+import { WhatsAppConnection } from '../channels/whatsapp/connection.js';
+import { WhatsAppMessagingProvider } from '../channels/whatsapp/messaging-provider.js';
+import { TelegramConnection } from '../channels/telegram/connection.js';
+import { TelegramMessagingProvider } from '../channels/telegram/messaging-provider.js';
+import { MessagingRegistry } from '../channels/registry.js';
+import { createSkillRepository, type SkillRepository } from '../capabilities/skills/skill-repository.js';
+import { createSkillEngine, type SkillEngine } from '../capabilities/skills/skill-engine.js';
+import { createEventBus, type EventBus } from '../capabilities/skills/event-bus.js';
+import type { SkillEvent } from '../capabilities/skills/skill-types.js';
+import { createApprovalStore, type ApprovalStore } from '../engine/pending-approvals.js';
+import { getBrowserSkill } from '../capabilities/browser/skill.js';
+import type { AgentOrchestrator } from '../engine/orchestrator.js';
 import { log } from '../logger/ring-buffer.js';
-import { handleIncomingMessage, type UnifiedMessage, type UnifiedDeps } from '../messaging/handler.js';
+import { handleIncomingMessage, type UnifiedMessage, type UnifiedDeps } from '../engine/handler.js';
 import { existsSync } from 'fs';
 import { join } from 'path';
 import * as chrono from 'chrono-node';
@@ -399,7 +399,7 @@ export function initializeApi(db?: DatabaseConnection, agent?: AgentOrchestrator
       );
 
       // Seed browsing playbook skills on first run
-      import('../skills/browsing-playbooks.js').then(({ seedBrowsingPlaybooks }) => {
+      import('../capabilities/skills/browsing-playbooks.js').then(({ seedBrowsingPlaybooks }) => {
         seedBrowsingPlaybooks(skillEngine!);
       }).catch((err: any) => {
         console.error('[Skills] Failed to seed browsing playbooks:', err.message);
@@ -474,7 +474,7 @@ export function initializeApi(db?: DatabaseConnection, agent?: AgentOrchestrator
 
 /** Register platform-agnostic tool executors on the agent */
 function registerAgentTools(agent: AgentOrchestrator): void {
-  const { registerAllToolModules } = require('./tools/registry.js');
+  const { registerAllToolModules } = require('../tools/registry.js');
   const registry = agent.getToolRegistry();
 
   // Build the shared context for all tool modules
@@ -1163,7 +1163,7 @@ export async function handleApiRoute(
   // ── Google Auth API Endpoints ──────────────────────
   if (url === '/api/google/auth/status' && method === 'GET') {
     try {
-      const { getGoogleAuthStatus } = await import('../google/auth.js');
+      const { getGoogleAuthStatus } = await import('../channels/google/auth.js');
       const status = getGoogleAuthStatus();
       json(res, status);
     } catch (err: any) {
@@ -1174,7 +1174,7 @@ export async function handleApiRoute(
 
   if (url === '/api/google/auth/start' && method === 'POST') {
     try {
-      const { startGoogleAuth } = await import('../google/auth.js');
+      const { startGoogleAuth } = await import('../channels/google/auth.js');
       await startGoogleAuth();
       json(res, { success: true, message: 'Google authorization complete. Tokens saved.' });
     } catch (err: any) {
@@ -1185,7 +1185,7 @@ export async function handleApiRoute(
 
   if (url === '/api/google/auth/clear' && method === 'POST') {
     try {
-      const { clearGoogleAuth } = await import('../google/auth.js');
+      const { clearGoogleAuth } = await import('../channels/google/auth.js');
       await clearGoogleAuth();
       json(res, { success: true, message: 'Google auth cleared.' });
     } catch (err: any) {
@@ -1196,7 +1196,7 @@ export async function handleApiRoute(
 
   if (url === '/api/google/services/config' && method === 'GET') {
     try {
-      const { getGoogleServicesConfig } = await import('../google/auth.js');
+      const { getGoogleServicesConfig } = await import('../channels/google/auth.js');
       const services = getGoogleServicesConfig();
       json(res, { services });
     } catch (err: any) {
@@ -1208,7 +1208,7 @@ export async function handleApiRoute(
   if (url === '/api/google/services/config' && method === 'PUT') {
     try {
       const body = await parseBody(req) as any;
-      const { saveGoogleServicesConfig } = await import('../google/auth.js');
+      const { saveGoogleServicesConfig } = await import('../channels/google/auth.js');
       const updated = await saveGoogleServicesConfig(body.services || {});
       json(res, { services: updated });
     } catch (err: any) {
