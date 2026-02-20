@@ -178,49 +178,24 @@ export class WebSearchService {
   }
 
   /**
-   * Fetch search results from search engine
-   * This is a simulated implementation - in production, integrate with actual APIs
+   * Fetch search results from search engine using Puppeteer.
+   * Searches Google via the shared browser instance, with DuckDuckGo fallback.
    */
   private async fetchSearchResults(
     query: string,
-    engine: SearchEngine,
+    _engine: SearchEngine,
     maxResults: number,
     options?: SearchQueryOptions
   ): Promise<SearchResultItem[]> {
-    // Simulated results for demonstration
-    // In production, this would make actual API calls to search engines
-    const simulatedResults: SearchResultItem[] = [];
-    const domains = [
-      'wikipedia.org',
-      'stackoverflow.com',
-      'github.com',
-      'medium.com',
-      'dev.to',
-    ];
-
-    for (let i = 0; i < Math.min(maxResults, 10); i++) {
-      const domain = domains[i % domains.length];
-      const resultType = detectResultType(`https://${domain}/page/${i}`);
-
-      simulatedResults.push({
-        id: generateResultId(),
-        title: `${query} - Result ${i + 1} from ${domain}`,
-        url: `https://${domain}/search?q=${encodeURIComponent(query)}&page=${i}`,
-        snippet: `This is a simulated search result for "${query}" from ${domain}. In production, this would contain actual search result snippets.`,
-        type: resultType,
-        domain,
-        relevanceScore: 0.9 - i * 0.05,
-        position: i + 1,
-        retrievedAt: new Date(),
-      });
-    }
+    const { puppeteerSearch } = await import('./adapters/puppeteer.js');
+    const results = await puppeteerSearch(query, { maxResults });
 
     // Apply type filter if specified
     if (options?.type) {
-      return simulatedResults.filter((r) => r.type === options.type);
+      return results.filter((r) => r.type === options.type);
     }
 
-    return simulatedResults;
+    return results;
   }
 
   /**

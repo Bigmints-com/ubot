@@ -3,6 +3,8 @@ import http from 'http';
 import fs from 'fs';
 import path from 'path';
 import { handleApiRoute, initializeApi } from './api.js';
+import { metricsCollector } from './metrics.js';
+import { log } from './logger.js';
 import { createConnection, createDefaultConfig } from './database/connection.js';
 import { defaultMigrations } from './database/migrations.js';
 import { createConversationStore, conversationMigrations } from './agent/conversation.js';
@@ -115,11 +117,32 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
   
   // API endpoint for app state
   if (url === '/api/state' && method === 'GET') {
+    const metrics = metricsCollector.getSummary();
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({
       ...appState,
       uptime: Date.now() - appState.startedAt.getTime(),
+      metrics: {
+        channels: metrics.channels,
+        totals: metrics.totals,
+      },
     }));
+    return;
+  }
+
+  // Full metrics endpoint
+  if (url === '/api/metrics' && method === 'GET') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(metricsCollector.getSummary()));
+    return;
+  }
+
+  // Live logs endpoint (cursor-based polling)
+  if (url.startsWith('/api/logs') && method === 'GET') {
+    const params = new URL(url, `http://localhost`).searchParams;
+    const since = params.has('since') ? Number(params.get('since')) : -1;
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(log.getEntries(since)));
     return;
   }
   

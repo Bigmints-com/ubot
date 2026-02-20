@@ -16,6 +16,8 @@ export type {
 export { DEFAULT_WHATSAPP_CONFIG } from './types.js';
 export { WhatsAppConnection, createWhatsAppConnection } from './connection.js';
 export { WhatsAppAdapterImpl, createWhatsAppAdapter } from './adapter.js';
+export { WhatsAppRateLimiter, createRateLimiter } from './rate-limiter.js';
+export type { RateLimiterConfig } from './rate-limiter.js';
 
 import { createWhatsAppAdapter } from './adapter.js';
 import type { WhatsAppAdapter, WhatsAppAdapterOptions } from './types.js';

@@ -1,4 +1,5 @@
 import type { WASocket } from '@whiskeysockets/baileys';
+import type { RateLimiterConfig } from './rate-limiter.js';
 
 export type WhatsAppConnectionStatus = 
   | 'disconnected'
@@ -60,6 +61,8 @@ export interface WhatsAppConnectionConfig {
   retryRequestDelayMs: number;
   maxMsgRetryCount: number;
   browser?: [string, string, string];
+  /** Rate limiter configuration for human-like send behavior */
+  rateLimiter?: Partial<RateLimiterConfig>;
 }
 
 export interface WhatsAppAdapterEvents {

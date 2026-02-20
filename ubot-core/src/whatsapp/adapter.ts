@@ -100,9 +100,9 @@ export class WhatsAppAdapterImpl implements WhatsAppAdapter {
         }
       : { text: body };
 
-    const sent = await socket.sendMessage(jid, messageContent);
+    const sent = await this.connection.sendMessage(jid, messageContent);
     
-    if (!sent || !sent.key.id) {
+    if (!sent?.key?.id) {
       throw new Error('Failed to send message');
     }
     

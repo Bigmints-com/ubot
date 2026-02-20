@@ -1,5 +1,8 @@
 import puppeteer, { Browser, Page } from 'puppeteer';
 import { join } from 'path';
+import { existsSync, unlinkSync } from 'fs';
+import { execSync } from 'child_process';
+import { log } from './logger.js';
 
 export interface BrowserSkillConfig {
   headless?: boolean;
@@ -35,18 +38,80 @@ export class BrowserSkill {
     };
   }
 
-  /** Ensure the browser is running — lazy init */
+  /** Known fatal errors that can be self-healed by restarting the browser */
+  private static FATAL_PATTERNS = [
+    'detached Frame',
+    'already running',
+    'Target closed',
+    'Session closed',
+    'Protocol error',
+    'Connection closed',
+    'browser has disconnected',
+  ];
+
+  private isFatalError(err: unknown): boolean {
+    const msg = err instanceof Error ? err.message : String(err);
+    return BrowserSkill.FATAL_PATTERNS.some(p => msg.includes(p));
+  }
+
+  /** Remove lock files and kill orphaned Chrome processes for our profile */
+  private forceCleanup(): void {
+    const userDataDir = join(process.cwd(), 'browser-profile');
+    const lockFile = join(userDataDir, 'SingletonLock');
+    if (existsSync(lockFile)) {
+      try { unlinkSync(lockFile); } catch {}
+      log.warn('Browser', 'Removed stale SingletonLock');
+    }
+    // Kill any chrome processes using our profile
+    try {
+      execSync(`pkill -f "chrome.*browser-profile" 2>/dev/null || true`, { stdio: 'ignore' });
+    } catch {}
+  }
+
+  /**
+   * Self-healing wrapper — runs a browser action; on fatal error,
+   * closes the browser, cleans up, and retries once.
+   */
+  private async withRecovery(action: () => Promise<BrowserActionResult>): Promise<BrowserActionResult> {
+    try {
+      return await action();
+    } catch (err) {
+      if (this.isFatalError(err)) {
+        log.warn('Browser', `Self-healing: ${err instanceof Error ? err.message : err}`);
+        await this.close();
+        this.forceCleanup();
+        // Retry once
+        try {
+          return await action();
+        } catch (retryErr) {
+          log.error('Browser', `Retry failed: ${retryErr instanceof Error ? retryErr.message : retryErr}`);
+          return { success: false, error: `Recovery failed: ${retryErr instanceof Error ? retryErr.message : 'Unknown error'}` };
+        }
+      }
+      return { success: false, error: err instanceof Error ? err.message : 'Unknown error' };
+    }
+  }
+
+  /** Ensure the browser is running — lazy init with self-healing */
   private async ensureBrowser(): Promise<Page> {
     this.resetIdleTimer();
+
+    // If browser exists but is disconnected, clean up and re-launch
+    if (this.browser && !this.browser.isConnected()) {
+      log.warn('Browser', 'Connection lost — re-launching');
+      this.browser = null;
+      this.page = null;
+    }
+
     if (!this.browser || !this.page) {
-      // Use system Chrome to avoid Google's automated browser blocks
+      this.forceCleanup();
       const chromePath = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
       const userDataDir = join(process.cwd(), 'browser-profile');
-      console.log(`[Browser] 🚀 Launching Chrome (headless=${this.config.headless})...`);
+      log.info('Browser', `Launching Chrome (headless=${this.config.headless})...`);
       this.browser = await puppeteer.launch({
         headless: this.config.headless,
         executablePath: chromePath,
-        userDataDir, // Dedicated profile — persists login sessions
+        userDataDir,
         args: [
           '--no-first-run',
           '--no-default-browser-check',
@@ -56,7 +121,7 @@ export class BrowserSkill {
       this.page = await this.browser.newPage();
       await this.page.setViewport(this.config.viewport);
       this.page.setDefaultTimeout(this.config.defaultTimeout);
-      console.log('[Browser] ✅ Ready');
+      log.info('Browser', 'Ready');
     }
     return this.page;
   }
@@ -64,15 +129,17 @@ export class BrowserSkill {
   private resetIdleTimer(): void {
     if (this.idleTimer) clearTimeout(this.idleTimer);
     this.idleTimer = setTimeout(() => {
-      console.log('[Browser] 💤 Idle timeout — closing');
+      log.info('Browser', 'Idle timeout — closing');
       this.close();
     }, this.idleTimeoutMs);
   }
 
   async navigate(url: string): Promise<BrowserActionResult> {
-    try {
+    return this.withRecovery(async () => {
       const page = await this.ensureBrowser();
       await page.goto(url, { waitUntil: 'networkidle2', timeout: this.config.defaultTimeout });
+      await this.dismissPopups(page);
+      await this.autoScroll(page);
       const title = await page.title();
       const text = await this.getPageText(page);
       return {
@@ -81,40 +148,34 @@ export class BrowserSkill {
         title,
         data: `Page: ${title}\nURL: ${page.url()}\n\n${text}`,
       };
-    } catch (error) {
-      return { success: false, error: error instanceof Error ? error.message : 'Navigation failed' };
-    }
+    });
   }
 
   async click(selector: string): Promise<BrowserActionResult> {
-    try {
+    return this.withRecovery(async () => {
       const page = await this.ensureBrowser();
       await page.waitForSelector(selector, { timeout: 5000 });
       await page.click(selector);
-      await page.waitForNetworkIdle({ timeout: 3000 }).catch(() => {}); // wait briefly for page update
+      await page.waitForNetworkIdle({ timeout: 3000 }).catch(() => {});
       const title = await page.title();
       return { success: true, title, url: page.url(), data: `Clicked "${selector}" — page: ${title}` };
-    } catch (error) {
-      return { success: false, error: error instanceof Error ? error.message : 'Click failed' };
-    }
+    });
   }
 
   async type(selector: string, text: string): Promise<BrowserActionResult> {
-    try {
+    return this.withRecovery(async () => {
       const page = await this.ensureBrowser();
       await page.waitForSelector(selector, { timeout: 5000 });
-      // Clear existing text first
       await page.click(selector, { count: 3 });
       await page.type(selector, text);
       return { success: true, data: `Typed "${text}" into "${selector}"` };
-    } catch (error) {
-      return { success: false, error: error instanceof Error ? error.message : 'Type failed' };
-    }
+    });
   }
 
   async readPage(selector?: string): Promise<BrowserActionResult> {
-    try {
+    return this.withRecovery(async () => {
       const page = await this.ensureBrowser();
+      await this.dismissPopups(page);
       const title = await page.title();
       const url = page.url();
 
@@ -124,23 +185,139 @@ export class BrowserSkill {
         if (!element) return { success: false, error: `Element not found: ${selector}` };
         text = await element.evaluate(el => el.textContent || '');
       } else {
+        await this.autoScroll(page);
         text = await this.getPageText(page);
       }
 
-      return { success: true, title, url, data: text.slice(0, 5000) }; // cap at 5k chars
-    } catch (error) {
-      return { success: false, error: error instanceof Error ? error.message : 'Read failed' };
-    }
+      return { success: true, title, url, data: text.slice(0, 5000) };
+    });
   }
 
   async screenshot(): Promise<BrowserActionResult> {
-    try {
+    return this.withRecovery(async () => {
       const page = await this.ensureBrowser();
       const buffer = await page.screenshot({ fullPage: false, encoding: 'base64' }) as string;
       return { success: true, data: `data:image/png;base64,${buffer}` };
-    } catch (error) {
-      return { success: false, error: error instanceof Error ? error.message : 'Screenshot failed' };
+    });
+  }
+
+  /**
+   * Dismiss common popups: cookie banners, consent dialogs, newsletter overlays, etc.
+   * Tries multiple strategies: clicking common buttons, pressing Escape, removing overlays.
+   */
+  private async dismissPopups(page: Page): Promise<void> {
+    try {
+      // Common "accept" / "close" / "dismiss" button selectors
+      const popupSelectors = [
+        // Cookie / consent banners
+        '[id="L2AGLb"]',                         // Google consent
+        '[aria-label="Accept all"]',
+        '[aria-label="Accept cookies"]',
+        'button[id*="accept"]',
+        'button[id*="consent"]',
+        'button[class*="accept"]',
+        'button[class*="consent"]',
+        'button[class*="cookie"] ',
+        'a[class*="accept"]',
+        '[data-testid="cookie-policy-manage-dialog-btn-accept"]',
+        '.cookie-banner button',
+        '.cookie-notice button',
+        '#cookie-banner button',
+        '.gdpr button',
+        '#gdpr-consent button',
+        '#onetrust-accept-btn-handler',
+        '.cc-btn.cc-dismiss',
+        // Generic close / dismiss buttons
+        '[aria-label="Close"]',
+        '[aria-label="Dismiss"]',
+        'button.close',
+        '.modal .close',
+        '.overlay .close',
+        '[class*="popup"] [class*="close"]',
+        '[class*="modal"] [class*="close"]',
+        '[class*="banner"] [class*="close"]',
+      ];
+
+      for (const sel of popupSelectors) {
+        try {
+          const btn = await page.$(sel);
+          if (btn) {
+            const isVisible = await btn.evaluate((el: any) => {
+              const style = window.getComputedStyle(el);
+              return style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0';
+            });
+            if (isVisible) {
+              await btn.click();
+              console.log(`[Browser] 🚫 Dismissed popup via: ${sel}`);
+              await new Promise(r => setTimeout(r, 500));
+            }
+          }
+        } catch {
+          // Selector didn't match or click failed — continue
+        }
+      }
+
+      // Press Escape to close any remaining modal/overlay
+      await page.keyboard.press('Escape').catch(() => {});
+
+      // Remove fixed/sticky overlays that block content
+      await page.evaluate(() => {
+        document.querySelectorAll('*').forEach((el: any) => {
+          const style = window.getComputedStyle(el);
+          if ((style.position === 'fixed' || style.position === 'sticky') && style.zIndex !== 'auto') {
+            const z = parseInt(style.zIndex, 10);
+            // High z-index elements covering the viewport are likely overlays
+            if (z > 900 && el.offsetHeight > 100) {
+              el.remove();
+            }
+          }
+        });
+      }).catch(() => {});
+    } catch {
+      // Best-effort — don't fail navigation over popups
     }
+  }
+
+  /**
+   * Scroll down the page incrementally to trigger lazy-loading content.
+   * Scrolls until no new content loads or a max number of scrolls is reached.
+   */
+  private async autoScroll(page: Page, maxScrolls = 3): Promise<void> {
+    try {
+      await page.evaluate(async (max) => {
+        await new Promise<void>((resolve) => {
+          let scrolls = 0;
+          let lastHeight = document.body.scrollHeight;
+
+          const timer = setInterval(() => {
+            window.scrollBy(0, window.innerHeight * 0.8);
+            scrolls++;
+
+            const newHeight = document.body.scrollHeight;
+            if (scrolls >= max || newHeight === lastHeight) {
+              clearInterval(timer);
+              // Scroll back to top so the user sees full content
+              window.scrollTo(0, 0);
+              resolve();
+            }
+            lastHeight = newHeight;
+          }, 400);
+        });
+      }, maxScrolls);
+    } catch {
+      // Best-effort
+    }
+  }
+
+  /** Public: scroll the page by a specific amount or to an element */
+  async scroll(direction: 'up' | 'down' = 'down', amount = 500): Promise<BrowserActionResult> {
+    return this.withRecovery(async () => {
+      const page = await this.ensureBrowser();
+      const delta = direction === 'down' ? amount : -amount;
+      await page.evaluate((d) => window.scrollBy(0, d), delta);
+      await new Promise(r => setTimeout(r, 300));
+      return { success: true, data: `Scrolled ${direction} by ${amount}px` };
+    });
   }
 
   /** Extract readable text from page */
@@ -159,11 +336,10 @@ export class BrowserSkill {
 
   /** Read emails from Gmail inbox using Puppeteer */
   async readGmail(options?: { query?: string; maxEmails?: number }): Promise<BrowserActionResult> {
-    const maxEmails = options?.maxEmails ?? 15;
-    try {
+    return this.withRecovery(async () => {
+      const maxEmails = options?.maxEmails ?? 15;
       const page = await this.ensureBrowser();
       
-      // Navigate to Gmail (with optional search query)
       const searchQuery = options?.query || '';
       const gmailUrl = searchQuery
         ? `https://mail.google.com/mail/u/0/#search/${encodeURIComponent(searchQuery)}`
@@ -171,55 +347,40 @@ export class BrowserSkill {
       
       await page.goto(gmailUrl, { waitUntil: 'networkidle2', timeout: this.config.defaultTimeout });
       
-      // Check if we're on a login page (not logged in)
       const currentUrl = page.url();
       if (currentUrl.includes('accounts.google.com') || currentUrl.includes('signin')) {
         return {
           success: false,
-          error: 'Not logged into Gmail. Please open Chrome manually and log into your Google account first. The browser profile at ./browser-profile/ will remember the session.',
+          error: 'Not logged into Gmail. Please open Chrome manually and log into your Google account first.',
         };
       }
       
-      // Wait for inbox rows to appear
-      // Gmail uses various selectors — try common ones
       try {
         await page.waitForSelector('tr.zA, div[role="main"] table tr', { timeout: 10000 });
       } catch {
-        // Maybe the inbox is empty or selectors changed
         const bodyText = await this.getPageText(page);
         if (bodyText.includes('No new mail') || bodyText.includes('Your Primary tab is empty')) {
           return { success: true, data: JSON.stringify({ emails: [], message: 'Inbox is empty' }) };
         }
-        // Return whatever text we can read
         return { success: true, data: `Gmail loaded but could not parse emails. Page content:\n${bodyText.slice(0, 3000)}` };
       }
       
-      // Extract email data from visible rows
       const emails = await page.evaluate((max) => {
         const rows = (document as any).querySelectorAll('tr.zA');
         const results: any[] = [];
-        
         for (let i = 0; i < Math.min(rows.length, max); i++) {
           const row = rows[i] as any;
           const unread = row.classList.contains('zE');
-          
           const senderEl = row.querySelector('.yW span[email], .yW .bA4, .yW span, td.yX span') as any;
           const sender = senderEl?.getAttribute('email') || senderEl?.textContent?.trim() || '';
-          
           const subjectEl = row.querySelector('.bog span, .y2') as any;
           const subject = subjectEl?.textContent?.trim() || '';
-          
           const snippetEl = row.querySelector('.y2 .y2') as any;
           const snippet = snippetEl?.textContent?.trim().replace(/^\s*-\s*/, '') || '';
-          
           const dateEl = row.querySelector('.xW span, td.xW span') as any;
           const date = dateEl?.getAttribute('title') || dateEl?.textContent?.trim() || '';
-          
-          if (sender || subject) {
-            results.push({ sender, subject, snippet, date, unread });
-          }
+          if (sender || subject) results.push({ sender, subject, snippet, date, unread });
         }
-        
         return results;
       }, maxEmails);
       
@@ -232,22 +393,16 @@ export class BrowserSkill {
         success: true,
         data: `Found ${emails.length} email(s)${searchQuery ? ` matching "${searchQuery}"` : ' in inbox'}:\n\n${summary}\n\n---\nRaw data: ${JSON.stringify(emails)}`,
       };
-    } catch (error) {
-      return { success: false, error: error instanceof Error ? error.message : 'Failed to read Gmail' };
-    }
+    });
   }
 
   /** Read events from Google Calendar using Puppeteer */
   async readCalendar(options?: { date?: string }): Promise<BrowserActionResult> {
-    try {
+    return this.withRecovery(async () => {
       const page = await this.ensureBrowser();
-      
-      // Navigate to Calendar day view
       let calendarUrl = 'https://calendar.google.com/calendar/r/day';
       
-      // If a specific date is provided, append it
       if (options?.date && options.date !== 'today') {
-        // Parse the date — support "tomorrow", ISO strings, etc.
         let targetDate: Date;
         const dateStr = options.date.toLowerCase();
         if (dateStr === 'tomorrow') {
@@ -256,7 +411,6 @@ export class BrowserSkill {
         } else {
           targetDate = new Date(options.date);
         }
-        
         if (!isNaN(targetDate.getTime())) {
           const y = targetDate.getFullYear();
           const m = targetDate.getMonth() + 1;
@@ -267,7 +421,6 @@ export class BrowserSkill {
       
       await page.goto(calendarUrl, { waitUntil: 'networkidle2', timeout: this.config.defaultTimeout });
       
-      // Check if we're on a login page
       const currentUrl = page.url();
       if (currentUrl.includes('accounts.google.com') || currentUrl.includes('signin')) {
         return {
@@ -276,24 +429,19 @@ export class BrowserSkill {
         };
       }
       
-      // Wait for calendar to render
-      await new Promise(r => setTimeout(r, 2000)); // Extra wait for Calendar JS rendering
+      await new Promise(r => setTimeout(r, 2000));
       
-      // Extract event data from the day view
       const events = await page.evaluate(() => {
         const results: any[] = [];
-        
         const eventEls = (document as any).querySelectorAll(
           '[data-eventid], [data-eventchip], div[data-eventchip] span, .FAxxKc, .WBi6vc, .NlL62b, .gVNoLb'
         );
-        
         eventEls.forEach((el: any) => {
           const title = el.getAttribute('aria-label') || el.textContent?.trim() || '';
           if (title && title.length > 1) {
             const timeMatch = title.match(/(\d{1,2}:\d{2}\s*(?:AM|PM)?(?:\s*[–-]\s*\d{1,2}:\d{2}\s*(?:AM|PM)?)?)/i);
             const time = timeMatch ? timeMatch[1] : '';
             const cleanTitle = title.replace(timeMatch?.[0] || '', '').replace(/^[,\s]+|[,\s]+$/g, '').trim();
-            
             if (cleanTitle && !results.some((r: any) => r.title === cleanTitle)) {
               results.push({ title: cleanTitle, time, location: '' });
             }
@@ -316,12 +464,10 @@ export class BrowserSkill {
             }
           }
         }
-        
         return results;
       });
       
       if (events.length === 0) {
-        // Fallback: just read the page text
         const bodyText = await this.getPageText(page);
         const dateInfo = options?.date || 'today';
         return {
@@ -339,16 +485,18 @@ export class BrowserSkill {
         success: true,
         data: `Found ${events.length} event(s) for ${dateInfo}:\n\n${summary}\n\n---\nRaw data: ${JSON.stringify(events)}`,
       };
-    } catch (error) {
-      return { success: false, error: error instanceof Error ? error.message : 'Failed to read Calendar' };
-    }
+    });
   }
 
   async close(): Promise<void> {
     if (this.idleTimer) clearTimeout(this.idleTimer);
     if (this.browser) {
-      console.log('[Browser] 🛑 Closing');
-      await this.browser.close();
+      log.info('Browser', 'Closing');
+      try {
+        await this.browser.close();
+      } catch {
+        // Force-kill even if close() fails
+      }
       this.browser = null;
       this.page = null;
     }

@@ -11,6 +11,8 @@ import {
   Settings,
   Bot,
   Brain,
+  Globe,
+  ScrollText,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -28,21 +30,44 @@ import {
   SidebarFooter,
 } from "@/components/ui/sidebar";
 
-const navItems = [
+const mainItems = [
   { title: "Dashboard", href: "/", icon: LayoutDashboard },
   { title: "Command Center", href: "/chat", icon: MessageSquare },
   { title: "Approvals", href: "/approvals", icon: Shield },
   { title: "Skills", href: "/skills", icon: Puzzle },
   { title: "Personas", href: "/personas", icon: Brain },
-  { title: "WhatsApp", href: "/whatsapp", icon: MessageCircle },
-  { title: "Telegram", href: "/telegram", icon: Send },
   { title: "Safety Rules", href: "/safety", icon: Shield },
   { title: "Scheduler", href: "/scheduler", icon: Clock },
-  { title: "Settings", href: "/settings", icon: Settings },
+  { title: "Logs", href: "/logs", icon: ScrollText },
+];
+
+const channelItems = [
+  { title: "WhatsApp", href: "/whatsapp", icon: MessageCircle },
+  { title: "Telegram", href: "/telegram", icon: Send },
+  { title: "Google Apps", href: "/google", icon: Globe },
 ];
 
 export function AppSidebar() {
   const pathname = usePathname();
+
+  const renderItem = (item: (typeof mainItems)[0]) => (
+    <SidebarMenuItem key={item.href}>
+      <SidebarMenuButton
+        asChild
+        isActive={
+          item.href === "/"
+            ? pathname === "/"
+            : pathname.startsWith(item.href)
+        }
+        tooltip={item.title}
+      >
+        <Link href={item.href}>
+          <item.icon />
+          <span>{item.title}</span>
+        </Link>
+      </SidebarMenuButton>
+    </SidebarMenuItem>
+  );
 
   return (
     <Sidebar collapsible="icon">
@@ -71,24 +96,16 @@ export function AppSidebar() {
           <SidebarGroupLabel>Navigation</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {navItems.map((item) => (
-                <SidebarMenuItem key={item.href}>
-                  <SidebarMenuButton
-                    asChild
-                    isActive={
-                      item.href === "/"
-                        ? pathname === "/"
-                        : pathname.startsWith(item.href)
-                    }
-                    tooltip={item.title}
-                  >
-                    <Link href={item.href}>
-                      <item.icon />
-                      <span>{item.title}</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
+              {mainItems.map(renderItem)}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+
+        <SidebarGroup>
+          <SidebarGroupLabel>Channels</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {channelItems.map(renderItem)}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
@@ -96,6 +113,14 @@ export function AppSidebar() {
 
       <SidebarFooter>
         <SidebarMenu>
+          <SidebarMenuItem>
+            <SidebarMenuButton asChild isActive={pathname === "/settings"} tooltip="Settings">
+              <Link href="/settings">
+                <Settings />
+                <span>Settings</span>
+              </Link>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
           <SidebarMenuItem>
             <SidebarMenuButton size="sm" className="text-xs text-muted-foreground">
               <span>v1.0.0</span>

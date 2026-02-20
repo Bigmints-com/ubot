@@ -17,7 +17,7 @@ import type { AgentOrchestrator } from './agent/orchestrator.js';
 import type { ApprovalStore } from './agent/pending-approvals.js';
 import type { EventBus } from './skills/event-bus.js';
 import type { SkillEngine } from './skills/skill-engine.js';
-import type { SkillEvent } from './skills/skill-types.js';
+import type { Skill, SkillEvent } from './skills/skill-types.js';
 import { OWNER_SOUL_ID } from './agent/soul.js';
 
 // ─── Types ────────────────────────────────────────────────
@@ -237,22 +237,9 @@ export async function handleIncomingMessage(
     }
   }
 
-  // 7. Check if a skill handles this message (visitors only — owner always gets agent)
-  if (!isOwner && deps.skillEngine) {
-    const skillEvent: SkillEvent = {
-      source: msg.channel,
-      type: 'message',
-      from: msg.senderId,
-      body: msg.body,
-      timestamp: msg.timestamp,
-      data: { senderName: msg.senderName },
-    };
-    const matchingSkills = deps.skillEngine.getMatchingSkills(skillEvent);
-    if (matchingSkills.length > 0) {
-      // Skills will handle this — don't also auto-reply
-      return { isOwner, sessionId, response: '', handled: true };
-    }
-  }
+  // 7. Skills run independently via event bus (emitSkillEvent at step 5).
+  //    Silent skills (spam deletion) act in the background.
+  //    Conversation always flows through the orchestrator below.
 
   // 8. Auto-reply policy for visitors
   if (!isOwner) {

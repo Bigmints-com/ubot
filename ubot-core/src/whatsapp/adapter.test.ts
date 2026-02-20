@@ -25,6 +25,7 @@ vi.mock('./connection.js', () => {
       connect: vi.fn().mockResolvedValue(mockSocket),
       disconnect: vi.fn().mockResolvedValue(undefined),
       getSocket: vi.fn().mockImplementation(() => getMockSocketConnected() ? mockSocket : null),
+      sendMessage: vi.fn().mockImplementation((...args: unknown[]) => mockSocket.sendMessage(...args)),
       on: vi.fn(),
       off: vi.fn()
     })),
@@ -32,6 +33,7 @@ vi.mock('./connection.js', () => {
       connect: vi.fn().mockResolvedValue(mockSocket),
       disconnect: vi.fn().mockResolvedValue(undefined),
       getSocket: vi.fn().mockImplementation(() => getMockSocketConnected() ? mockSocket : null),
+      sendMessage: vi.fn().mockImplementation((...args: unknown[]) => mockSocket.sendMessage(...args)),
       on: vi.fn(),
       off: vi.fn()
     })

@@ -6,7 +6,7 @@ import makeWASocket, {
 } from '@whiskeysockets/baileys';
 import pino from 'pino';
 import qrcode from 'qrcode-terminal';
-import { mkdir, access, readdir, readFile } from 'fs/promises';
+import { mkdir, access, readdir, readFile, rm } from 'fs/promises';
 import { join } from 'path';
 import type { 
   WhatsAppConnectionConfig, 
@@ -15,6 +15,9 @@ import type {
   WhatsAppMessage
 } from './types.js';
 import { DEFAULT_WHATSAPP_CONFIG } from './types.js';
+import type { AnyMessageContent, WAMessage } from '@whiskeysockets/baileys';
+import { WhatsAppRateLimiter, createRateLimiter } from './rate-limiter.js';
+import type { RateLimiterConfig } from './rate-limiter.js';
 
 export interface ConnectionResult {
   socket: WASocket;
@@ -36,6 +39,7 @@ export class WhatsAppConnection {
   private saveCreds: (() => Promise<void>) | null = null;
   private lidToPhone: Map<string, string> = new Map();
   private logger: pino.Logger;
+  private rateLimiter: WhatsAppRateLimiter;
 
   constructor(config: Partial<WhatsAppConnectionConfig> = {}) {
     this.config = { ...DEFAULT_WHATSAPP_CONFIG, ...config };
@@ -48,6 +52,7 @@ export class WhatsAppConnection {
     this.logger = pino({
       level: 'silent'
     });
+    this.rateLimiter = createRateLimiter(config.rateLimiter);
   }
 
   get status(): WhatsAppConnectionStatus {
@@ -60,6 +65,17 @@ export class WhatsAppConnection {
 
   getSocket(): WASocket | null {
     return this.socket;
+  }
+
+  /** Send a message through the rate limiter (preferred over raw socket.sendMessage) */
+  async sendMessage(jid: string, content: AnyMessageContent): Promise<WAMessage | undefined> {
+    if (!this.socket) throw new Error('Not connected to WhatsApp');
+    return this.rateLimiter.sendMessage(this.socket, jid, content);
+  }
+
+  /** Get the rate limiter instance (for stats / config updates) */
+  getRateLimiter(): WhatsAppRateLimiter {
+    return this.rateLimiter;
   }
 
   async connect(): Promise<WASocket> {
@@ -150,6 +166,17 @@ export class WhatsAppConnection {
     }
   }
 
+  /** Delete stale session/auth files so Baileys generates a fresh QR on next connect */
+  async clearSession(): Promise<void> {
+    const sessionDir = join(this.config.sessionPath, this.config.sessionName);
+    try {
+      await rm(sessionDir, { recursive: true, force: true });
+      console.log('[WhatsApp] 🗑️  Cleared stale session directory:', sessionDir);
+    } catch (err: any) {
+      console.error('[WhatsApp] Failed to clear session:', err.message);
+    }
+  }
+
   /** Load LID→phone mappings from session directory files */
   private async loadLIDMappings(): Promise<void> {
     const sessionDir = join(this.config.sessionPath, this.config.sessionName);
@@ -189,14 +216,20 @@ export class WhatsAppConnection {
       }
       
       if (connection === 'close') {
-        const shouldReconnect = (lastDisconnect?.error as any)?.output?.statusCode !== DisconnectReason.loggedOut;
+        const statusCode = (lastDisconnect?.error as any)?.output?.statusCode;
+        const isLoggedOut = statusCode === DisconnectReason.loggedOut;
         
-        if (shouldReconnect) {
+        if (!isLoggedOut) {
           this.updateStatus('reconnecting');
           this.state.reconnectAttempts++;
           await this.connect();
         } else {
-          this.updateStatus('logged_out');
+          // Session is invalid — clear stale creds and reconnect for fresh QR
+          console.log('[WhatsApp] 🔄 Session expired — clearing creds and reconnecting for new QR...');
+          this.updateStatus('connecting');
+          this.state.reconnectAttempts = 0;
+          await this.clearSession();
+          await this.connect();
         }
       } else if (connection === 'open') {
         this.updateStatus('connected');
