@@ -72,7 +72,7 @@ const browserToolModule: ToolModule = {
   tools: BROWSER_TOOLS,
   register(registry: ToolRegistry, _ctx: ToolContext) {
     const lazyBrowser = async () => {
-      const { getBrowserSkill } = await import('../browser-skill.js');
+      const { getBrowserSkill } = await import('./skill.js');
       return getBrowserSkill();
     };
 

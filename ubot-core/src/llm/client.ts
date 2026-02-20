@@ -1,5 +1,5 @@
 import OpenAI from 'openai';
-import type { LLMClient, LLMClientConfig, LLMMessage, LLMCompletionOptions, LLMCompletionResponse } from './types.js';
+import type { LLMClient, LLMClientConfig, LLMMessage, LLMCompletionOptions, LLMCompletionResponse } from '../types.js';
 
 const DEFAULT_MODEL = 'gpt-4o-mini';
 

@@ -13,12 +13,12 @@
  *   - Response dispatch
  */
 
-import type { AgentOrchestrator } from './agent/orchestrator.js';
-import type { ApprovalStore } from './agent/pending-approvals.js';
-import type { EventBus } from './skills/event-bus.js';
-import type { SkillEngine } from './skills/skill-engine.js';
-import type { Skill, SkillEvent } from './skills/skill-types.js';
-import { OWNER_SOUL_ID } from './agent/soul.js';
+import type { AgentOrchestrator } from '../agent/orchestrator.js';
+import type { ApprovalStore } from '../agent/pending-approvals.js';
+import type { EventBus } from '../skills/event-bus.js';
+import type { SkillEngine } from '../skills/skill-engine.js';
+import type { Skill, SkillEvent } from '../skills/skill-types.js';
+import { OWNER_SOUL_ID } from '../agent/soul.js';
 
 // ─── Types ────────────────────────────────────────────────
 

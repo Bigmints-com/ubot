@@ -2,7 +2,7 @@ import puppeteer, { Browser, Page } from 'puppeteer';
 import { join } from 'path';
 import { existsSync, unlinkSync } from 'fs';
 import { execSync } from 'child_process';
-import { log } from './logger.js';
+import { log } from '../logger/ring-buffer.js';
 
 export interface BrowserSkillConfig {
   headless?: boolean;
