@@ -4,7 +4,7 @@
  * via Google, with DuckDuckGo as fallback.
  */
 
-import { getBrowserSkill } from '../../../browser-skill.js';
+import { getBrowserSkill } from '../../../browser/skill.js';
 import type { SearchResultItem } from '../types.js';
 import { generateResultId, extractDomain, detectResultType } from '../utils.js';
 

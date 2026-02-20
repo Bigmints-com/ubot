@@ -14,8 +14,8 @@ import type { ConversationStore } from './conversation.js';
 import type { MemoryStore } from './memory-store.js';
 import { type Soul, SOUL_REWRITE_PROMPT, OWNER_MERGE_PROMPT, FACT_EXTRACTION_PROMPT, SUMMARY_UPDATE_PROMPT, mergeIntoOwnerDoc, OWNER_SOUL_ID } from './soul.js';
 import { AGENT_TOOLS, formatToolsForAPI, createToolRegistry, getToolsForSource, type ToolRegistry } from './tools.js';
-import { metricsCollector } from '../metrics.js';
-import { log } from '../logger.js';
+import { metricsCollector } from '../metrics/index.js';
+import { log } from '../logger/ring-buffer.js';
 
 export interface AgentOrchestrator {
   /** Process a message and return the agent's response */

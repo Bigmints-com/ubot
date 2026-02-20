@@ -4,7 +4,7 @@
  * Opens a new tab to avoid interfering with other browser operations.
  */
 
-import { getBrowserSkill } from '../../browser-skill.js';
+import { getBrowserSkill } from '../../browser/skill.js';
 
 export interface ExtractedContent {
   title: string;

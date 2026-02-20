@@ -1,11 +1,20 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Separator } from "@/components/ui/separator";
-import { Wifi, WifiOff, QrCode, RefreshCw, Power, PowerOff } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import {
+  MessageCircle,
+  Wifi,
+  WifiOff,
+  QrCode,
+  RefreshCw,
+  Power,
+  PowerOff,
+  Smartphone,
+} from "lucide-react";
 import { api } from "@/lib/api";
 import QRCode from "qrcode";
 
@@ -30,7 +39,7 @@ export default function WhatsAppPage() {
       .catch(() => setQrImage(null));
   }, [qrCode]);
 
-  const poll = async () => {
+  const fetchStatus = useCallback(async () => {
     try {
       const data = await api<{
         status: string;
@@ -40,12 +49,10 @@ export default function WhatsAppPage() {
       setStatus(data.status);
       setQrCode(data.qr);
       setError(data.error);
-    } catch {
-      /* ignore */
-    }
-  };
+    } catch {}
+  }, []);
 
-  const loadMessages = async () => {
+  const fetchMessages = useCallback(async () => {
     try {
       const data = await api<{
         messages: Array<{
@@ -56,25 +63,27 @@ export default function WhatsAppPage() {
         }>;
       }>("/api/whatsapp/messages");
       setMessages(data.messages || []);
-    } catch {
-      /* ignore */
-    }
-  };
+    } catch {}
+  }, []);
 
   useEffect(() => {
-    poll();
-    loadMessages();
-    const interval = setInterval(poll, 3000);
+    fetchStatus();
+    fetchMessages();
+    const interval = setInterval(() => {
+      fetchStatus();
+      fetchMessages();
+    }, 3000);
     return () => clearInterval(interval);
-  }, []);
+  }, [fetchStatus, fetchMessages]);
 
   const handleConnect = async () => {
     setConnecting(true);
+    setError(null);
     try {
       await api("/api/whatsapp/connect", { method: "POST" });
-      await poll();
-    } catch {
-      /* ignore */
+      await fetchStatus();
+    } catch (err: any) {
+      setError(err.message);
     } finally {
       setConnecting(false);
     }
@@ -83,145 +92,161 @@ export default function WhatsAppPage() {
   const handleDisconnect = async () => {
     try {
       await api("/api/whatsapp/disconnect", { method: "POST" });
-      await poll();
-    } catch {
-      /* ignore */
+      await fetchStatus();
+    } catch (err: any) {
+      setError(err.message);
     }
   };
 
   const isConnected = status === "connected";
   const isConnecting = status === "connecting" || connecting;
 
+  const statusColor = isConnected
+    ? "bg-emerald-500"
+    : isConnecting
+      ? "bg-amber-500"
+      : "bg-zinc-500";
+
   return (
-    <div className="p-6 space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">WhatsApp</h1>
-        <p className="text-muted-foreground">
-          Manage your WhatsApp connection
-        </p>
+    <div className="p-6 space-y-6 max-w-4xl mx-auto">
+      {/* Header — matches Telegram / Google */}
+      <div className="flex items-center gap-3">
+        <MessageCircle className="h-8 w-8 text-green-400" />
+        <div>
+          <h1 className="text-2xl font-bold">WhatsApp</h1>
+          <p className="text-sm text-muted-foreground">
+            Connect your WhatsApp account to receive and send messages
+          </p>
+        </div>
       </div>
 
-      <Separator />
-
-      <div className="grid gap-4 md:grid-cols-2">
-        {/* Connection */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
+      {/* Connection Status */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center justify-between">
+            <span className="flex items-center gap-2">
               {isConnected ? (
-                <Wifi className="size-5 text-green-500" />
+                <Wifi className="h-5 w-5 text-emerald-400" />
               ) : (
-                <WifiOff className="size-5" />
+                <WifiOff className="h-5 w-5 text-zinc-400" />
               )}
-              Connection
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex items-center justify-between">
-              <span className="text-sm">Status</span>
-              <Badge variant={isConnected ? "default" : "secondary"}>
-                {status}
-              </Badge>
+              Connection Status
+            </span>
+            <Badge variant="outline" className="gap-1.5">
+              <span className={`h-2 w-2 rounded-full ${statusColor}`} />
+              {status}
+            </Badge>
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {isConnected && (
+            <div className="flex items-center gap-3 p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
+              <Smartphone className="h-8 w-8 text-emerald-400" />
+              <div>
+                <p className="font-medium text-emerald-300">
+                  WhatsApp Connected
+                </p>
+                <p className="text-sm text-muted-foreground">
+                  Linked via QR pairing
+                </p>
+              </div>
             </div>
+          )}
 
-            {error && (
-              <p className="text-sm text-destructive">{error}</p>
-            )}
-
-            <div className="flex gap-2">
-              {!isConnected ? (
-                <Button
-                  onClick={handleConnect}
-                  disabled={isConnecting}
-                  className="w-full"
-                >
-                  {isConnecting ? (
-                    <RefreshCw className="size-4 mr-2 animate-spin" />
-                  ) : (
-                    <Power className="size-4 mr-2" />
-                  )}
-                  {isConnecting ? "Connecting..." : "Connect"}
-                </Button>
-              ) : (
-                <Button
-                  variant="destructive"
-                  onClick={handleDisconnect}
-                  className="w-full"
-                >
-                  <PowerOff className="size-4 mr-2" />
-                  Disconnect
-                </Button>
-              )}
+          {error && (
+            <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-sm">
+              {error}
             </div>
-          </CardContent>
-        </Card>
+          )}
 
-        {/* QR Code */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <QrCode className="size-5" />
-              QR Code
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {qrImage ? (
-              <div className="bg-white p-4 rounded-lg inline-block">
+          {/* QR Code — shown when connecting */}
+          {!isConnected && qrImage && (
+            <div className="flex flex-col items-center gap-3 p-4 rounded-lg bg-muted/30 border border-border">
+              <div className="flex items-center gap-2 text-sm font-medium">
+                <QrCode className="h-4 w-4" />
+                Scan this QR code with WhatsApp
+              </div>
+              <div className="bg-white p-4 rounded-lg">
                 <img
                   src={qrImage}
                   alt="WhatsApp QR"
-                  className="w-48 h-48"
+                  className="w-52 h-52"
                 />
               </div>
-            ) : isConnected ? (
-              <p className="text-sm text-muted-foreground">
-                Connected — no QR code needed.
+              <p className="text-xs text-muted-foreground text-center">
+                Open WhatsApp on your phone → Settings → Linked Devices → Link a Device
               </p>
-            ) : (
+            </div>
+          )}
+
+          {!isConnected && !qrImage && (
+            <div className="space-y-3">
               <p className="text-sm text-muted-foreground">
                 Click Connect to generate a QR code for linking your WhatsApp.
               </p>
-            )}
-          </CardContent>
-        </Card>
-      </div>
+              <Button
+                onClick={handleConnect}
+                disabled={isConnecting}
+                className="gap-2"
+              >
+                {isConnecting ? (
+                  <RefreshCw className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Power className="h-4 w-4" />
+                )}
+                {isConnecting ? "Connecting..." : "Connect"}
+              </Button>
+            </div>
+          )}
+
+          {isConnected && (
+            <Button
+              variant="destructive"
+              onClick={handleDisconnect}
+              className="gap-2"
+            >
+              <PowerOff className="h-4 w-4" />
+              Disconnect
+            </Button>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Recent Messages */}
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle>Recent Messages</CardTitle>
-          <Button variant="ghost" size="sm" onClick={loadMessages}>
-            <RefreshCw className="size-4" />
-          </Button>
+        <CardHeader>
+          <CardTitle className="flex items-center justify-between">
+            Recent Messages
+            <Button variant="ghost" size="sm" onClick={fetchMessages}>
+              <RefreshCw className="h-4 w-4" />
+            </Button>
+          </CardTitle>
         </CardHeader>
         <CardContent>
           {messages.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No recent messages.</p>
+            <p className="text-sm text-muted-foreground text-center py-8">
+              No messages yet. Send a message to your WhatsApp number.
+            </p>
           ) : (
-            <div className="space-y-2">
+            <div className="space-y-2 max-h-96 overflow-y-auto">
               {messages.slice(-10).map((msg, i) => (
                 <div
                   key={i}
-                  className="flex items-start gap-2 text-sm border-b pb-2 last:border-0"
+                  className={`flex flex-col gap-0.5 p-3 rounded-lg text-sm ${
+                    msg.isFromMe
+                      ? "bg-blue-500/10 border border-blue-500/20 ml-8"
+                      : "bg-muted/50 border border-border mr-8"
+                  }`}
                 >
-                  <Badge
-                    variant={msg.isFromMe ? "default" : "outline"}
-                    className="shrink-0 text-xs"
-                  >
-                    {msg.isFromMe ? "Sent" : "Received"}
-                  </Badge>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs text-muted-foreground">
-                      {msg.from}
-                    </p>
-                    <p className="truncate">{msg.body}</p>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-medium text-xs">
+                      {msg.isFromMe ? "Bot" : msg.from}
+                    </span>
+                    <span className="text-[10px] text-muted-foreground">
+                      {new Date(msg.timestamp).toLocaleTimeString()}
+                    </span>
                   </div>
-                  <span className="text-xs text-muted-foreground shrink-0">
-                    {new Date(msg.timestamp).toLocaleTimeString([], {
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    })}
-                  </span>
+                  <p className="text-foreground">{msg.body}</p>
                 </div>
               ))}
             </div>
