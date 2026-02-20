@@ -6,7 +6,7 @@
  * This allows each service to live in its own file and be independently maintained.
  */
 
-import type { ToolDefinition, ToolExecutionResult, ToolCallResult } from '../agent/types.js';
+import type { ToolDefinition, ToolExecutionResult, ToolCallResult } from '../engine/types.js';
 
 // Re-export for convenience
 export type { ToolDefinition, ToolExecutionResult, ToolCallResult };

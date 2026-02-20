@@ -8,13 +8,13 @@
 import type { ToolModule, ToolRegistry, ToolContext, ToolDefinition } from './types.js';
 
 // Import each service's tool module from its own directory
-import googleTools from '../google/tools.js';
-import messagingTools from '../messaging/tools.js';
-import skillsTools from '../skills/tools.js';
-import browserTools from '../browser/tools.js';
-import schedulerTools from '../scheduler/tools.js';
-import approvalsTools from '../agent/approvals-tools.js';
-import webSearchTools from '../agent/web-search-tools.js';
+import googleTools from './google.js';
+import messagingTools from './messaging.js';
+import skillsTools from './skills.js';
+import browserTools from './browser.js';
+import schedulerTools from './scheduler.js';
+import approvalsTools from './approvals.js';
+import webSearchTools from './web-search.js';
 
 /**
  * All available tool modules, in registration order.

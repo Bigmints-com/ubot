@@ -1,19 +1,27 @@
-import 'dotenv/config';
 import http from 'http';
 import fs from 'fs';
 import path from 'path';
+
+// Only load dotenv in development (production uses config.json via CLI)
+if (process.env.NODE_ENV !== 'production') {
+  try { require('dotenv').config(); } catch { /* dotenv not available */ }
+}
+
+// ─── UBOT_HOME resolution ──────────────────────────────────────────────────────
+const UBOT_HOME = process.env.UBOT_HOME || '';
+const IS_PRODUCTION = process.env.NODE_ENV === 'production';
 import { handleApiRoute, initializeApi } from './api/index.js';
 import { metricsCollector } from './metrics/index.js';
 import { log } from './logger/ring-buffer.js';
-import { createConnection, createDefaultConfig } from './database/connection.js';
-import { defaultMigrations } from './database/migrations.js';
-import { createConversationStore, conversationMigrations } from './agent/conversation.js';
-import { createMemoryStore, memoryMigrations } from './agent/memory-store.js';
-import { createSoul } from './agent/soul.js';
-import { createAgentOrchestrator } from './agent/orchestrator.js';
-import { DEFAULT_AGENT_CONFIG } from './agent/types.js';
+import { createConnection, createDefaultConfig } from './data/database/connection.js';
+import { defaultMigrations } from './data/database/migrations.js';
+import { createConversationStore, conversationMigrations } from './engine/conversation.js';
+import { createMemoryStore, memoryMigrations } from './engine/memory-store.js';
+import { createSoul } from './engine/soul.js';
+import { createAgentOrchestrator } from './engine/orchestrator.js';
+import { DEFAULT_AGENT_CONFIG } from './engine/types.js';
 
-const PORT = parseInt(process.env.PORT || '4080', 10);
+const PORT = parseInt(process.env.PORT || '11490', 10);
 
 // In-memory application state
 interface AppState {
@@ -31,7 +39,8 @@ const appState: AppState = {
 };
 
 // Initialize database
-const dbPath = process.env.DATABASE_PATH || './data/ubot.db';
+const dbPath = process.env.DATABASE_PATH
+  || (UBOT_HOME ? path.join(UBOT_HOME, 'data', 'ubot.db') : './data/ubot.db');
 // Ensure data directory exists
 const dataDir = path.dirname(dbPath);
 if (!fs.existsSync(dataDir)) {
@@ -85,20 +94,27 @@ function getMimeType(filePath: string): string {
   return MIME_TYPES[ext] || 'application/octet-stream';
 }
 
+// In production, serve the static Next.js export from UBOT_HOME/web/
+// In development, serve from ./public
+const STATIC_DIRS = IS_PRODUCTION && UBOT_HOME
+  ? [path.join(UBOT_HOME, 'web'), path.join(UBOT_HOME, 'public'), path.join(process.cwd(), 'public')]
+  : [path.join(process.cwd(), 'public')];
+
 function serveStatic(filePath: string): Promise<{ content: Buffer; contentType: string } | null> {
   return new Promise((resolve) => {
-    const fullPath = path.join(process.cwd(), 'public', filePath);
-    
-    fs.readFile(fullPath, (err, data) => {
-      if (err) {
-        resolve(null);
-      } else {
-        resolve({
-          content: data,
-          contentType: getMimeType(filePath),
-        });
-      }
-    });
+    // Try each static directory in order
+    const tryDir = (dirs: string[]) => {
+      if (dirs.length === 0) { resolve(null); return; }
+      const fullPath = path.join(dirs[0], filePath);
+      fs.readFile(fullPath, (err, data) => {
+        if (err) {
+          tryDir(dirs.slice(1));
+        } else {
+          resolve({ content: data, contentType: getMimeType(filePath) });
+        }
+      });
+    };
+    tryDir([...STATIC_DIRS]);
   });
 }
 
