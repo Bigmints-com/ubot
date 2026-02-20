@@ -178,9 +178,8 @@ Does this event match the condition? Respond with ONLY "yes" or "no".`;
         `Instructions:`,
         skill.processor.instructions,
         ``,
-        `IMPORTANT: The reply will be sent automatically by the skill engine.`,
-        `Do NOT use send_message, reply_to_message, or ask_owner tools.`,
-        `Just generate the response text directly.`,
+        `IMPORTANT: The reply will be sent automatically — do NOT use send_message or reply_to_message.`,
+        `Follow the Visitor Security Policy in the system prompt for what to share vs. escalate via ask_owner.`,
       ].filter(Boolean).join('\n');
 
       // Use the real session ID so the LLM has full conversation history.

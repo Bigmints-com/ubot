@@ -113,7 +113,7 @@ export class WhatsAppMessagingProvider implements MessagingProvider {
       ? { text: body, contextInfo: { stanzaId: opts.replyToId, participant: jid } }
       : { text: body };
 
-    const sent = await socket.sendMessage(jid, content);
+    const sent = await this.connection.sendMessage(jid, content);
     if (!sent?.key?.id) throw new Error('Failed to send message');
 
     const msg: Message = {

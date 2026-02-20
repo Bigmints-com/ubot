@@ -23,6 +23,7 @@ import type { SkillEvent } from './skills/skill-types.js';
 import { createApprovalStore, type ApprovalStore } from './agent/pending-approvals.js';
 import { getBrowserSkill } from './browser-skill.js';
 import type { AgentOrchestrator } from './agent/orchestrator.js';
+import { log } from './logger.js';
 import { handleIncomingMessage, type UnifiedMessage, type UnifiedDeps } from './unified-message.js';
 import { existsSync } from 'fs';
 import { join } from 'path';
@@ -126,13 +127,12 @@ async function relayApprovalResponse(requesterJid: string, message: string): Pro
   }
 
   // WhatsApp requester
-  const socket = waConnection?.getSocket();
-  if (socket) {
+  if (waConnection?.isConnected) {
     try {
       const jid = requesterJid.includes('@')
         ? requesterJid
         : `${requesterJid.replace(/\D/g, '')}@s.whatsapp.net`;
-      await socket.sendMessage(jid, { text: message });
+      await waConnection.sendMessage(jid, { text: message });
       console.log(`[Approvals] Relayed response to WhatsApp ${jid}`);
       waMessages.push({ from: 'me', to: jid, body: message, timestamp: new Date().toISOString(), isFromMe: true });
       return true;
@@ -164,19 +164,11 @@ function setupWhatsAppHandlers(conn: WhatsAppConnection): void {
     if (qr) waQrCode = qr;
     if (status === 'connected') {
       waQrCode = null;
-      console.log('[WhatsApp] ✅ Connected successfully');
+      log.info('WhatsApp', 'Connected successfully');
       // Register the WhatsApp provider with the messaging registry
       waProvider = new WhatsAppMessagingProvider(conn);
       messagingRegistry.register(waProvider);
-      console.log('[WhatsApp] 📬 Messaging provider registered');
-    }
-    if (status === 'logged_out') {
-      waQrCode = null;
-      waError = 'Logged out — reconnecting for new QR...';
-      console.log('[WhatsApp] ⚠️ Logged out — will auto-reconnect for new QR');
-      // The connection.ts handler clears the session and reconnects;
-      // reset error after a short delay so the UI shows the new QR
-      setTimeout(() => { waError = null; }, 5000);
+      log.info('WhatsApp', 'Messaging provider registered');
     }
   });
 
@@ -201,10 +193,9 @@ function setupWhatsAppHandlers(conn: WhatsAppConnection): void {
       body: msg.body,
       timestamp: msg.timestamp instanceof Date ? msg.timestamp : new Date(),
       replyFn: async (text: string) => {
-        const socket = waConnection?.getSocket();
-        if (socket) {
-          console.log(`[WhatsApp] 📤 Sending reply to rawJid=${replyJid} (resolved=${jid})`);
-          await socket.sendMessage(replyJid, { text });
+        if (waConnection?.isConnected) {
+          log.info('WhatsApp', `Sending reply to rawJid=${replyJid} (resolved=${jid})`);
+          await waConnection.sendMessage(replyJid, { text });
           waMessages.push({ from: 'me', to: jid, body: text, timestamp: new Date().toISOString(), isFromMe: true });
         }
       },
@@ -240,7 +231,7 @@ async function autoConnectWhatsApp(): Promise<void> {
     return;
   }
 
-  console.log('[WhatsApp] 🔄 Found saved session, auto-reconnecting...');
+  log.info('WhatsApp', 'Found saved session, auto-reconnecting...');
   waStatus = 'connecting';
 
   try {
@@ -253,7 +244,7 @@ async function autoConnectWhatsApp(): Promise<void> {
     setupWhatsAppHandlers(waConnection);
 
     waConnection.connect().catch((err: Error) => {
-      console.error('[WhatsApp] Auto-connect failed:', err.message);
+      log.error('WhatsApp', `Auto-connect failed: ${err.message}`);
       waStatus = 'disconnected';
       waError = err.message;
       waQrCode = null;
@@ -272,10 +263,10 @@ function setupTelegramHandlers(conn: TelegramConnection): void {
   conn.on('connection.update', (status) => {
     tgStatus = status;
     if (status === 'connected') {
-      console.log('[Telegram] ✅ Connected');
+      log.info('Telegram', 'Connected');
       tgProvider = new TelegramMessagingProvider(conn);
       messagingRegistry.register(tgProvider);
-      console.log('[Telegram] 📬 Messaging provider registered');
+      log.info('Telegram', 'Messaging provider registered');
     }
     if (status === 'error') {
       tgError = 'Connection error';
@@ -325,7 +316,7 @@ function setupTelegramHandlers(conn: TelegramConnection): void {
 
   conn.on('error', (err) => {
     tgError = err.message;
-    console.error('[Telegram] Error:', err.message);
+    log.error('Telegram', `Error: ${err.message}`);
   });
 }
 
@@ -337,7 +328,7 @@ async function autoConnectTelegram(): Promise<void> {
     return;
   }
 
-  console.log('[Telegram] 🔄 Found saved bot token, auto-reconnecting...');
+  log.info('Telegram', 'Found saved bot token, auto-reconnecting...');
   tgStatus = 'connecting';
 
   try {
@@ -347,9 +338,9 @@ async function autoConnectTelegram(): Promise<void> {
     tgConnection = new TelegramConnection({ botToken: savedToken });
     setupTelegramHandlers(tgConnection);
     await tgConnection.connect();
-    console.log('[Telegram] ✅ Auto-reconnected successfully');
+    log.info('Telegram', 'Auto-reconnected successfully');
   } catch (e: any) {
-    console.error('[Telegram] Auto-connect failed:', e.message);
+    log.error('Telegram', `Auto-connect failed: ${e.message}`);
     tgStatus = 'disconnected';
     tgError = e.message;
   }
@@ -382,7 +373,7 @@ export function initializeApi(db?: DatabaseConnection, agent?: AgentOrchestrator
 
       if (Object.keys(configUpdates).length > 0) {
         agent.updateConfig(configUpdates);
-        console.log('[Config] Loaded saved settings:', Object.keys(configUpdates).join(', '));
+        log.info('Config', `Loaded saved settings: ${Object.keys(configUpdates).join(', ')}`);
       }
     }
     if (agent) {
@@ -407,6 +398,13 @@ export function initializeApi(db?: DatabaseConnection, agent?: AgentOrchestrator
         },
       );
 
+      // Seed browsing playbook skills on first run
+      import('./skills/browsing-playbooks.js').then(({ seedBrowsingPlaybooks }) => {
+        seedBrowsingPlaybooks(skillEngine!);
+      }).catch((err: any) => {
+        console.error('[Skills] Failed to seed browsing playbooks:', err.message);
+      });
+
       // Wire EventBus → SkillEngine
       eventBus.on(async (event) => {
         if (!skillEngine) return;
@@ -429,12 +427,11 @@ export function initializeApi(db?: DatabaseConnection, agent?: AgentOrchestrator
               }
             } else {
               // Reply via WhatsApp — use rawJid (original LID) for delivery
-              const socket = waConnection?.getSocket();
-              if (socket) {
+              if (waConnection?.isConnected) {
                 const rawJid = event.data?.rawJid as string | undefined;
                 const resolvedJid = event.from?.includes('@') ? event.from : `${event.from}@s.whatsapp.net`;
                 const replyJid = rawJid || resolvedJid;
-                await socket.sendMessage(replyJid, { text: result.response });
+                await waConnection.sendMessage(replyJid, { text: result.response });
                 console.log(`[SkillOutcome] Replied via WhatsApp to ${replyJid} (resolved=${resolvedJid})`);
               }
             }
@@ -447,10 +444,9 @@ export function initializeApi(db?: DatabaseConnection, agent?: AgentOrchestrator
                 console.log(`[SkillOutcome] Sent via Telegram to chat ${chatId}`);
               }
             } else {
-              const socket = waConnection?.getSocket();
-              if (socket) {
+              if (waConnection?.isConnected) {
                 const jid = outcome.target.includes('@') ? outcome.target : `${outcome.target}@s.whatsapp.net`;
-                await socket.sendMessage(jid, { text: result.response });
+                await waConnection.sendMessage(jid, { text: result.response });
                 console.log(`[SkillOutcome] Sent via WhatsApp to ${jid}`);
               }
             }
@@ -478,802 +474,23 @@ export function initializeApi(db?: DatabaseConnection, agent?: AgentOrchestrator
 
 /** Register platform-agnostic tool executors on the agent */
 function registerAgentTools(agent: AgentOrchestrator): void {
+  const { registerAllToolModules } = require('./tools/registry.js');
   const registry = agent.getToolRegistry();
 
-  // send_message — works across any messaging provider
-  registry.register('send_message', async (args) => {
-    const to = String(args.to || '');
-    const body = String(args.body || args.message || '');
-    if (!to || !body) {
-      return { toolName: 'send_message', success: false, error: 'Missing "to" or "body" parameter', duration: 0 };
-    }
-    try {
-      const provider = messagingRegistry.resolveProvider(args.channel as string | undefined);
-      const msg = await provider.sendMessage(to, body);
-      return { toolName: 'send_message', success: true, result: `Message sent to ${to} via ${provider.channel}: "${body}"`, duration: 0 };
-    } catch (err: any) {
-      return { toolName: 'send_message', success: false, error: err.message, duration: 0 };
-    }
-  });
-
-  // search_messages — search across connected platforms
-  registry.register('search_messages', async (args) => {
-    try {
-      const provider = messagingRegistry.resolveProvider(args.channel as string | undefined);
-      const messages = await provider.searchMessages({
-        from: args.from as string | undefined,
-        to: args.to as string | undefined,
-        query: args.query as string | undefined,
-        limit: args.limit ? Number(args.limit) : 20,
-      });
-      if (messages.length === 0) {
-        return { toolName: 'search_messages', success: true, result: 'No messages found matching the filter.', duration: 0 };
-      }
-      const formatted = messages.map(m =>
-        `[${m.timestamp.toISOString()}] ${m.isFromMe ? 'Me' : m.from} → ${m.to}: ${m.body}`
-      ).join('\n');
-      return { toolName: 'search_messages', success: true, result: `Found ${messages.length} messages:\n${formatted}`, duration: 0 };
-    } catch (err: any) {
-      return { toolName: 'search_messages', success: false, error: err.message, duration: 0 };
-    }
-  });
-
-  // get_contacts — list contacts from connected platforms
-  registry.register('get_contacts', async (args) => {
-    try {
-      const provider = messagingRegistry.resolveProvider(args.channel as string | undefined);
-      const contacts = await provider.getContacts(args.query as string | undefined);
-      if (contacts.length === 0) {
-        return { toolName: 'get_contacts', success: true, result: 'No contacts found.', duration: 0 };
-      }
-      const formatted = contacts.map(c =>
-        `${c.displayName || c.name || c.phone || c.id}${c.isGroup ? ' (group)' : ''}`
-      ).join('\n');
-      return { toolName: 'get_contacts', success: true, result: `Found ${contacts.length} contacts:\n${formatted}`, duration: 0 };
-    } catch (err: any) {
-      return { toolName: 'get_contacts', success: false, error: err.message, duration: 0 };
-    }
-  });
-
-  // get_conversations — list recent chats
-  registry.register('get_conversations', async (args) => {
-    try {
-      const provider = messagingRegistry.resolveProvider(args.channel as string | undefined);
-      const convos = await provider.getConversations(args.limit ? Number(args.limit) : 20);
-      if (convos.length === 0) {
-        return { toolName: 'get_conversations', success: true, result: 'No conversations found.', duration: 0 };
-      }
-      const formatted = convos.map(c =>
-        `${c.contact.displayName || c.contact.name || c.contact.phone || c.id}: ${c.lastMessage?.body?.slice(0, 50) || '(no messages)'}`
-      ).join('\n');
-      return { toolName: 'get_conversations', success: true, result: `${convos.length} conversations:\n${formatted}`, duration: 0 };
-    } catch (err: any) {
-      return { toolName: 'get_conversations', success: false, error: err.message, duration: 0 };
-    }
-  });
-
-  // delete_message
-  registry.register('delete_message', async (args) => {
-    const messageId = String(args.messageId || '');
-    if (!messageId) {
-      return { toolName: 'delete_message', success: false, error: 'Missing messageId', duration: 0 };
-    }
-    try {
-      const provider = messagingRegistry.resolveProvider(args.channel as string | undefined);
-      await provider.deleteMessage(messageId);
-      return { toolName: 'delete_message', success: true, result: `Message ${messageId} deleted.`, duration: 0 };
-    } catch (err: any) {
-      return { toolName: 'delete_message', success: false, error: err.message, duration: 0 };
-    }
-  });
-
-  // reply_to_message
-  registry.register('reply_to_message', async (args) => {
-    const messageId = String(args.messageId || '');
-    const body = String(args.body || '');
-    if (!messageId || !body) {
-      return { toolName: 'reply_to_message', success: false, error: 'Missing messageId or body', duration: 0 };
-    }
-    try {
-      const provider = messagingRegistry.resolveProvider(args.channel as string | undefined);
-      await provider.replyToMessage(messageId, body);
-      return { toolName: 'reply_to_message', success: true, result: `Replied to message ${messageId}: "${body}"`, duration: 0 };
-    } catch (err: any) {
-      return { toolName: 'reply_to_message', success: false, error: err.message, duration: 0 };
-    }
-  });
-
-  // get_connection_status
-  registry.register('get_connection_status', async (args) => {
-    if (args.channel) {
-      try {
-        const provider = messagingRegistry.getProvider(args.channel as any);
-        return {
-          toolName: 'get_connection_status',
-          success: true,
-          result: JSON.stringify({ channel: provider.channel, status: provider.status }),
-          duration: 0,
-        };
-      } catch (err: any) {
-        return { toolName: 'get_connection_status', success: false, error: err.message, duration: 0 };
-      }
-    }
-    const providers = messagingRegistry.getAllProviders();
-    const statuses = providers.map(p => ({ channel: p.channel, status: p.status }));
-    return {
-      toolName: 'get_connection_status',
-      success: true,
-      result: statuses.length > 0
-        ? JSON.stringify(statuses)
-        : 'No messaging providers registered.',
-      duration: 0,
-    };
-  });
-
-  // schedule_message
-  registry.register('schedule_message', async (args) => {
-    const to = String(args.to || '');
-    const body = String(args.body || args.message || '');
-    const time = String(args.time || '');
-    if (!to || !body || !time) {
-      return { toolName: 'schedule_message', success: false, error: 'Missing required parameters (to, body/message, time)', duration: 0 };
-    }
-
-    // Parse time with chrono-node (natural language) then fallback to Date
-    const scheduledDate = chrono.parseDate(time, new Date()) || new Date(time);
-    if (!scheduledDate || isNaN(scheduledDate.getTime())) {
-      return { toolName: 'schedule_message', success: false, error: `Could not parse time: "${time}". Try "in 30 minutes", "at 3pm", "tomorrow at 9am", or ISO format.`, duration: 0 };
-    }
-
-    if (scheduledDate.getTime() <= Date.now()) {
-      return { toolName: 'schedule_message', success: false, error: `Scheduled time "${time}" resolves to the past (${scheduledDate.toLocaleString()}).`, duration: 0 };
-    }
-
-    if (!scheduler) {
-      return { toolName: 'schedule_message', success: false, error: 'Scheduler service not initialized', duration: 0 };
-    }
-
-    try {
-      const safeTo = to.replace(/[^a-zA-Z0-9_\-.\s]/g, '');
-      const taskName = `Send message to ${safeTo || 'recipient'}`;
-
-      const task = await scheduler.createTask({
-        name: taskName,
-        description: `Send "${body.slice(0, 80)}${body.length > 80 ? '...' : ''}" to ${to} at ${scheduledDate.toISOString()}`,
-        schedule: {
-          recurrence: 'once',
-          startDate: scheduledDate,
-        },
-        data: { to, body, channel: String(args.channel || '') },
-        tags: ['scheduled_message'],
-        metadata: { createdBy: 'chat', to, body },
-        handler: async (_ctx, data: { to: string; body: string; channel: string }) => {
-          try {
-            const provider = messagingRegistry.resolveProvider(data.channel || undefined);
-            await provider.sendMessage(data.to, data.body);
-            console.log(`[Scheduler] Sent scheduled message to ${data.to}`);
-            return { sent: true, to: data.to };
-          } catch (err: any) {
-            console.error(`[Scheduler] Failed to send scheduled message to ${data.to}:`, err.message);
-            throw err;
-          }
-        },
-      });
-
-      return {
-        toolName: 'schedule_message',
-        success: true,
-        result: `Scheduled message to ${to}: "${body}" at ${scheduledDate.toLocaleString()}. Task ID: ${task.id}`,
-        duration: 0,
-      };
-    } catch (err: any) {
-      return { toolName: 'schedule_message', success: false, error: `Failed to create scheduled task: ${err.message}`, duration: 0 };
-    }
-  });
-
-  // set_auto_reply
-  registry.register('set_auto_reply', async (args) => {
-    const contacts = String(args.contacts || '');
-    const instructions = String(args.instructions || '');
-    const enabled = args.enabled !== false;
-    if (agent) {
-      const contactList = contacts === 'all' ? [] : contacts.split(',').map(c => c.trim());
-      agent.updateConfig({ autoReplyWhatsApp: enabled, autoReplyContacts: contactList });
-    }
-    return {
-      toolName: 'set_auto_reply',
-      success: true,
-      result: `Auto-reply ${enabled ? 'enabled' : 'disabled'} for ${contacts === 'all' ? 'all contacts' : contacts}. Instructions: ${instructions}`,
-      duration: 0,
-    };
-  });
-
-  // ask_owner — ask the owner for approval before responding
-  registry.register('ask_owner', async (args) => {
-    if (!approvalStore) {
-      return { toolName: 'ask_owner', success: false, error: 'Approval system not initialized', duration: 0 };
-    }
-
-    const question = String(args.question || '');
-    const context = String(args.context || '');
-    const requesterJid = String(args.requester_jid || '');
-
-    if (!question) {
-      return { toolName: 'ask_owner', success: false, error: 'Missing "question" parameter', duration: 0 };
-    }
-
-    // Create the pending approval
-    const approval = approvalStore.create({
-      question,
-      context,
-      requesterJid,
-      sessionId: requesterJid,
-    });
-
-    console.log(`[Approvals] Created approval ${approval.id}: "${question.slice(0, 80)}"`);
-
-    // Inject approval notification into Command Center chat
-    const convStore = agent.getConversationStore();
-    convStore.getOrCreateSession('web-console', 'web', 'Command Center');
-    const approvalNotification = `🔔 **Approval Request** (ID: ${approval.id})\n\n**From:** ${context || 'Unknown'}\n**Question:** ${question}\n\n👉 Go to the Approvals page to respond, or reply here with your answer.`;
-    convStore.addMessage('web-console', 'assistant', approvalNotification, { source: 'web' });
-
-    // Try to notify the owner via WhatsApp if they have a different number
-    const config = agent.getConfig();
-    const ownerPhone = config.ownerPhone?.replace(/\D/g, '') || '';
-    const ownerName = config.ownerName || 'owner';
-
-    if (ownerPhone) {
-      const socket = waConnection?.getSocket();
-      if (socket) {
-        try {
-          const ownerJid = `${ownerPhone}@s.whatsapp.net`;
-          const notificationText = `🔔 *Approval Request*\n\n${context}\n\n*Question:* ${question}\n\nReply to this message with your response.`;
-          await socket.sendMessage(ownerJid, { text: notificationText });
-          console.log(`[Approvals] Sent notification to owner at ${ownerJid}`);
-        } catch (err: any) {
-          console.error('[Approvals] Failed to notify owner via WhatsApp:', err.message);
-        }
-      }
-    }
-
-    // Also try notifying via Telegram if connected
-    if (tgConnection && config.ownerTelegramId) {
-      try {
-        const chatId = Number(config.ownerTelegramId);
-        if (!isNaN(chatId)) {
-          const notificationText = `🔔 *Approval Request*\n\n${context}\n\n*Question:* ${question}\n\nReply to this message with your response.`;
-          await tgConnection.sendMessage(chatId, notificationText);
-          console.log(`[Approvals] Sent notification to owner via Telegram at ${chatId}`);
-        }
-      } catch (err: any) {
-        console.error('[Approvals] Failed to notify owner via Telegram:', err.message);
-      }
-    }
-
-    return {
-      toolName: 'ask_owner',
-      success: true,
-      result: `Approval request created (ID: ${approval.id}). The owner "${ownerName}" has been notified. Tell the requester you'll check with ${ownerName} and get back to them.`,
-      duration: 0,
-    };
-  });
-
-  // respond_to_approval — owner responds to a pending approval from Command Center
-  registry.register('respond_to_approval', async (args) => {
-    if (!approvalStore) {
-      return { toolName: 'respond_to_approval', success: false, error: 'Approval system not initialized', duration: 0 };
-    }
-
-    const response = String(args.response || '');
-    if (!response) {
-      return { toolName: 'respond_to_approval', success: false, error: 'Missing "response" parameter', duration: 0 };
-    }
-
-    let approvalId = String(args.approval_id || '');
-
-    // If no approval ID provided, use the most recent pending one
-    if (!approvalId) {
-      const pending = approvalStore.getPending();
-      if (pending.length === 0) {
-        return { toolName: 'respond_to_approval', success: true, result: 'No pending approvals to respond to.', duration: 0 };
-      }
-      approvalId = pending[0].id;
-    }
-
-    const approval = approvalStore.getById(approvalId);
-    if (!approval) {
-      return { toolName: 'respond_to_approval', success: false, error: `Approval not found: ${approvalId}`, duration: 0 };
-    }
-    if (approval.status === 'resolved') {
-      return { toolName: 'respond_to_approval', success: true, result: `Approval ${approvalId} was already resolved.`, duration: 0 };
-    }
-
-    // Resolve the approval
-    approvalStore.resolve(approvalId, response);
-    console.log(`[Approvals] Owner responded via Command Center to approval ${approvalId}: "${response.slice(0, 80)}"`);
-
-    // Relay response to the requester via their channel
-    if (approval.requesterJid && agentOrchestrator) {
-      const source = approval.requesterJid.startsWith('telegram:') ? 'telegram' : 'whatsapp';
-      const sessionId = approval.requesterJid;
-      const systemMessage = `[SYSTEM] The owner responded to your approval request (ID: ${approvalId}): "${response}"\n\nPlease relay this information to the visitor appropriately.`;
-
-      agentOrchestrator.chat(sessionId, systemMessage, source).then(result => {
-        if (result.content) {
-          if (source === 'telegram' && tgConnection) {
-            const chatId = Number(sessionId.replace('telegram:', ''));
-            tgConnection.sendMessage(chatId, result.content);
-          } else if (source === 'whatsapp' && waConnection) {
-            const socket = waConnection.getSocket();
-            const jid = sessionId.includes('@') ? sessionId : `${sessionId.replace(/\D/g, '')}@s.whatsapp.net`;
-            socket?.sendMessage(jid, { text: result.content });
-          }
-        }
-        console.log(`[Approvals] Relayed owner response to ${sessionId}`);
-      }).catch(err => {
-        console.error(`[Approvals] Failed to relay response to ${sessionId}:`, err.message);
-      });
-    }
-
-    return {
-      toolName: 'respond_to_approval',
-      success: true,
-      result: `Approval ${approvalId} resolved. Your response "${response}" is being relayed to the requester.`,
-      duration: 0,
-    };
-  });
-
-  // list_pending_approvals — show pending approvals to the owner
-  registry.register('list_pending_approvals', async () => {
-    if (!approvalStore) {
-      return { toolName: 'list_pending_approvals', success: false, error: 'Approval system not initialized', duration: 0 };
-    }
-
-    const pending = approvalStore.getPending();
-    if (pending.length === 0) {
-      return { toolName: 'list_pending_approvals', success: true, result: 'No pending approvals.', duration: 0 };
-    }
-
-    const summary = pending.map(a => {
-      const ago = Math.round((Date.now() - new Date(a.createdAt).getTime()) / 60000);
-      return `• [${a.id}] "${a.question}" — from: ${a.context || a.requesterJid} (${ago}m ago)`;
-    }).join('\n');
-
-    return {
-      toolName: 'list_pending_approvals',
-      success: true,
-      result: `${pending.length} pending approval(s):\n${summary}`,
-      duration: 0,
-    };
-  });
-
-  // web_search — real Puppeteer-based Google/DuckDuckGo search
-  registry.register('web_search', async (args) => {
-    const { executeWebSearch } = await import('./skills/web-search/tool.js');
-    return executeWebSearch({
-      query: String(args.query || ''),
-      max_results: args.max_results ? Number(args.max_results) : undefined,
-      deep_read: args.deep_read === true || args.deep_read === 'true',
-    });
-  });
-
-  // ── Skill Management Tools ──────────────────────
-
-  registry.register('list_skills', async () => {
-    if (!skillEngine) {
-      return { toolName: 'list_skills', success: false, result: 'Skill engine not initialized', duration: 0 };
-    }
-    const skills = skillEngine.getSkills();
-    if (skills.length === 0) {
-      return { toolName: 'list_skills', success: true, result: 'No skills configured yet.', duration: 0 };
-    }
-    const summary = skills.map(s => {
-      const status = s.enabled ? '✅ Active' : '❌ Disabled';
-      const events = s.trigger.events.join(', ');
-      const cond = s.trigger.condition ? ` | condition: "${s.trigger.condition}"` : '';
-      const filters = s.trigger.filters || {};
-      const filterParts: string[] = [];
-      if (filters.contacts?.length) filterParts.push(`contacts: ${filters.contacts.join(', ')}`);
-      if (filters.groups?.length) filterParts.push(`groups: ${filters.groups.join(', ')}`);
-      if (filters.groupsOnly) filterParts.push('groups only');
-      if (filters.pattern) filterParts.push(`pattern: /${filters.pattern}/`);
-      const filterStr = filterParts.length ? ` | ${filterParts.join(', ')}` : '';
-      return `• [${s.id}] "${s.name}" — ${status}\n  Events: ${events}${cond}${filterStr}\n  Instructions: ${s.processor.instructions.slice(0, 100)}${s.processor.instructions.length > 100 ? '...' : ''}\n  Outcome: ${s.outcome.action}${s.outcome.target ? ' → ' + s.outcome.target : ''}`;
-    }).join('\n');
-    return { toolName: 'list_skills', success: true, result: `${skills.length} skill(s):\n${summary}`, duration: 0 };
-  });
-
-  registry.register('create_skill', async (args) => {
-    if (!skillEngine) {
-      return { toolName: 'create_skill', success: false, result: 'Skill engine not initialized', duration: 0 };
-    }
-    // Build trigger
-    const events: string[] = [];
-    if (args.events) {
-      events.push(...String(args.events).split(',').map(e => e.trim()).filter(Boolean));
-    } else {
-      events.push('whatsapp:message'); // Default
-    }
-    const filters: Record<string, unknown> = {};
-    if (args.contacts) filters.contacts = String(args.contacts).split(',').map(c => c.trim()).filter(Boolean);
-    if (args.groups) filters.groups = String(args.groups).split(',').map(g => g.trim()).filter(Boolean);
-    if (args.groups_only) filters.groupsOnly = true;
-    if (args.pattern) filters.pattern = String(args.pattern);
-    if (args.source) filters.source = String(args.source);
-
-    const saved = skillEngine.saveSkill({
-      name: String(args.name || ''),
-      description: String(args.description || ''),
-      trigger: {
-        events,
-        condition: args.condition ? String(args.condition) : undefined,
-        filters: Object.keys(filters).length > 0 ? filters as any : undefined,
-      },
-      processor: {
-        instructions: String(args.instructions || args.prompt || ''),
-      },
-      outcome: {
-        action: (args.outcome || 'reply') as any,
-        target: args.outcome_target ? String(args.outcome_target) : undefined,
-        channel: args.outcome_channel ? String(args.outcome_channel) : undefined,
-      },
-      enabled: args.enabled !== false,
-    });
-    return {
-      toolName: 'create_skill',
-      success: true,
-      result: `Created skill "${saved.name}" (ID: ${saved.id}), events: ${saved.trigger.events.join(', ')}, outcome: ${saved.outcome.action}, enabled: ${saved.enabled}`,
-      duration: 0,
-    };
-  });
-
-  registry.register('update_skill', async (args) => {
-    if (!skillEngine) {
-      return { toolName: 'update_skill', success: false, result: 'Skill engine not initialized', duration: 0 };
-    }
-    const id = String(args.skill_id || '');
-    if (!id) {
-      return { toolName: 'update_skill', success: false, result: 'skill_id is required', duration: 0 };
-    }
-    const existing = skillEngine.getSkill(id);
-    if (!existing) {
-      return { toolName: 'update_skill', success: false, result: `Skill not found: ${id}`, duration: 0 };
-    }
-
-    const updates: Record<string, unknown> = {};
-    if (args.name !== undefined) updates.name = String(args.name);
-    if (args.description !== undefined) updates.description = String(args.description);
-    if (args.enabled !== undefined) updates.enabled = Boolean(args.enabled);
-
-    // Merge trigger updates
-    if (args.events !== undefined || args.condition !== undefined || args.contacts !== undefined ||
-        args.groups !== undefined || args.groups_only !== undefined || args.pattern !== undefined) {
-      const trigger = { ...existing.trigger };
-      if (args.events !== undefined) trigger.events = String(args.events).split(',').map(e => e.trim()).filter(Boolean);
-      if (args.condition !== undefined) trigger.condition = String(args.condition) || undefined;
-      const filters = { ...(trigger.filters || {}) };
-      if (args.contacts !== undefined) filters.contacts = String(args.contacts).split(',').map(c => c.trim()).filter(Boolean);
-      if (args.groups !== undefined) filters.groups = String(args.groups).split(',').map(g => g.trim()).filter(Boolean);
-      if (args.groups_only !== undefined) filters.groupsOnly = Boolean(args.groups_only);
-      if (args.pattern !== undefined) filters.pattern = String(args.pattern) || undefined;
-      trigger.filters = Object.keys(filters).length > 0 ? filters as any : undefined;
-      updates.trigger = trigger;
-    }
-
-    // Merge processor updates
-    if (args.instructions !== undefined || args.prompt !== undefined) {
-      updates.processor = {
-        ...existing.processor,
-        instructions: String(args.instructions || args.prompt),
-      };
-    }
-
-    // Merge outcome updates
-    if (args.outcome !== undefined || args.outcome_target !== undefined) {
-      updates.outcome = {
-        ...existing.outcome,
-        ...(args.outcome ? { action: String(args.outcome) } : {}),
-        ...(args.outcome_target !== undefined ? { target: String(args.outcome_target) } : {}),
-      };
-    }
-
-    const updated = skillEngine.updateSkill(id, updates as any);
-    if (!updated) {
-      return { toolName: 'update_skill', success: false, result: `Failed to update skill: ${id}`, duration: 0 };
-    }
-    return {
-      toolName: 'update_skill',
-      success: true,
-      result: `Updated skill "${updated.name}" (ID: ${id}). Changes: ${Object.keys(updates).join(', ')}`,
-      duration: 0,
-    };
-  });
-
-  registry.register('delete_skill', async (args) => {
-    if (!skillEngine) {
-      return { toolName: 'delete_skill', success: false, result: 'Skill engine not initialized', duration: 0 };
-    }
-    const id = String(args.skill_id || '');
-    if (!id) {
-      return { toolName: 'delete_skill', success: false, result: 'skill_id is required', duration: 0 };
-    }
-    const deleted = skillEngine.deleteSkill(id);
-    if (!deleted) {
-      return { toolName: 'delete_skill', success: false, result: `Skill not found: ${id}`, duration: 0 };
-    }
-    return {
-      toolName: 'delete_skill',
-      success: true,
-      result: `Deleted skill "${id}" successfully.`,
-      duration: 0,
-    };
-  });
-
-  // ── Browser Automation Tools ──────────────────────
-
-  registry.register('browse_url', async (args) => {
-    const url = String(args.url || '');
-    if (!url) return { toolName: 'browse_url', success: false, error: 'Missing "url" parameter', duration: 0 };
-    const browser = getBrowserSkill();
-    const result = await browser.navigate(url);
-    return {
-      toolName: 'browse_url',
-      success: result.success,
-      result: result.data || '',
-      error: result.error,
-      duration: 0,
-    };
-  });
-
-  registry.register('browser_click', async (args) => {
-    const selector = String(args.selector || '');
-    if (!selector) return { toolName: 'browser_click', success: false, error: 'Missing "selector" parameter', duration: 0 };
-    const browser = getBrowserSkill();
-    const result = await browser.click(selector);
-    return {
-      toolName: 'browser_click',
-      success: result.success,
-      result: result.data || '',
-      error: result.error,
-      duration: 0,
-    };
-  });
-
-  registry.register('browser_type', async (args) => {
-    const selector = String(args.selector || '');
-    const text = String(args.text || '');
-    if (!selector || !text) return { toolName: 'browser_type', success: false, error: 'Missing "selector" or "text" parameter', duration: 0 };
-    const browser = getBrowserSkill();
-    const result = await browser.type(selector, text);
-    return {
-      toolName: 'browser_type',
-      success: result.success,
-      result: result.data || '',
-      error: result.error,
-      duration: 0,
-    };
-  });
-
-  registry.register('browser_read_page', async (args) => {
-    const browser = getBrowserSkill();
-    const selector = args.selector ? String(args.selector) : undefined;
-    const result = await browser.readPage(selector);
-    return {
-      toolName: 'browser_read_page',
-      success: result.success,
-      result: result.data || '',
-      error: result.error,
-      duration: 0,
-    };
-  });
-
-  registry.register('browser_screenshot', async () => {
-    const browser = getBrowserSkill();
-    const result = await browser.screenshot();
-    return {
-      toolName: 'browser_screenshot',
-      success: result.success,
-      result: result.success ? 'Screenshot captured (base64 image)' : '',
-      error: result.error,
-      duration: 0,
-    };
-  });
-
-  // ── Gmail & Calendar (Browser-based) ──────────────────
-
-  registry.register('read_emails', async (args) => {
-    const browser = getBrowserSkill();
-    const query = args.query ? String(args.query) : undefined;
-    const maxResults = args.max_results ? Number(args.max_results) : undefined;
-    const result = await browser.readGmail({ query, maxEmails: maxResults });
-    return {
-      toolName: 'read_emails',
-      success: result.success,
-      result: result.data || '',
-      error: result.error,
-      duration: 0,
-    };
-  });
-
-  registry.register('read_calendar', async (args) => {
-    const browser = getBrowserSkill();
-    const date = args.date ? String(args.date) : undefined;
-    const result = await browser.readCalendar({ date });
-    return {
-      toolName: 'read_calendar',
-      success: result.success,
-      result: result.data || '',
-      error: result.error,
-      duration: 0,
-    };
-  });
-
-  // ── Scheduler & Reminder Tools ──────────────────────────
-
-  registry.register('create_reminder', async (args) => {
-    const message = String(args.message || '');
-    const time = String(args.time || '');
-    const recurrence = String(args.recurrence || 'once') as 'once' | 'daily' | 'weekly' | 'monthly';
-    if (!message || !time) {
-      return { toolName: 'create_reminder', success: false, error: 'Missing required parameters (message, time)', duration: 0 };
-    }
-
-    const scheduledDate = chrono.parseDate(time, new Date()) || new Date(time);
-    if (!scheduledDate || isNaN(scheduledDate.getTime())) {
-      return { toolName: 'create_reminder', success: false, error: `Could not parse time: "${time}". Try "in 30 minutes", "at 3pm", "tomorrow at 9am".`, duration: 0 };
-    }
-
-    if (scheduledDate.getTime() <= Date.now() && recurrence === 'once') {
-      return { toolName: 'create_reminder', success: false, error: `Time "${time}" resolves to the past (${scheduledDate.toLocaleString()}).`, duration: 0 };
-    }
-
-    if (!scheduler) {
-      return { toolName: 'create_reminder', success: false, error: 'Scheduler service not initialized', duration: 0 };
-    }
-
-    try {
-      const config = agentOrchestrator?.getConfig();
-      const ownerTelegramId = config?.ownerTelegramId;
-
-      const task = await scheduler.createTask({
-        name: `Reminder: ${message.slice(0, 50)}`,
-        description: `Remind owner: "${message}" at ${scheduledDate.toLocaleString()}`,
-        schedule: {
-          recurrence,
-          startDate: scheduledDate,
-        },
-        data: { message, ownerTelegramId },
-        tags: ['reminder'],
-        metadata: { createdBy: 'chat', message },
-        handler: async (_ctx, data: { message: string; ownerTelegramId?: string }) => {
-          const reminderText = `⏰ **Reminder:** ${data.message}`;
-          // Try Telegram first, then WhatsApp, then web-console
-          if (data.ownerTelegramId && tgConnection) {
-            try {
-              await tgConnection.sendMessage(Number(data.ownerTelegramId), reminderText);
-              console.log(`[Scheduler] Sent reminder to owner via Telegram`);
-              return { sent: true, channel: 'telegram' };
-            } catch (err: any) {
-              console.error(`[Scheduler] Telegram reminder failed:`, err.message);
-            }
-          }
-          const socket = waConnection?.getSocket();
-          const ownerPhone = config?.ownerPhone;
-          if (socket && ownerPhone) {
-            try {
-              const jid = `${ownerPhone.replace(/\D/g, '')}@s.whatsapp.net`;
-              await socket.sendMessage(jid, { text: reminderText });
-              console.log(`[Scheduler] Sent reminder to owner via WhatsApp`);
-              return { sent: true, channel: 'whatsapp' };
-            } catch (err: any) {
-              console.error(`[Scheduler] WhatsApp reminder failed:`, err.message);
-            }
-          }
-          console.log(`[Scheduler] Reminder stored (no messaging channel available): ${data.message}`);
-          return { sent: false, stored: true };
-        },
-      });
-
-      return {
-        toolName: 'create_reminder',
-        success: true,
-        result: `Reminder set: "${message}" at ${scheduledDate.toLocaleString()}${recurrence !== 'once' ? ` (${recurrence})` : ''}. Task ID: ${task.id}`,
-        duration: 0,
-      };
-    } catch (err: any) {
-      return { toolName: 'create_reminder', success: false, error: `Failed to create reminder: ${err.message}`, duration: 0 };
-    }
-  });
-
-  registry.register('list_schedules', async (args) => {
-    if (!scheduler) {
-      return { toolName: 'list_schedules', success: false, error: 'Scheduler service not initialized', duration: 0 };
-    }
-
-    const statusFilter = args.status ? String(args.status) as any : undefined;
-    const filter = statusFilter ? { status: statusFilter } : { enabled: true };
-    const result = scheduler.listTasks(filter, { field: 'createdAt', direction: 'desc' });
-
-    if (result.tasks.length === 0) {
-      return { toolName: 'list_schedules', success: true, result: 'No scheduled tasks found.', duration: 0 };
-    }
-
-    const lines = result.tasks.map(t => {
-      const nextRun = t.nextRunAt ? t.nextRunAt.toLocaleString() : 'N/A';
-      const tags = t.tags.length > 0 ? ` [${t.tags.join(', ')}]` : '';
-      return `• **${t.name}** (ID: ${t.id})\n  Status: ${t.status} | Next run: ${nextRun} | Recurrence: ${t.schedule.recurrence}${tags}`;
-    });
-
-    return {
-      toolName: 'list_schedules',
-      success: true,
-      result: `Found ${result.tasks.length} scheduled task(s):\n\n${lines.join('\n\n')}`,
-      duration: 0,
-    };
-  });
-
-  registry.register('delete_schedule', async (args) => {
-    const taskId = String(args.task_id || '');
-    if (!taskId) {
-      return { toolName: 'delete_schedule', success: false, error: 'Missing required parameter: task_id', duration: 0 };
-    }
-    if (!scheduler) {
-      return { toolName: 'delete_schedule', success: false, error: 'Scheduler service not initialized', duration: 0 };
-    }
-
-    const deleted = await scheduler.deleteTask(taskId);
-    if (deleted) {
-      return { toolName: 'delete_schedule', success: true, result: `Deleted scheduled task ${taskId}.`, duration: 0 };
-    }
-    return { toolName: 'delete_schedule', success: false, error: `Task ${taskId} not found.`, duration: 0 };
-  });
-
-  registry.register('trigger_schedule', async (args) => {
-    const taskId = String(args.task_id || '');
-    if (!taskId) {
-      return { toolName: 'trigger_schedule', success: false, error: 'Missing required parameter: task_id', duration: 0 };
-    }
-    if (!scheduler) {
-      return { toolName: 'trigger_schedule', success: false, error: 'Scheduler service not initialized', duration: 0 };
-    }
-
-    try {
-      const result = await scheduler.runTaskNow(taskId);
-      return {
-        toolName: 'trigger_schedule',
-        success: result.success,
-        result: result.success ? `Task ${taskId} executed successfully.` : `Task ${taskId} execution failed: ${result.error}`,
-        duration: result.duration,
-      };
-    } catch (err: any) {
-      return { toolName: 'trigger_schedule', success: false, error: `Failed to trigger task: ${err.message}`, duration: 0 };
-    }
-  });
-
-  registry.register('forward_message', async (args) => {
-    const to = String(args.to || '');
-    const text = String(args.text || '');
-    const channel = String(args.channel || '');
-    if (!to || !text) {
-      return { toolName: 'forward_message', success: false, error: 'Missing required parameters (to, text)', duration: 0 };
-    }
-
-    try {
-      const provider = messagingRegistry.resolveProvider(channel || undefined);
-      await provider.sendMessage(to, `↩️ Forwarded:\n\n${text}`);
-      return {
-        toolName: 'forward_message',
-        success: true,
-        result: `Message forwarded to ${to}.`,
-        duration: 0,
-      };
-    } catch (err: any) {
-      return { toolName: 'forward_message', success: false, error: `Failed to forward message: ${err.message}`, duration: 0 };
-    }
-  });
+  // Build the shared context for all tool modules
+  const toolContext = {
+    getMessagingRegistry: () => messagingRegistry,
+    getScheduler: () => scheduler,
+    getApprovalStore: () => approvalStore,
+    getSkillEngine: () => skillEngine,
+    getWhatsApp: () => waConnection,
+    getTelegram: () => tgConnection,
+    getAgent: () => agent,
+    getEventBus: () => eventBus,
+  };
+
+  registerAllToolModules(registry, toolContext);
 }
-
 async function parseBody(req: http.IncomingMessage): Promise<unknown> {
   return new Promise((resolve) => {
     let body = '';
@@ -1579,29 +796,29 @@ export async function handleApiRoute(
     waStatus = 'connecting';
 
     try {
+      // If a previous connection exists, tear it down cleanly
+      if (waConnection) {
+        try { await waConnection.disconnect(); } catch { /* ignore */ }
+        // Clear stale session so Baileys generates a fresh QR
+        await waConnection.clearSession();
+        waConnection = null;
+      }
+
       waConnection = new WhatsAppConnection({
         ...DEFAULT_WHATSAPP_CONFIG,
         ...whatsappConfig,
       });
 
-      waConnection.on('connection.update', (status, qr) => {
-        waStatus = status;
-        if (qr) waQrCode = qr;
-        if (status === 'connected') waQrCode = null;
-        if (status === 'logged_out') {
-          waQrCode = null;
-          waError = 'Logged out';
-        }
-      });
-
-      // NOTE: Message handling is done by wireWhatsAppMessageHandler() above
-      //  — do NOT add a duplicate handler here
+      setupWhatsAppHandlers(waConnection);
 
       // Start connection in the background (don't await — it blocks until connected)
       waConnection.connect().catch((err: Error) => {
-        waStatus = 'disconnected';
-        waError = err.message;
-        waQrCode = null;
+        // Only treat as error if we're not already reconnecting
+        if (waStatus !== 'connecting' && waStatus !== 'connected') {
+          waStatus = 'disconnected';
+          waError = err.message;
+          waQrCode = null;
+        }
       });
 
       json(res, { status: 'connecting', message: 'Connection initiated — poll /api/whatsapp/qr for QR code' });
@@ -1904,24 +1121,22 @@ export async function handleApiRoute(
       const source = approval.requesterJid.startsWith('telegram:') ? 'telegram' : 'whatsapp';
       const sessionId = approval.requesterJid;
       
-      // Inject the owner's response as a system-originated message to the agent
-      // The orchestrator will handle sending the resulting LLM response to the visitor
-      const systemMessage = `[SYSTEM] The owner responded to your approval request (ID: ${approvalId}): "${response}"\n\nPlease relay this information to the visitor appropriately.`;
+      // Inject the owner's response as a system-originated message to the agent.
+      // The LLM should compose a natural reply; the code below delivers it directly.
+      const systemMessage = `[SYSTEM] The owner has responded to the pending approval request (ID: ${approvalId}). The owner's answer is: "${response}"\n\nCompose a natural, friendly reply to the visitor incorporating the owner's answer. Do NOT use send_message or any other tool — just write the reply text. It will be delivered automatically.`;
       
       agentOrchestrator.chat(sessionId, systemMessage, source).then(result => {
-        if (result.content) {
-          if (source === 'telegram' && tgConnection) {
-            const chatId = Number(sessionId.replace('telegram:', ''));
-            tgConnection.sendMessage(chatId, result.content);
-          } else if (source === 'whatsapp' && waConnection) {
-            const socket = waConnection.getSocket();
-            const jid = sessionId.includes('@') ? sessionId : `${sessionId.replace(/\D/g, '')}@s.whatsapp.net`;
-            socket?.sendMessage(jid, { text: result.content });
-          }
+        const reply = result.content || response; // fallback to raw owner response
+        if (source === 'telegram' && tgConnection) {
+          const chatId = Number(sessionId.replace('telegram:', ''));
+          tgConnection.sendMessage(chatId, reply);
+        } else if (source === 'whatsapp' && waConnection?.isConnected) {
+          const jid = sessionId.includes('@') ? sessionId : `${sessionId.replace(/\D/g, '')}@s.whatsapp.net`;
+          waConnection.sendMessage(jid, { text: reply });
         }
-        console.log(`[Approvals] Follow-up chat turn completed for ${sessionId}. Response: ${result.content.slice(0, 100)}...`);
+        log.info('Approvals', `Relayed to ${sessionId}: ${reply.slice(0, 100)}...`);
       }).catch(err => {
-        console.error(`[Approvals] Follow-up chat turn failed for ${sessionId}:`, err.message);
+        log.error('Approvals', `Follow-up chat turn failed for ${sessionId}: ${err.message}`);
       });
     }
 
@@ -1942,6 +1157,63 @@ export async function handleApiRoute(
       return true;
     }
     json(res, { approval });
+    return true;
+  }
+
+  // ── Google Auth API Endpoints ──────────────────────
+  if (url === '/api/google/auth/status' && method === 'GET') {
+    try {
+      const { getGoogleAuthStatus } = await import('./google/auth.js');
+      const status = getGoogleAuthStatus();
+      json(res, status);
+    } catch (err: any) {
+      error(res, err.message, 500);
+    }
+    return true;
+  }
+
+  if (url === '/api/google/auth/start' && method === 'POST') {
+    try {
+      const { startGoogleAuth } = await import('./google/auth.js');
+      await startGoogleAuth();
+      json(res, { success: true, message: 'Google authorization complete. Tokens saved.' });
+    } catch (err: any) {
+      error(res, `Google auth failed: ${err.message}`, 500);
+    }
+    return true;
+  }
+
+  if (url === '/api/google/auth/clear' && method === 'POST') {
+    try {
+      const { clearGoogleAuth } = await import('./google/auth.js');
+      await clearGoogleAuth();
+      json(res, { success: true, message: 'Google auth cleared.' });
+    } catch (err: any) {
+      error(res, err.message, 500);
+    }
+    return true;
+  }
+
+  if (url === '/api/google/services/config' && method === 'GET') {
+    try {
+      const { getGoogleServicesConfig } = await import('./google/auth.js');
+      const services = getGoogleServicesConfig();
+      json(res, { services });
+    } catch (err: any) {
+      error(res, err.message, 500);
+    }
+    return true;
+  }
+
+  if (url === '/api/google/services/config' && method === 'PUT') {
+    try {
+      const body = await parseBody(req) as any;
+      const { saveGoogleServicesConfig } = await import('./google/auth.js');
+      const updated = await saveGoogleServicesConfig(body.services || {});
+      json(res, { services: updated });
+    } catch (err: any) {
+      error(res, err.message, 500);
+    }
     return true;
   }
 

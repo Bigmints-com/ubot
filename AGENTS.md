@@ -2,7 +2,7 @@
 
 > Personal AI assistant platform — manages messaging, automation, and contacts
 > across WhatsApp, Telegram, and web.
-> Last updated: 2026-02-18
+> Last updated: 2026-02-18 (evening)
 
 ## Stack
 
@@ -84,11 +84,14 @@ ubot-core/
 │   │   ├── skill-types.ts            # Skill, SkillEvent, SkillTrigger, SkillOutcome types
 │   │   ├── skill-repository.ts       # SQLite CRUD for skills
 │   │   ├── service.ts                # Skills service layer
+│   │   ├── service.test.ts
 │   │   ├── repository.ts             # Generic data repository
+│   │   ├── repository.test.ts
 │   │   ├── event-bus.ts              # Pub/sub event system for skill triggers
 │   │   ├── shell-skill.ts            # Shell command execution skill
 │   │   ├── types.ts                  # Skill service types
 │   │   ├── utils.ts                  # Skill utility functions
+│   │   ├── utils.test.ts
 │   │   ├── index.ts
 │   │   ├── memory/                   # Skill memory subsystem
 │   │   │   ├── service.ts
@@ -102,6 +105,7 @@ ubot-core/
 │   │   │   └── index.ts
 │   │   └── web-search/               # Web search integration
 │   │       ├── service.ts
+│   │       ├── service.test.ts
 │   │       ├── types.ts
 │   │       ├── utils.ts
 │   │       └── index.ts
@@ -134,14 +138,17 @@ ubot-core/
 │   │
 │   ├── scheduler/                    # Task scheduler (cron-based)
 │   │   ├── service.ts                # Scheduler service (cron jobs, one-time tasks)
+│   │   ├── service.test.ts
 │   │   ├── types.ts                  # ScheduledTask types
 │   │   ├── utils.ts                  # Time parsing, cron expression helpers
 │   │   └── index.ts
 │   │
 │   ├── safety/                       # Safety & content filtering
 │   │   ├── service.ts                # Safety rules engine
+│   │   ├── service.test.ts
 │   │   ├── types.ts                  # Safety rule types
 │   │   ├── utils.ts                  # Content analysis utilities
+│   │   ├── utils.test.ts
 │   │   └── index.ts
 │   │
 │   ├── prompt-builder/               # System prompt construction
@@ -207,11 +214,17 @@ All channels (WhatsApp, Telegram, web) normalize their messages into a `UnifiedM
 
 ### Soul Module (`src/agent/soul.ts`)
 
-Ubot's identity and memory system with three layers:
+Ubot's identity and memory system. Three document types:
 
 1. **Bot Soul** (`__bot__`) — personality, tone, boundaries
 2. **Owner Soul** (`__owner__`) — owner profile, preferences, context
 3. **Contact Souls** — auto-updated profiles for each contact
+
+Each contact has a **three-layer data architecture**:
+
+- **Persona layer** — qualitative YAML document (personality, preferences, relationship context)
+- **Chat history layer** — structured conversation logs stored in SQLite
+- **Personal details layer** — key-value facts (birthday, phone, etc.) for quick retrieval
 
 Documents are stored as YAML and injected into the system prompt.
 
@@ -225,7 +238,18 @@ User-created automations following: **Event → Trigger → Processor → Outcom
 
 ### Agent Tools (`src/agent/tools.ts`)
 
-Platform-agnostic tool definitions: `send_message`, `get_messages`, `get_contacts`, `delete_message`, `reply_to_message`, `schedule_message`, `set_auto_reply`, `web_search`, `ask_owner`, `list_pending_approvals`, `list_skills`, `create_skill`, `update_skill`, `delete_skill`, `browse_url`, `browser_click`, `browser_type`, `browser_read_page`, `browser_screenshot`.
+Platform-agnostic tool definitions:
+
+| Category         | Tools                                                                                                                                                    |
+| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Messaging        | `send_message`, `search_messages`, `get_contacts`, `get_conversations`, `delete_message`, `reply_to_message`, `forward_message`, `get_connection_status` |
+| Scheduling       | `schedule_message`, `create_reminder`, `list_schedules`, `delete_schedule`, `trigger_schedule`                                                           |
+| Auto-reply       | `set_auto_reply`                                                                                                                                         |
+| Web              | `web_search`                                                                                                                                             |
+| Browser          | `browse_url`, `browser_click`, `browser_type`, `browser_read_page`, `browser_screenshot`                                                                 |
+| Gmail & Calendar | `read_emails`, `read_calendar`                                                                                                                           |
+| Approvals        | `ask_owner`, `respond_to_approval`, `list_pending_approvals`                                                                                             |
+| Skills           | `list_skills`, `create_skill`, `update_skill`, `delete_skill`                                                                                            |
 
 Visitor (non-owner) sessions are restricted to `ask_owner` only.
 

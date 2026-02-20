@@ -86,6 +86,11 @@ export {
   createDefaultStats,
 } from './utils.js';
 
+// Re-export adapter, content extractor, and tool
+export { puppeteerSearch } from './adapters/puppeteer.js';
+export { extractContent } from './content-extractor.js';
+export { executeWebSearch } from './tool.js';
+
 /**
  * Initialize the web search skill
  */

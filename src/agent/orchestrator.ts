@@ -14,6 +14,8 @@ import type { ConversationStore } from './conversation.js';
 import type { MemoryStore } from './memory-store.js';
 import { type Soul, SOUL_REWRITE_PROMPT, OWNER_MERGE_PROMPT, FACT_EXTRACTION_PROMPT, SUMMARY_UPDATE_PROMPT, mergeIntoOwnerDoc, OWNER_SOUL_ID } from './soul.js';
 import { AGENT_TOOLS, formatToolsForAPI, createToolRegistry, getToolsForSource, type ToolRegistry } from './tools.js';
+import { metricsCollector } from '../metrics.js';
+import { log } from '../logger.js';
 
 export interface AgentOrchestrator {
   /** Process a message and return the agent's response */
@@ -325,7 +327,7 @@ export function createAgentOrchestrator(
     const client = createLLMClient();
     const filteredTools = getToolsForSource(isOwner);
     const tools = formatToolsForAPI(filteredTools);
-    console.log(`[Agent] Tools available: ${filteredTools.length} (isOwner: ${isOwner})`);
+    log.info('Agent', `Tools available: ${filteredTools.length} (isOwner: ${isOwner})`);
     
     try {
       const completion = await client.chat.completions.create({
@@ -338,7 +340,7 @@ export function createAgentOrchestrator(
 
       const choice = completion.choices?.[0];
       if (!choice) {
-        console.error('[Agent] No choices in LLM response:', JSON.stringify(completion).slice(0, 500));
+        log.error('Agent', `No choices in LLM response: ${JSON.stringify(completion).slice(0, 500)}`);
         return { content: '', toolCalls: [], usage: undefined };
       }
       const content = choice.message?.content || '';
@@ -366,14 +368,14 @@ export function createAgentOrchestrator(
         totalTokens: completion.usage.total_tokens,
       } : undefined;
 
-      console.log(`[Agent] LLM response: ${content.length} chars text, ${toolCalls.length} tool calls`);
+      log.info('Agent', `LLM response: ${content.length} chars text, ${toolCalls.length} tool calls`);
       if (toolCalls.length > 0) {
-        console.log(`[Agent] Tool calls:`, toolCalls.map(tc => `${tc.toolName}(${JSON.stringify(tc.arguments)})`).join(', '));
+        log.info('Agent', `Tool calls: ${toolCalls.map(tc => `${tc.toolName}(${JSON.stringify(tc.arguments)})`).join(', ')}`);
       }
 
       return { content, toolCalls, usage };
     } catch (err: any) {
-      console.error('[Agent] LLM call failed:', err.message);
+      log.error('Agent', `LLM call failed: ${err.message}`);
       throw new Error(`LLM call failed: ${err.message}`);
     }
   }
@@ -388,6 +390,9 @@ export function createAgentOrchestrator(
     ): Promise<AgentResponse> {
       const startTime = Date.now();
       const toolResults: ToolExecutionResult[] = [];
+
+      // Track incoming message
+      metricsCollector.recordMessage(source || 'web', 'in');
 
       // Ensure session exists
       conversationStore.getOrCreateSession(
@@ -444,7 +449,7 @@ export function createAgentOrchestrator(
 
         // Execute tool calls and add results
         for (const toolCall of llmResult.toolCalls) {
-          console.log(`[Agent] Executing: ${toolCall.toolName}(${JSON.stringify(toolCall.arguments)})`);
+          log.info('Agent', `Executing: ${toolCall.toolName}(${JSON.stringify(toolCall.arguments)})`);
           const result = await toolRegistry.execute({
             toolName: toolCall.toolName,
             arguments: toolCall.arguments,
@@ -452,11 +457,14 @@ export function createAgentOrchestrator(
           });
           toolResults.push(result);
 
+          // Track tool usage
+          metricsCollector.recordTool(toolCall.toolName, result.success);
+
           // Add tool result as a "tool" role message (OpenAI format)
           const toolResultContent = result.success 
             ? (result.result || 'Success') 
             : `Error: ${result.error}`;
-          console.log(`[Agent] Tool result for ${toolCall.toolName}: ${toolResultContent.slice(0, 200)}`);
+          log.info('Agent', `Tool result for ${toolCall.toolName}: ${toolResultContent.slice(0, 200)}`);
           messages.push({
             role: 'tool',
             tool_call_id: toolCall.id,
@@ -481,6 +489,9 @@ export function createAgentOrchestrator(
         model: currentConfig.llmModel,
       };
       conversationStore.addMessage(sessionId, 'assistant', finalContent, assistantMetadata);
+
+      // Track outgoing message
+      metricsCollector.recordMessage(source || 'web', 'out');
 
       // Extract soul data in the background (don't block the response)
       extractSoulData(sessionId, message, finalContent, source, contactName, ownerFlag).catch(err => {
@@ -511,7 +522,7 @@ export function createAgentOrchestrator(
         });
         return completion.choices[0]?.message?.content || '';
       } catch (err: any) {
-        console.error('[Agent] Generate call failed:', err.message);
+        log.error('Agent', `Generate call failed: ${err.message}`);
         throw new Error(`LLM generate failed: ${err.message}`);
       }
     },

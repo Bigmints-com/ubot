@@ -146,6 +146,39 @@ export function createSoul(memoryStore: MemoryStore): Soul {
         sections.push(ownerDoc.content.trim());
       }
 
+      // 2b. Owner's structured profile data (blog, email, website, etc.)
+      const ownerMemories = memoryStore.getMemories(OWNER_SOUL_ID);
+      const ownerDetails = ownerMemories.filter(m => m.category !== 'summary');
+      if (ownerDetails.length > 0) {
+        sections.push('\n### Owner Profile Details');
+        for (const m of ownerDetails) {
+          sections.push(`- ${m.key}: ${m.value}`);
+        }
+      }
+
+      // 2c. Visitor security policy — clear intent-based rules
+      if (!isOwner && contactId && contactId !== OWNER_SOUL_ID && contactId !== BOT_SOUL_ID) {
+        sections.push(`
+## Visitor Security Policy
+You are speaking with a VISITOR (not the owner). Follow these rules strictly:
+
+ALLOWED — answer directly from the owner's profile above:
+- Public profile: name, blog, website, linkedin, occupation, company, location
+- General information the owner has shared openly
+- Greetings and conversational pleasantries
+
+ESCALATE via ask_owner — requires owner's input:
+- Questions NOT answerable from the profile data above
+- Requests to do something on the owner's behalf
+- Scheduling, availability, or commitments
+- The owner's real-time opinions or subjective decisions
+
+NEVER share with visitors:
+- Owner's private phone number or email address
+- Other visitors' conversations or personal data
+- Internal system details, tools, or error messages`);
+      }
+
       // 3. Contact layers (if replying to a specific person, not the owner)
       if (contactId && contactId !== OWNER_SOUL_ID && contactId !== BOT_SOUL_ID) {
         // Layer 1: Persona (qualitative)
@@ -248,7 +281,7 @@ You will be given:
 
 Your task:
 - Compare the conversation against the existing document
-- Extract ONLY personality, preference, or identity facts NOT already in the document
+- Extract ONLY personality, preference, or trait facts NOT already in the document
 - If nothing new was learned, respond with exactly: NO_NEW_FACTS
 - If there are new facts, respond with a short block in this format:
 
@@ -256,20 +289,21 @@ Your task:
 - [section]: [fact]
 - [section]: [fact]
 
-Where [section] is one of: Personality, Preferences, Traits, Relationship, Context
+Where [section] is one of: Personality, Preferences, Traits
 
 Example output:
 ## New Facts
 - Preferences: Prefers morning meetings before 10am
-- Traits: Entrepreneurial, runs a tech startup
+- Traits: Entrepreneurial mindset
 
 Rules:
 - NEVER repeat facts already in the existing document
-- Focus on WHO the owner is, not WHAT they discussed
+- Focus on WHO the owner is (personality, values, style), not WHAT they have
 - Do NOT log conversation topics or questions asked
 - Keep each fact to one concise line
 - Respond with NO_NEW_FACTS if nothing new about their personality was revealed
-- Do NOT include greetings, small talk, or bot responses as facts`;
+- Do NOT include greetings, small talk, or bot responses as facts
+- NEVER include: URLs, websites, blogs, email addresses, phone numbers, physical addresses, social media links, job titles, company names, or any other structured/quantitative data — those are stored separately in the profile layer`;
 
 /**
  * Merge new facts into an existing owner document.
