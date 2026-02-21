@@ -4,7 +4,7 @@
  * Opens a new tab to avoid interfering with other browser operations.
  */
 
-import { getBrowserSkill } from '../../browser/skill.js';
+import { getBrowserService } from '../../browser/service.js';
 
 export interface ExtractedContent {
   title: string;
@@ -23,7 +23,7 @@ export async function extractContent(
   url: string,
   timeout = DEFAULT_TIMEOUT
 ): Promise<ExtractedContent> {
-  const browser = getBrowserSkill();
+  const browser = getBrowserService();
   const skill = browser as any;
 
   // Ensure browser is initialized

@@ -72,8 +72,8 @@ const browserToolModule: ToolModule = {
   tools: BROWSER_TOOLS,
   register(registry: ToolRegistry, _ctx: ToolContext) {
     const lazyBrowser = async () => {
-      const { getBrowserSkill } = await import('../capabilities/browser/skill.js');
-      return getBrowserSkill();
+      const { getBrowserService } = await import('../capabilities/browser/service.js');
+      return getBrowserService();
     };
 
     const browserTool = (name: string, fn: (browser: any, args: Record<string, unknown>) => Promise<any>) => {
@@ -122,10 +122,10 @@ const browserToolModule: ToolModule = {
     // read_emails — prefer Gmail API, fallback to browser
     registry.register('read_emails', async (args) => {
       try {
-        const { getGoogleAuthClient } = await import('../channels/google/auth.js');
+        const { getGoogleAuthClient } = await import('../integrations/google/auth.js');
         const auth = await getGoogleAuthClient();
         if (auth) {
-          const { gmailList } = await import('../channels/google/gmail.js');
+          const { gmailList } = await import('../integrations/google/gmail.js');
           const result = await gmailList(auth, {
             query: args.query ? String(args.query) : undefined,
             maxResults: args.max_results ? Number(args.max_results) : undefined,
@@ -142,10 +142,10 @@ const browserToolModule: ToolModule = {
     // read_calendar — prefer Calendar API, fallback to browser
     registry.register('read_calendar', async (args) => {
       try {
-        const { getGoogleAuthClient } = await import('../channels/google/auth.js');
+        const { getGoogleAuthClient } = await import('../integrations/google/auth.js');
         const auth = await getGoogleAuthClient();
         if (auth) {
-          const { calendarListEvents } = await import('../channels/google/calendar.js');
+          const { calendarListEvents } = await import('../integrations/google/calendar.js');
           const result = await calendarListEvents(auth, {
             date: args.date ? String(args.date) : undefined,
             maxResults: 15,

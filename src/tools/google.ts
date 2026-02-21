@@ -269,7 +269,7 @@ function registerExecutors(registry: ToolRegistry): void {
    */
   const wrap = (toolName: string, fn: () => Promise<string>) => {
     return async () => {
-      const { getGoogleAuthClient, getServiceForTool, getGoogleServicesConfig } = await import('../channels/google/auth.js');
+      const { getGoogleAuthClient, getServiceForTool, getGoogleServicesConfig } = await import('../integrations/google/auth.js');
 
       // Check if the service is enabled
       const serviceKey = getServiceForTool(toolName);
@@ -301,143 +301,143 @@ function registerExecutors(registry: ToolRegistry): void {
   };
 
   const getAuth = async () => {
-    const { getGoogleAuthClient } = await import('../channels/google/auth.js');
+    const { getGoogleAuthClient } = await import('../integrations/google/auth.js');
     return (await getGoogleAuthClient())!;
   };
 
   // Gmail
   safe('gmail_list', async (args) => {
-    const { gmailList } = await import('../channels/google/gmail.js');
+    const { gmailList } = await import('../integrations/google/gmail.js');
     return gmailList(await getAuth(), { query: args.query as string | undefined, maxResults: args.max_results ? Number(args.max_results) : undefined });
   });
   safe('gmail_read', async (args) => {
-    const { gmailRead } = await import('../channels/google/gmail.js');
+    const { gmailRead } = await import('../integrations/google/gmail.js');
     return gmailRead(await getAuth(), String(args.message_id));
   });
   safe('gmail_send', async (args) => {
-    const { gmailSend } = await import('../channels/google/gmail.js');
+    const { gmailSend } = await import('../integrations/google/gmail.js');
     return gmailSend(await getAuth(), { to: String(args.to), subject: String(args.subject), body: String(args.body), cc: args.cc as string | undefined, bcc: args.bcc as string | undefined });
   });
   safe('gmail_search', async (args) => {
-    const { gmailSearch } = await import('../channels/google/gmail.js');
+    const { gmailSearch } = await import('../integrations/google/gmail.js');
     return gmailSearch(await getAuth(), String(args.query), args.max_results ? Number(args.max_results) : undefined);
   });
   safe('gmail_trash', async (args) => {
-    const { gmailTrash } = await import('../channels/google/gmail.js');
+    const { gmailTrash } = await import('../integrations/google/gmail.js');
     return gmailTrash(await getAuth(), String(args.message_id));
   });
   safe('gmail_reply', async (args) => {
-    const { gmailReply } = await import('../channels/google/gmail.js');
+    const { gmailReply } = await import('../integrations/google/gmail.js');
     return gmailReply(await getAuth(), { messageId: String(args.message_id), body: String(args.body) });
   });
 
   // Drive
   safe('drive_list', async (args) => {
-    const { driveList } = await import('../channels/google/drive.js');
+    const { driveList } = await import('../integrations/google/drive.js');
     return driveList(await getAuth(), { query: args.query as string | undefined, maxResults: args.max_results ? Number(args.max_results) : undefined, folderId: args.folder_id as string | undefined });
   });
   safe('drive_search', async (args) => {
-    const { driveSearch } = await import('../channels/google/drive.js');
+    const { driveSearch } = await import('../integrations/google/drive.js');
     return driveSearch(await getAuth(), String(args.query), args.max_results ? Number(args.max_results) : undefined);
   });
   safe('drive_download', async (args) => {
-    const { driveDownload } = await import('../channels/google/drive.js');
+    const { driveDownload } = await import('../integrations/google/drive.js');
     return driveDownload(await getAuth(), String(args.file_id));
   });
   safe('drive_upload', async (args) => {
-    const { driveUpload } = await import('../channels/google/drive.js');
+    const { driveUpload } = await import('../integrations/google/drive.js');
     return driveUpload(await getAuth(), { name: String(args.name), content: String(args.content), folderId: args.folder_id as string | undefined });
   });
   safe('drive_share', async (args) => {
-    const { driveShare } = await import('../channels/google/drive.js');
+    const { driveShare } = await import('../integrations/google/drive.js');
     return driveShare(await getAuth(), { fileId: String(args.file_id), email: String(args.email), role: args.role as string | undefined });
   });
   safe('drive_create_folder', async (args) => {
-    const { driveCreateFolder } = await import('../channels/google/drive.js');
+    const { driveCreateFolder } = await import('../integrations/google/drive.js');
     return driveCreateFolder(await getAuth(), { name: String(args.name), parentId: args.parent_id as string | undefined });
   });
 
   // Sheets
   safe('sheets_read', async (args) => {
-    const { sheetsRead } = await import('../channels/google/sheets.js');
+    const { sheetsRead } = await import('../integrations/google/sheets.js');
     return sheetsRead(await getAuth(), { spreadsheetId: String(args.spreadsheet_id), range: String(args.range) });
   });
   safe('sheets_write', async (args) => {
-    const { sheetsWrite } = await import('../channels/google/sheets.js');
+    const { sheetsWrite } = await import('../integrations/google/sheets.js');
     let values: string[][];
     try { values = JSON.parse(String(args.values)); } catch { throw new Error('Invalid values format. Must be a JSON array of arrays.'); }
     return sheetsWrite(await getAuth(), { spreadsheetId: String(args.spreadsheet_id), range: String(args.range), values });
   });
   safe('sheets_create', async (args) => {
-    const { sheetsCreate } = await import('../channels/google/sheets.js');
+    const { sheetsCreate } = await import('../integrations/google/sheets.js');
     const sheetNames = args.sheet_names ? String(args.sheet_names).split(',').map(s => s.trim()) : undefined;
     return sheetsCreate(await getAuth(), { title: String(args.title), sheetNames });
   });
   safe('sheets_list_tabs', async (args) => {
-    const { sheetsList } = await import('../channels/google/sheets.js');
+    const { sheetsList } = await import('../integrations/google/sheets.js');
     return sheetsList(await getAuth(), String(args.spreadsheet_id));
   });
 
   // Docs
   safe('docs_read', async (args) => {
-    const { docsRead } = await import('../channels/google/docs.js');
+    const { docsRead } = await import('../integrations/google/docs.js');
     return docsRead(await getAuth(), String(args.document_id));
   });
   safe('docs_create', async (args) => {
-    const { docsCreate } = await import('../channels/google/docs.js');
+    const { docsCreate } = await import('../integrations/google/docs.js');
     return docsCreate(await getAuth(), { title: String(args.title), content: args.content as string | undefined });
   });
 
   // Contacts
   safe('google_contacts_list', async (args) => {
-    const { contactsList } = await import('../channels/google/contacts.js');
+    const { contactsList } = await import('../integrations/google/contacts.js');
     return contactsList(await getAuth(), { maxResults: args.max_results ? Number(args.max_results) : undefined });
   });
   safe('google_contacts_search', async (args) => {
-    const { contactsSearch } = await import('../channels/google/contacts.js');
+    const { contactsSearch } = await import('../integrations/google/contacts.js');
     return contactsSearch(await getAuth(), String(args.query), args.max_results ? Number(args.max_results) : undefined);
   });
   safe('google_contacts_create', async (args) => {
-    const { contactsCreate } = await import('../channels/google/contacts.js');
+    const { contactsCreate } = await import('../integrations/google/contacts.js');
     return contactsCreate(await getAuth(), { name: String(args.name), email: args.email as string | undefined, phone: args.phone as string | undefined, organization: args.organization as string | undefined });
   });
 
   // Calendar
   safe('gcal_list_events', async (args) => {
-    const { calendarListEvents } = await import('../channels/google/calendar.js');
+    const { calendarListEvents } = await import('../integrations/google/calendar.js');
     return calendarListEvents(await getAuth(), { date: args.date as string | undefined, maxResults: args.max_results ? Number(args.max_results) : undefined });
   });
   safe('gcal_create_event', async (args) => {
-    const { calendarCreateEvent } = await import('../channels/google/calendar.js');
+    const { calendarCreateEvent } = await import('../integrations/google/calendar.js');
     return calendarCreateEvent(await getAuth(), { summary: String(args.summary), startTime: String(args.start_time), endTime: String(args.end_time), description: args.description as string | undefined, location: args.location as string | undefined, attendees: args.attendees as string | undefined });
   });
   safe('gcal_update_event', async (args) => {
-    const { calendarUpdateEvent } = await import('../channels/google/calendar.js');
+    const { calendarUpdateEvent } = await import('../integrations/google/calendar.js');
     return calendarUpdateEvent(await getAuth(), { eventId: String(args.event_id), summary: args.summary as string | undefined, startTime: args.start_time as string | undefined, endTime: args.end_time as string | undefined, description: args.description as string | undefined, location: args.location as string | undefined });
   });
   safe('gcal_delete_event', async (args) => {
-    const { calendarDeleteEvent } = await import('../channels/google/calendar.js');
+    const { calendarDeleteEvent } = await import('../integrations/google/calendar.js');
     return calendarDeleteEvent(await getAuth(), { eventId: String(args.event_id) });
   });
 
   // Places
   safe('google_places_search', async (args) => {
-    const { placesSearch } = await import('../channels/google/places.js');
+    const { placesSearch } = await import('../integrations/google/places.js');
     return placesSearch(await getAuth(), String(args.query), args.max_results ? Number(args.max_results) : undefined);
   });
   safe('google_places_details', async (args) => {
-    const { placesDetails } = await import('../channels/google/places.js');
+    const { placesDetails } = await import('../integrations/google/places.js');
     return placesDetails(await getAuth(), String(args.place_id));
   });
   safe('google_places_nearby', async (args) => {
-    const { placesNearby } = await import('../channels/google/places.js');
+    const { placesNearby } = await import('../integrations/google/places.js');
     return placesNearby(await getAuth(), { latitude: Number(args.latitude), longitude: Number(args.longitude), radius: args.radius ? Number(args.radius) : undefined, type: args.type as string | undefined, maxResults: args.max_results ? Number(args.max_results) : undefined });
   });
 
   // Auth status (no auth check needed for this one)
   registry.register('google_auth_status', async () => {
     try {
-      const { getGoogleAuthStatus } = await import('../channels/google/auth.js');
+      const { getGoogleAuthStatus } = await import('../integrations/google/auth.js');
       const status = getGoogleAuthStatus();
       const lines = [
         `Google Apps Authentication Status:`,
