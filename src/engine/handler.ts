@@ -14,11 +14,11 @@
  */
 
 import type { AgentOrchestrator } from './orchestrator.js';
-import type { ApprovalStore } from './pending-approvals.js';
+import type { ApprovalStore } from '../memory/pending-approvals.js';
 import type { EventBus } from '../capabilities/skills/event-bus.js';
 import type { SkillEngine } from '../capabilities/skills/skill-engine.js';
 import type { Skill, SkillEvent } from '../capabilities/skills/skill-types.js';
-import { OWNER_SOUL_ID } from './soul.js';
+import { OWNER_SOUL_ID } from '../memory/soul.js';
 
 // ─── Types ────────────────────────────────────────────────
 
