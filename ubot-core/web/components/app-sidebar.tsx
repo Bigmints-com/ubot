@@ -46,6 +46,9 @@ const mainItems = [
 const channelItems = [
   { title: "WhatsApp", href: "/whatsapp", icon: MessageCircle },
   { title: "Telegram", href: "/telegram", icon: Send },
+];
+
+const integrationItems = [
   { title: "Google Apps", href: "/google", icon: Globe },
   { title: "SaveADay", href: "/saveaday", icon: CalendarCheck },
   { title: "Antigravity", href: "/antigravity", icon: Rocket },
@@ -110,6 +113,15 @@ export function AppSidebar() {
           <SidebarGroupContent>
             <SidebarMenu>
               {channelItems.map(renderItem)}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+
+        <SidebarGroup>
+          <SidebarGroupLabel>Integrations</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {integrationItems.map(renderItem)}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>

@@ -23,7 +23,7 @@ import { createSkillEngine, type SkillEngine } from '../capabilities/skills/skil
 import { createEventBus, type EventBus } from '../capabilities/skills/event-bus.js';
 import type { SkillEvent } from '../capabilities/skills/skill-types.js';
 import { createApprovalStore, type ApprovalStore } from '../engine/pending-approvals.js';
-import { getBrowserSkill } from '../capabilities/browser/skill.js';
+import { getBrowserService } from '../capabilities/browser/service.js';
 import type { AgentOrchestrator } from '../engine/orchestrator.js';
 import { log } from '../logger/ring-buffer.js';
 import { handleIncomingMessage, type UnifiedMessage, type UnifiedDeps } from '../engine/handler.js';
@@ -1374,7 +1374,7 @@ export async function handleApiRoute(
   // ── Google Auth API Endpoints ──────────────────────
   if (url === '/api/google/auth/status' && method === 'GET') {
     try {
-      const { getGoogleAuthStatus } = await import('../channels/google/auth.js');
+      const { getGoogleAuthStatus } = await import('../integrations/google/auth.js');
       const status = getGoogleAuthStatus();
       json(res, status);
     } catch (err: any) {
@@ -1385,7 +1385,7 @@ export async function handleApiRoute(
 
   if (url === '/api/google/auth/start' && method === 'POST') {
     try {
-      const { startGoogleAuth } = await import('../channels/google/auth.js');
+      const { startGoogleAuth } = await import('../integrations/google/auth.js');
       await startGoogleAuth();
       json(res, { success: true, message: 'Google authorization complete. Tokens saved.' });
     } catch (err: any) {
@@ -1396,7 +1396,7 @@ export async function handleApiRoute(
 
   if (url === '/api/google/auth/clear' && method === 'POST') {
     try {
-      const { clearGoogleAuth } = await import('../channels/google/auth.js');
+      const { clearGoogleAuth } = await import('../integrations/google/auth.js');
       await clearGoogleAuth();
       json(res, { success: true, message: 'Google auth cleared.' });
     } catch (err: any) {
@@ -1407,7 +1407,7 @@ export async function handleApiRoute(
 
   if (url === '/api/google/services/config' && method === 'GET') {
     try {
-      const { getGoogleServicesConfig } = await import('../channels/google/auth.js');
+      const { getGoogleServicesConfig } = await import('../integrations/google/auth.js');
       const services = getGoogleServicesConfig();
       json(res, { services });
     } catch (err: any) {
@@ -1419,7 +1419,7 @@ export async function handleApiRoute(
   if (url === '/api/google/services/config' && method === 'PUT') {
     try {
       const body = await parseBody(req) as any;
-      const { saveGoogleServicesConfig } = await import('../channels/google/auth.js');
+      const { saveGoogleServicesConfig } = await import('../integrations/google/auth.js');
       const updated = await saveGoogleServicesConfig(body.services || {});
       json(res, { services: updated });
     } catch (err: any) {
@@ -1431,7 +1431,7 @@ export async function handleApiRoute(
   // ── SaveADay Auth API Endpoints ──────────────────────
   if (url === '/api/saveaday/auth/status' && method === 'GET') {
     try {
-      const { getSaveADayAuthStatus } = await import('../channels/saveaday/auth.js');
+      const { getSaveADayAuthStatus } = await import('../integrations/saveaday/auth.js');
       const status = getSaveADayAuthStatus();
       json(res, status);
     } catch (err: any) {
@@ -1447,7 +1447,7 @@ export async function handleApiRoute(
         error(res, 'apiToken is required');
         return true;
       }
-      const { saveSaveADayToken } = await import('../channels/saveaday/auth.js');
+      const { saveSaveADayToken } = await import('../integrations/saveaday/auth.js');
       const tokenData = await saveSaveADayToken(body.apiToken, body.baseUrl, body.tenantId);
       json(res, { success: true, ...tokenData, message: 'SaveADay connected successfully.' });
     } catch (err: any) {
@@ -1458,7 +1458,7 @@ export async function handleApiRoute(
 
   if (url === '/api/saveaday/auth/clear' && method === 'POST') {
     try {
-      const { clearSaveADayToken } = await import('../channels/saveaday/auth.js');
+      const { clearSaveADayToken } = await import('../integrations/saveaday/auth.js');
       await clearSaveADayToken();
       json(res, { success: true, message: 'SaveADay disconnected.' });
     } catch (err: any) {
@@ -1469,7 +1469,7 @@ export async function handleApiRoute(
 
   if (url === '/api/saveaday/services/config' && method === 'GET') {
     try {
-      const { getSaveADayServicesConfig } = await import('../channels/saveaday/auth.js');
+      const { getSaveADayServicesConfig } = await import('../integrations/saveaday/auth.js');
       const services = getSaveADayServicesConfig();
       json(res, { services });
     } catch (err: any) {
@@ -1481,7 +1481,7 @@ export async function handleApiRoute(
   if (url === '/api/saveaday/services/config' && method === 'PUT') {
     try {
       const body = await parseBody(req) as any;
-      const { saveSaveADayServicesConfig } = await import('../channels/saveaday/auth.js');
+      const { saveSaveADayServicesConfig } = await import('../integrations/saveaday/auth.js');
       const updated = await saveSaveADayServicesConfig(body.services || {});
       json(res, { services: updated });
     } catch (err: any) {

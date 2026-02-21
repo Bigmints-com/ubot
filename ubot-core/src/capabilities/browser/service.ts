@@ -4,7 +4,7 @@ import { existsSync, unlinkSync } from 'fs';
 import { execSync } from 'child_process';
 import { log } from '../../logger/ring-buffer.js';
 
-export interface BrowserSkillConfig {
+export interface BrowserServiceConfig {
   headless?: boolean;
   defaultTimeout?: number;
   viewport?: { width: number; height: number };
@@ -23,14 +23,14 @@ export interface BrowserActionResult {
  * Provides browser automation via Puppeteer.
  * Lazily initializes — the browser is only launched on first use.
  */
-export class BrowserSkill {
+export class BrowserService {
   private browser: Browser | null = null;
   private page: Page | null = null;
-  private config: Required<BrowserSkillConfig>;
+  private config: Required<BrowserServiceConfig>;
   private idleTimer: ReturnType<typeof setTimeout> | null = null;
   private idleTimeoutMs = 5 * 60 * 1000; // 5 min
 
-  constructor(config: BrowserSkillConfig = {}) {
+  constructor(config: BrowserServiceConfig = {}) {
     this.config = {
       headless: config.headless ?? false, // visible by default (user can see Gmail etc.)
       defaultTimeout: config.defaultTimeout ?? 30000,
@@ -51,7 +51,7 @@ export class BrowserSkill {
 
   private isFatalError(err: unknown): boolean {
     const msg = err instanceof Error ? err.message : String(err);
-    return BrowserSkill.FATAL_PATTERNS.some(p => msg.includes(p));
+    return BrowserService.FATAL_PATTERNS.some(p => msg.includes(p));
   }
 
   /** Remove lock files and kill orphaned Chrome processes for our profile */
@@ -507,12 +507,12 @@ export class BrowserSkill {
   }
 }
 
-let sharedInstance: BrowserSkill | null = null;
+let sharedInstance: BrowserService | null = null;
 
 /** Get or create the shared browser instance */
-export function getBrowserSkill(): BrowserSkill {
+export function getBrowserService(): BrowserService {
   if (!sharedInstance) {
-    sharedInstance = new BrowserSkill();
+    sharedInstance = new BrowserService();
   }
   return sharedInstance;
 }

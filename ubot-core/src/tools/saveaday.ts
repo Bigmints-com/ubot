@@ -503,7 +503,7 @@ const SAVEADAY_TOOLS: ToolDefinition[] = [
 function registerExecutors(registry: ToolRegistry): void {
   const wrap = (toolName: string, fn: () => Promise<string>) => {
     return async () => {
-      const { getSaveADayToken, getServiceForSaveADayTool, getSaveADayServicesConfig } = await import('../channels/saveaday/auth.js');
+      const { getSaveADayToken, getServiceForSaveADayTool, getSaveADayServicesConfig } = await import('../integrations/saveaday/auth.js');
       const serviceKey = getServiceForSaveADayTool(toolName);
       if (serviceKey) {
         const config = getSaveADayServicesConfig();
@@ -534,7 +534,7 @@ function registerExecutors(registry: ToolRegistry): void {
   // Auth status
   registry.register('saveaday_auth_status', async () => {
     try {
-      const { getSaveADayAuthStatus } = await import('../channels/saveaday/auth.js');
+      const { getSaveADayAuthStatus } = await import('../integrations/saveaday/auth.js');
       const status = getSaveADayAuthStatus();
       const lines = [
         `SaveADay Connection Status:`,
@@ -556,27 +556,27 @@ function registerExecutors(registry: ToolRegistry): void {
 
   // ── Booking ───────────────────────────────────────────
   safe('saveaday_booking_services', async (args) => {
-    const { bookingListServices } = await import('../channels/saveaday/booking.js');
+    const { bookingListServices } = await import('../integrations/saveaday/booking.js');
     return bookingListServices({ search: args.search as string | undefined, limit: args.limit ? Number(args.limit) : undefined });
   });
   safe('saveaday_booking_service_get', async (args) => {
-    const { bookingGetService } = await import('../channels/saveaday/booking.js');
+    const { bookingGetService } = await import('../integrations/saveaday/booking.js');
     return bookingGetService(String(args.id));
   });
   safe('saveaday_booking_professionals', async (args) => {
-    const { bookingListProfessionals } = await import('../channels/saveaday/booking.js');
+    const { bookingListProfessionals } = await import('../integrations/saveaday/booking.js');
     return bookingListProfessionals({ search: args.search as string | undefined, limit: args.limit ? Number(args.limit) : undefined });
   });
   safe('saveaday_booking_list', async (args) => {
-    const { bookingListBookings } = await import('../channels/saveaday/booking.js');
+    const { bookingListBookings } = await import('../integrations/saveaday/booking.js');
     return bookingListBookings({ search: args.search as string | undefined, limit: args.limit ? Number(args.limit) : undefined, startDate: args.start_date as string | undefined, endDate: args.end_date as string | undefined });
   });
   safe('saveaday_booking_get', async (args) => {
-    const { bookingGetBooking } = await import('../channels/saveaday/booking.js');
+    const { bookingGetBooking } = await import('../integrations/saveaday/booking.js');
     return bookingGetBooking(String(args.id));
   });
   safe('saveaday_booking_create', async (args) => {
-    const { bookingCreateBooking } = await import('../channels/saveaday/booking.js');
+    const { bookingCreateBooking } = await import('../integrations/saveaday/booking.js');
     const data: any = { serviceId: String(args.service_id), clientName: String(args.client_name), startTime: String(args.start_time) };
     if (args.professional_id) data.professionalId = String(args.professional_id);
     if (args.client_email) data.clientEmail = String(args.client_email);
@@ -585,7 +585,7 @@ function registerExecutors(registry: ToolRegistry): void {
     return bookingCreateBooking(data);
   });
   safe('saveaday_booking_update', async (args) => {
-    const { bookingUpdateBooking } = await import('../channels/saveaday/booking.js');
+    const { bookingUpdateBooking } = await import('../integrations/saveaday/booking.js');
     const data: any = {};
     if (args.status) data.status = String(args.status);
     if (args.start_time) data.startTime = String(args.start_time);
@@ -593,49 +593,49 @@ function registerExecutors(registry: ToolRegistry): void {
     return bookingUpdateBooking(String(args.id), data);
   });
   safe('saveaday_booking_stats', async () => {
-    const { bookingGetStats } = await import('../channels/saveaday/booking.js');
+    const { bookingGetStats } = await import('../integrations/saveaday/booking.js');
     return bookingGetStats();
   });
 
   // ── Catalogues ────────────────────────────────────────
   safe('saveaday_catalogues_list', async (args) => {
-    const { cataloguesList } = await import('../channels/saveaday/catalogues.js');
+    const { cataloguesList } = await import('../integrations/saveaday/catalogues.js');
     return cataloguesList({ search: args.search as string | undefined, limit: args.limit ? Number(args.limit) : undefined });
   });
   safe('saveaday_catalogues_get', async (args) => {
-    const { cataloguesGet } = await import('../channels/saveaday/catalogues.js');
+    const { cataloguesGet } = await import('../integrations/saveaday/catalogues.js');
     return cataloguesGet(String(args.id));
   });
   safe('saveaday_catalogues_create', async (args) => {
-    const { cataloguesCreate } = await import('../channels/saveaday/catalogues.js');
+    const { cataloguesCreate } = await import('../integrations/saveaday/catalogues.js');
     const data: any = { name: String(args.name) };
     if (args.description) data.description = String(args.description);
     return cataloguesCreate(data);
   });
   safe('saveaday_catalogues_update', async (args) => {
-    const { cataloguesUpdate } = await import('../channels/saveaday/catalogues.js');
+    const { cataloguesUpdate } = await import('../integrations/saveaday/catalogues.js');
     const data: any = {};
     if (args.name) data.name = String(args.name);
     if (args.description) data.description = String(args.description);
     return cataloguesUpdate(String(args.id), data);
   });
   safe('saveaday_catalogues_items_list', async (args) => {
-    const { cataloguesListItems } = await import('../channels/saveaday/catalogues.js');
+    const { cataloguesListItems } = await import('../integrations/saveaday/catalogues.js');
     return cataloguesListItems(String(args.catalogue_id), { search: args.search as string | undefined, limit: args.limit ? Number(args.limit) : undefined });
   });
   safe('saveaday_catalogues_item_get', async (args) => {
-    const { cataloguesGetItem } = await import('../channels/saveaday/catalogues.js');
+    const { cataloguesGetItem } = await import('../integrations/saveaday/catalogues.js');
     return cataloguesGetItem(String(args.catalogue_id), String(args.item_id));
   });
   safe('saveaday_catalogues_item_create', async (args) => {
-    const { cataloguesCreateItem } = await import('../channels/saveaday/catalogues.js');
+    const { cataloguesCreateItem } = await import('../integrations/saveaday/catalogues.js');
     const data: any = { name: String(args.name) };
     if (args.description) data.description = String(args.description);
     if (args.price) data.price = Number(args.price);
     return cataloguesCreateItem(String(args.catalogue_id), data);
   });
   safe('saveaday_catalogues_item_update', async (args) => {
-    const { cataloguesUpdateItem } = await import('../channels/saveaday/catalogues.js');
+    const { cataloguesUpdateItem } = await import('../integrations/saveaday/catalogues.js');
     const data: any = {};
     if (args.name) data.name = String(args.name);
     if (args.description) data.description = String(args.description);
@@ -645,15 +645,15 @@ function registerExecutors(registry: ToolRegistry): void {
 
   // ── Contacts ──────────────────────────────────────────
   safe('saveaday_contacts_list', async (args) => {
-    const { contactsList } = await import('../channels/saveaday/contacts.js');
+    const { contactsList } = await import('../integrations/saveaday/contacts.js');
     return contactsList({ search: args.search as string | undefined, limit: args.limit ? Number(args.limit) : undefined });
   });
   safe('saveaday_contacts_get', async (args) => {
-    const { contactsGet } = await import('../channels/saveaday/contacts.js');
+    const { contactsGet } = await import('../integrations/saveaday/contacts.js');
     return contactsGet(String(args.id));
   });
   safe('saveaday_contacts_create', async (args) => {
-    const { contactsCreate } = await import('../channels/saveaday/contacts.js');
+    const { contactsCreate } = await import('../integrations/saveaday/contacts.js');
     const data: any = { firstName: String(args.first_name) };
     if (args.last_name) data.lastName = String(args.last_name);
     if (args.email) data.email = String(args.email);
@@ -662,7 +662,7 @@ function registerExecutors(registry: ToolRegistry): void {
     return contactsCreate(data);
   });
   safe('saveaday_contacts_update', async (args) => {
-    const { contactsUpdate } = await import('../channels/saveaday/contacts.js');
+    const { contactsUpdate } = await import('../integrations/saveaday/contacts.js');
     const data: any = {};
     if (args.first_name) data.firstName = String(args.first_name);
     if (args.last_name) data.lastName = String(args.last_name);
@@ -672,31 +672,31 @@ function registerExecutors(registry: ToolRegistry): void {
     return contactsUpdate(String(args.id), data);
   });
   safe('saveaday_contacts_delete', async (args) => {
-    const { contactsDelete } = await import('../channels/saveaday/contacts.js');
+    const { contactsDelete } = await import('../integrations/saveaday/contacts.js');
     return contactsDelete(String(args.id));
   });
 
   // ── Feeds ─────────────────────────────────────────────
   safe('saveaday_feeds_list', async (args) => {
-    const { feedsList } = await import('../channels/saveaday/feeds.js');
+    const { feedsList } = await import('../integrations/saveaday/feeds.js');
     return feedsList({ search: args.search as string | undefined, limit: args.limit ? Number(args.limit) : undefined });
   });
   safe('saveaday_feeds_get', async (args) => {
-    const { feedsGet } = await import('../channels/saveaday/feeds.js');
+    const { feedsGet } = await import('../integrations/saveaday/feeds.js');
     return feedsGet(String(args.id));
   });
   safe('saveaday_feeds_posts_list', async (args) => {
-    const { feedsListPosts } = await import('../channels/saveaday/feeds.js');
+    const { feedsListPosts } = await import('../integrations/saveaday/feeds.js');
     return feedsListPosts(String(args.feed_id), { search: args.search as string | undefined, limit: args.limit ? Number(args.limit) : undefined });
   });
   safe('saveaday_feeds_post_create', async (args) => {
-    const { feedsCreatePost } = await import('../channels/saveaday/feeds.js');
+    const { feedsCreatePost } = await import('../integrations/saveaday/feeds.js');
     const data: any = { title: String(args.title), content: String(args.content) };
     if (args.status) data.status = String(args.status);
     return feedsCreatePost(String(args.feed_id), data);
   });
   safe('saveaday_feeds_post_update', async (args) => {
-    const { feedsUpdatePost } = await import('../channels/saveaday/feeds.js');
+    const { feedsUpdatePost } = await import('../integrations/saveaday/feeds.js');
     const data: any = {};
     if (args.title) data.title = String(args.title);
     if (args.content) data.content = String(args.content);
@@ -706,134 +706,134 @@ function registerExecutors(registry: ToolRegistry): void {
 
   // ── Leads (Lead Forms) ────────────────────────────────
   safe('saveaday_leads_list', async (args) => {
-    const { formsList } = await import('../channels/saveaday/forms.js');
+    const { formsList } = await import('../integrations/saveaday/forms.js');
     return formsList({ search: args.search as string | undefined, limit: args.limit ? Number(args.limit) : undefined });
   });
   safe('saveaday_leads_get', async (args) => {
-    const { formsGet } = await import('../channels/saveaday/forms.js');
+    const { formsGet } = await import('../integrations/saveaday/forms.js');
     return formsGet(String(args.id));
   });
   safe('saveaday_leads_submissions', async (args) => {
-    const { formsListSubmissions } = await import('../channels/saveaday/forms.js');
+    const { formsListSubmissions } = await import('../integrations/saveaday/forms.js');
     return formsListSubmissions(String(args.form_id), { search: args.search as string | undefined, limit: args.limit ? Number(args.limit) : undefined });
   });
   safe('saveaday_leads_stats', async () => {
-    const { formsGetStats } = await import('../channels/saveaday/forms.js');
+    const { formsGetStats } = await import('../integrations/saveaday/forms.js');
     return formsGetStats();
   });
 
   // ── Links (Link Pages) ────────────────────────────────
   safe('saveaday_links_list', async (args) => {
-    const { linksList } = await import('../channels/saveaday/links.js');
+    const { linksList } = await import('../integrations/saveaday/links.js');
     return linksList({ search: args.search as string | undefined, limit: args.limit ? Number(args.limit) : undefined });
   });
   safe('saveaday_links_get', async (args) => {
-    const { linksGet } = await import('../channels/saveaday/links.js');
+    const { linksGet } = await import('../integrations/saveaday/links.js');
     return linksGet(String(args.id));
   });
   safe('saveaday_links_create', async (args) => {
-    const { linksCreate } = await import('../channels/saveaday/links.js');
+    const { linksCreate } = await import('../integrations/saveaday/links.js');
     const data: any = { name: String(args.name) };
     if (args.description) data.description = String(args.description);
     return linksCreate(data);
   });
   safe('saveaday_links_update', async (args) => {
-    const { linksUpdate } = await import('../channels/saveaday/links.js');
+    const { linksUpdate } = await import('../integrations/saveaday/links.js');
     const data: any = {};
     if (args.name) data.name = String(args.name);
     if (args.description) data.description = String(args.description);
     return linksUpdate(String(args.id), data);
   });
   safe('saveaday_links_delete', async (args) => {
-    const { linksDelete } = await import('../channels/saveaday/links.js');
+    const { linksDelete } = await import('../integrations/saveaday/links.js');
     return linksDelete(String(args.id));
   });
 
   // ── Referrals ─────────────────────────────────────────
   safe('saveaday_referrals_campaigns', async (args) => {
-    const { referralsListCampaigns } = await import('../channels/saveaday/referrals.js');
+    const { referralsListCampaigns } = await import('../integrations/saveaday/referrals.js');
     return referralsListCampaigns({ search: args.search as string | undefined, limit: args.limit ? Number(args.limit) : undefined });
   });
   safe('saveaday_referrals_campaign_get', async (args) => {
-    const { referralsGetCampaign } = await import('../channels/saveaday/referrals.js');
+    const { referralsGetCampaign } = await import('../integrations/saveaday/referrals.js');
     return referralsGetCampaign(String(args.id));
   });
   safe('saveaday_referrals_referrers', async (args) => {
-    const { referralsListReferrers } = await import('../channels/saveaday/referrals.js');
+    const { referralsListReferrers } = await import('../integrations/saveaday/referrals.js');
     return referralsListReferrers(String(args.campaign_id), { limit: args.limit ? Number(args.limit) : undefined });
   });
   safe('saveaday_referrals_referees', async (args) => {
-    const { referralsListReferees } = await import('../channels/saveaday/referrals.js');
+    const { referralsListReferees } = await import('../integrations/saveaday/referrals.js');
     return referralsListReferees(String(args.campaign_id), { limit: args.limit ? Number(args.limit) : undefined });
   });
   safe('saveaday_referrals_stats', async () => {
-    const { referralsGetStats } = await import('../channels/saveaday/referrals.js');
+    const { referralsGetStats } = await import('../integrations/saveaday/referrals.js');
     return referralsGetStats();
   });
 
   // ── Rewards ───────────────────────────────────────────
   safe('saveaday_rewards_tiers', async (args) => {
-    const { rewardsListTiers } = await import('../channels/saveaday/rewards.js');
+    const { rewardsListTiers } = await import('../integrations/saveaday/rewards.js');
     return rewardsListTiers({ limit: args.limit ? Number(args.limit) : undefined });
   });
   safe('saveaday_rewards_subscribers', async (args) => {
-    const { rewardsListSubscribers } = await import('../channels/saveaday/rewards.js');
+    const { rewardsListSubscribers } = await import('../integrations/saveaday/rewards.js');
     return rewardsListSubscribers({ search: args.search as string | undefined, limit: args.limit ? Number(args.limit) : undefined });
   });
   safe('saveaday_rewards_subscriber_get', async (args) => {
-    const { rewardsGetSubscriber } = await import('../channels/saveaday/rewards.js');
+    const { rewardsGetSubscriber } = await import('../integrations/saveaday/rewards.js');
     return rewardsGetSubscriber(String(args.id));
   });
   safe('saveaday_rewards_award_points', async (args) => {
-    const { rewardsAwardPoints } = await import('../channels/saveaday/rewards.js');
+    const { rewardsAwardPoints } = await import('../integrations/saveaday/rewards.js');
     const data: any = { subscriberId: String(args.subscriber_id), points: Number(args.points) };
     if (args.reason) data.reason = String(args.reason);
     return rewardsAwardPoints(data);
   });
   safe('saveaday_rewards_subscriber_history', async (args) => {
-    const { rewardsGetSubscriberHistory } = await import('../channels/saveaday/rewards.js');
+    const { rewardsGetSubscriberHistory } = await import('../integrations/saveaday/rewards.js');
     return rewardsGetSubscriberHistory(String(args.subscriber_id));
   });
   safe('saveaday_rewards_verify_subscriber', async (args) => {
-    const { rewardsVerifySubscriber } = await import('../channels/saveaday/rewards.js');
+    const { rewardsVerifySubscriber } = await import('../integrations/saveaday/rewards.js');
     return rewardsVerifySubscriber(String(args.subscriber_id));
   });
 
   // ── Surveys ───────────────────────────────────────────
   safe('saveaday_surveys_list', async (args) => {
-    const { surveysList } = await import('../channels/saveaday/surveys.js');
+    const { surveysList } = await import('../integrations/saveaday/surveys.js');
     return surveysList({ search: args.search as string | undefined, limit: args.limit ? Number(args.limit) : undefined });
   });
   safe('saveaday_surveys_get', async (args) => {
-    const { surveysGet } = await import('../channels/saveaday/surveys.js');
+    const { surveysGet } = await import('../integrations/saveaday/surveys.js');
     return surveysGet(String(args.id));
   });
   safe('saveaday_surveys_create', async (args) => {
-    const { surveysCreate } = await import('../channels/saveaday/surveys.js');
+    const { surveysCreate } = await import('../integrations/saveaday/surveys.js');
     const data: any = { name: String(args.name) };
     if (args.description) data.description = String(args.description);
     return surveysCreate(data);
   });
   safe('saveaday_surveys_stats', async () => {
-    const { surveysGetStats } = await import('../channels/saveaday/surveys.js');
+    const { surveysGetStats } = await import('../integrations/saveaday/surveys.js');
     return surveysGetStats();
   });
 
   // ── Tasks (Boards + Tasks) ────────────────────────────
   safe('saveaday_tasks_boards_list', async (args) => {
-    const { boardsList } = await import('../channels/saveaday/boards.js');
+    const { boardsList } = await import('../integrations/saveaday/boards.js');
     return boardsList({ search: args.search as string | undefined, limit: args.limit ? Number(args.limit) : undefined });
   });
   safe('saveaday_tasks_board_get', async (args) => {
-    const { boardsGet } = await import('../channels/saveaday/boards.js');
+    const { boardsGet } = await import('../integrations/saveaday/boards.js');
     return boardsGet(String(args.id));
   });
   safe('saveaday_tasks_list', async (args) => {
-    const { boardsListTasks } = await import('../channels/saveaday/boards.js');
+    const { boardsListTasks } = await import('../integrations/saveaday/boards.js');
     return boardsListTasks(String(args.board_id), { search: args.search as string | undefined, limit: args.limit ? Number(args.limit) : undefined });
   });
   safe('saveaday_tasks_create', async (args) => {
-    const { boardsCreateTask } = await import('../channels/saveaday/boards.js');
+    const { boardsCreateTask } = await import('../integrations/saveaday/boards.js');
     const data: any = { title: String(args.title) };
     if (args.description) data.description = String(args.description);
     if (args.status) data.status = String(args.status);
@@ -842,7 +842,7 @@ function registerExecutors(registry: ToolRegistry): void {
     return boardsCreateTask(String(args.board_id), data);
   });
   safe('saveaday_tasks_update', async (args) => {
-    const { boardsUpdateTask } = await import('../channels/saveaday/boards.js');
+    const { boardsUpdateTask } = await import('../integrations/saveaday/boards.js');
     const data: any = {};
     if (args.title) data.title = String(args.title);
     if (args.description) data.description = String(args.description);
@@ -852,25 +852,25 @@ function registerExecutors(registry: ToolRegistry): void {
     return boardsUpdateTask(String(args.board_id), String(args.task_id), data);
   });
   safe('saveaday_tasks_stats', async () => {
-    const { boardsGetStats } = await import('../channels/saveaday/boards.js');
+    const { boardsGetStats } = await import('../integrations/saveaday/boards.js');
     return boardsGetStats();
   });
 
   // ── Waitlists ─────────────────────────────────────────
   safe('saveaday_waitlists_list', async (args) => {
-    const { waitlistsList } = await import('../channels/saveaday/waitlists.js');
+    const { waitlistsList } = await import('../integrations/saveaday/waitlists.js');
     return waitlistsList({ search: args.search as string | undefined, limit: args.limit ? Number(args.limit) : undefined });
   });
   safe('saveaday_waitlists_get', async (args) => {
-    const { waitlistsGet } = await import('../channels/saveaday/waitlists.js');
+    const { waitlistsGet } = await import('../integrations/saveaday/waitlists.js');
     return waitlistsGet(String(args.id));
   });
   safe('saveaday_waitlists_submissions', async (args) => {
-    const { waitlistsListSubmissions } = await import('../channels/saveaday/waitlists.js');
+    const { waitlistsListSubmissions } = await import('../integrations/saveaday/waitlists.js');
     return waitlistsListSubmissions(String(args.waitlist_id), { search: args.search as string | undefined, limit: args.limit ? Number(args.limit) : undefined });
   });
   safe('saveaday_waitlists_stats', async () => {
-    const { waitlistsGetStats } = await import('../channels/saveaday/waitlists.js');
+    const { waitlistsGetStats } = await import('../integrations/saveaday/waitlists.js');
     return waitlistsGetStats();
   });
 }

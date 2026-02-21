@@ -1,10 +1,10 @@
 /**
  * Puppeteer Search Adapter
- * Uses the existing BrowserSkill's Puppeteer instance to perform real web searches
+ * Uses the existing BrowserService's Puppeteer instance to perform real web searches
  * via Google, with DuckDuckGo as fallback.
  */
 
-import { getBrowserSkill } from '../../../browser/skill.js';
+import { getBrowserService } from '../../../browser/service.js';
 import type { SearchResultItem } from '../types.js';
 import { generateResultId, extractDomain, detectResultType } from '../utils.js';
 
@@ -90,7 +90,7 @@ export async function puppeteerSearch(
 
 /** Open a new tab in the shared browser, run work, then close the tab */
 async function withNewTab<T>(work: (page: any) => Promise<T>, timeout: number): Promise<T> {
-  const browser = getBrowserSkill();
+  const browser = getBrowserService();
   // Access the underlying browser via ensureBrowser trick — navigate a dummy then get browser
   // We need the raw Puppeteer browser to open a new page
   const skill = browser as any;
