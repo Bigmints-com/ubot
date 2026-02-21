@@ -17,6 +17,7 @@ import type { TelegramMessagingProvider } from '../channels/telegram/messaging-p
 import type { WhatsAppConnectionConfig } from '../channels/whatsapp/types.js';
 import type { SafetyConfig, SafetyRule } from '../safety/types.js';
 import type { DatabaseConnection as CoreDatabaseConnection } from '../data/database/types.js';
+import type { McpServerManager } from '../integrations/mcp/mcp-manager.js';
 
 export interface ApiContext {
   // Core
@@ -49,6 +50,9 @@ export interface ApiContext {
   // Safety
   safetyConfig: SafetyConfig;
   safetyRules: SafetyRule[];
+
+  // MCP
+  mcpManager: McpServerManager | null;
 
   // Helpers
   saveConfigValue: (key: string, value: string) => void;

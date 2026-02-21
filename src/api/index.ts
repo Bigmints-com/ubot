@@ -63,6 +63,10 @@ const MAX_WA_MESSAGES = 100;
 let scheduler: TaskSchedulerService | null = null;
 let agentOrchestrator: AgentOrchestrator | null = null;
 
+// MCP server manager
+import { getMcpServerManager, type McpServerManager } from '../integrations/mcp/mcp-manager.js';
+let mcpManager: McpServerManager | null = null;
+
 const messagingRegistry = new MessagingRegistry();
 let waProvider: WhatsAppMessagingProvider | null = null;
 
@@ -494,6 +498,14 @@ async function registerAgentTools(agent: AgentOrchestrator): Promise<void> {
   };
 
   registerAllToolModules(registry, toolContext);
+
+  // Initialize MCP server manager and connect saved servers
+  mcpManager = getMcpServerManager();
+  mcpManager.init(
+    { get: loadConfigValue, set: saveConfigValue },
+    registry,
+  );
+  mcpManager.connectAll().catch(err => console.error('[MCP] connectAll failed:', err));
 }
 
 // ─── Build API Context ───────────────────────────────────
@@ -521,6 +533,7 @@ function getApiContext(): ApiContext {
     approvalStore,
     safetyConfig,
     safetyRules,
+    mcpManager,
     saveConfigValue,
     loadConfigValue,
   };

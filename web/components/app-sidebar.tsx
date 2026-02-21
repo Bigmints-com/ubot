@@ -15,6 +15,7 @@ import {
   ScrollText,
   CalendarCheck,
   Rocket,
+  Plug,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -51,6 +52,7 @@ const channelItems = [
 const integrationItems = [
   { title: "Google Apps", href: "/google", icon: Globe },
   { title: "SaveADay", href: "/saveaday", icon: CalendarCheck },
+  { title: "MCP Servers", href: "/mcp-servers", icon: Plug },
   { title: "Antigravity", href: "/antigravity", icon: Rocket },
 ];
 
