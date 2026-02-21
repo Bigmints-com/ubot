@@ -15,9 +15,9 @@ import { metricsCollector } from './metrics/index.js';
 import { log } from './logger/ring-buffer.js';
 import { createConnection, createDefaultConfig } from './data/database/connection.js';
 import { defaultMigrations } from './data/database/migrations.js';
-import { createConversationStore, conversationMigrations } from './engine/conversation.js';
-import { createMemoryStore, memoryMigrations } from './engine/memory-store.js';
-import { createSoul } from './engine/soul.js';
+import { createConversationStore, conversationMigrations } from './memory/conversation.js';
+import { createMemoryStore, memoryMigrations } from './memory/memory-store.js';
+import { createSoul } from './memory/soul.js';
 import { createAgentOrchestrator } from './engine/orchestrator.js';
 import { DEFAULT_AGENT_CONFIG } from './engine/types.js';
 

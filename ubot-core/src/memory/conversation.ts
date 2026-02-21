@@ -6,7 +6,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import type { DatabaseConnection } from '../data/database/types.js';
 import type { Migration } from '../data/database/types.js';
-import type { ChatMessage, ChatRole, ChatMessageMetadata, ConversationSession } from './types.js';
+import type { ChatMessage, ChatRole, ChatMessageMetadata, ConversationSession } from '../engine/types.js';
 
 /** Migration for conversation tables */
 export const conversationMigrations: Migration[] = [

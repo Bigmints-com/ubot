@@ -71,17 +71,20 @@ ubot/                                  # Monorepo root
 │   │   ├── types.ts                   # Shared top-level types
 │   │   │
 │   │   ├── api/                       # REST API layer
-│   │   │   └── index.ts               # All /api/* endpoint routing
+│   │   │   ├── index.ts               # State management, initialization, channel routes
+│   │   │   ├── context.ts             # Shared ApiContext type + utility functions
+│   │   │   └── routes/                # Route handlers (split from monolithic index.ts)
+│   │   │       ├── chat.ts            # /api/chat/*, /api/llm-providers/*
+│   │   │       ├── skills.ts          # /api/skills/*
+│   │   │       ├── safety.ts          # /api/safety/*
+│   │   │       ├── memory.ts          # /api/personas/*, /api/memories/*, /api/scheduler/*, /api/approvals/*
+│   │   │       └── integrations.ts    # /api/google/*, /api/saveaday/*, /api/antigravity/*
 │   │   │
 │   │   ├── engine/                    # Core AI engine
 │   │   │   ├── orchestrator.ts        # Main agent loop: message → LLM → tools → response
 │   │   │   ├── handler.ts             # Unified message handler (all channels → single pipeline)
 │   │   │   ├── llm.ts                 # LLM API client wrapper
-│   │   │   ├── soul.ts                # Soul module — personas, identity, memory
-│   │   │   ├── conversation.ts        # Conversation session storage
-│   │   │   ├── memory-store.ts        # Key-value memory store
-│   │   │   ├── pending-approvals.ts   # Owner approval request queue
-│   │   │   ├── tools.ts               # Legacy tool definitions
+│   │   │   ├── tools.ts               # Tool formatting + registry factory
 │   │   │   ├── types.ts               # Engine types (AgentConfig, ToolDefinition, etc.)
 │   │   │   ├── prompt-builder/        # System prompt construction
 │   │   │   │   ├── builder.ts         # Dynamic system prompts with variable interpolation
@@ -89,6 +92,12 @@ ubot/                                  # Monorepo root
 │   │   │   │   └── types.ts
 │   │   │   └── agents/                # Agent utility types
 │   │   │       └── types.ts
+│   │   │
+│   │   ├── memory/                    # Memory, identity & state management
+│   │   │   ├── soul.ts                # Soul module — personas, identity docs
+│   │   │   ├── conversation.ts        # Conversation session storage
+│   │   │   ├── memory-store.ts        # Key-value memory store
+│   │   │   └── pending-approvals.ts   # Owner approval request queue
 │   │   │
 │   │   ├── tools/                     # Modular tool registry (LLM-callable functions)
 │   │   │   ├── registry.ts            # Central tool registry + module loader
@@ -163,18 +172,18 @@ ubot/                                  # Monorepo root
 │   │   │       └── web-search/        # Web search skill
 │   │   │
 │   │   ├── data/                      # Data & persistence
-│   │   │   ├── database/              # SQLite layer
-│   │   │   │   ├── connection.ts      # DB connection + migration runner
-│   │   │   │   ├── migrations.ts      # Schema migrations
-│   │   │   │   ├── repository.ts
+│   │   │   ├── database/              # SQLite connection + migrations
+│   │   │   │   ├── connection.ts
+│   │   │   │   ├── migrations.ts
 │   │   │   │   └── types.ts
-│   │   │   ├── config/                # Configuration management
-│   │   │   │   ├── loader.ts
-│   │   │   │   └── types.ts
-│   │   │   └── safety/                # Safety & content filtering
-│   │   │       ├── service.ts
-│   │   │       ├── types.ts
-│   │   │       └── utils.ts
+│   │   │   └── config/                # Configuration management
+│   │   │       ├── index.ts
+│   │   │       └── types.ts
+│   │   │
+│   │   ├── safety/                    # Safety rules & guardrails
+│   │   │   ├── service.ts
+│   │   │   ├── types.ts
+│   │   │   └── utils.ts
 │   │   │
 │   │   ├── logger/                    # Logging
 │   │   │   ├── index.ts
