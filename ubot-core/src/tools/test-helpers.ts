@@ -38,7 +38,7 @@ export function createMockRegistry(): MockRegistry {
       if (!executor) {
         return { toolName: toolCall.toolName, success: false, error: `Unknown tool: ${toolCall.toolName}`, duration: 0 };
       }
-      return executor(toolCall.args || {});
+      return executor(toolCall.arguments || {});
     },
 
     async call(toolName: string, args: Record<string, unknown> = {}): Promise<ToolExecutionResult> {
