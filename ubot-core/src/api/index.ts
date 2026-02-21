@@ -7,7 +7,6 @@
 
 import http from 'http';
 import type { LLMProviderConfig } from '../engine/types.js';
-import { createSkillsService, type SkillsService } from '../capabilities/skills/service.js';
 import type { DatabaseConnection } from '../capabilities/skills/repository.js';
 import type { DatabaseConnection as CoreDatabaseConnection } from '../data/database/types.js';
 import { createTaskScheduler, type TaskSchedulerService } from '../capabilities/scheduler/service.js';
@@ -22,15 +21,15 @@ import { MessagingRegistry } from '../channels/registry.js';
 import { createSkillRepository, type SkillRepository } from '../capabilities/skills/skill-repository.js';
 import { createSkillEngine, type SkillEngine } from '../capabilities/skills/skill-engine.js';
 import { createEventBus, type EventBus } from '../capabilities/skills/event-bus.js';
-import type { SkillEvent } from '../capabilities/skills/skill-types.js';
+
 import { createApprovalStore, type ApprovalStore } from '../memory/pending-approvals.js';
-import { getBrowserService } from '../capabilities/browser/service.js';
+
 import type { AgentOrchestrator } from '../engine/orchestrator.js';
 import { log } from '../logger/ring-buffer.js';
 import { handleIncomingMessage, type UnifiedMessage, type UnifiedDeps } from '../engine/handler.js';
 import { existsSync } from 'fs';
 import { join } from 'path';
-import * as chrono from 'chrono-node';
+
 
 // Route handlers
 import { handleChatRoutes } from './routes/chat.js';
@@ -38,7 +37,7 @@ import { handleSkillRoutes } from './routes/skills.js';
 import { handleSafetyRoutes } from './routes/safety.js';
 import { handleMemoryRoutes } from './routes/memory.js';
 import { handleIntegrationRoutes } from './routes/integrations.js';
-import { json, type ApiContext } from './context.js';
+import { json, parseBody, error as apiError, type ApiContext } from './context.js';
 
 // ─── In-memory State ─────────────────────────────────────
 
@@ -60,7 +59,7 @@ let waError: string | null = null;
 const waMessages: Array<{ from: string; to: string; body: string; timestamp: string; isFromMe: boolean }> = [];
 const MAX_WA_MESSAGES = 100;
 
-let skillsService: SkillsService | null = null;
+
 let scheduler: TaskSchedulerService | null = null;
 let agentOrchestrator: AgentOrchestrator | null = null;
 
@@ -355,7 +354,7 @@ async function autoConnectTelegram(): Promise<void> {
 
 export function initializeApi(db?: DatabaseConnection, agent?: AgentOrchestrator): void {
   if (db) {
-    skillsService = createSkillsService(db);
+
     skillRepo = createSkillRepository(db as unknown as CoreDatabaseConnection);
     coreDb = db as unknown as CoreDatabaseConnection;
     eventBus = createEventBus();
@@ -479,8 +478,8 @@ export function initializeApi(db?: DatabaseConnection, agent?: AgentOrchestrator
   autoConnectTelegram();
 }
 
-function registerAgentTools(agent: AgentOrchestrator): void {
-  const { registerAllToolModules } = require('../tools/registry.js');
+async function registerAgentTools(agent: AgentOrchestrator): Promise<void> {
+  const { registerAllToolModules } = await import('../tools/registry.js');
   const registry = agent.getToolRegistry();
 
   const toolContext = {
@@ -543,7 +542,7 @@ async function handleChannelRoutes(
   }
 
   if (url === '/api/whatsapp/config' && method === 'PUT') {
-    const body = await require('./context.js').parseBody(req) as any;
+    const body = await parseBody(req) as any;
     whatsappConfig = { ...whatsappConfig, ...body };
     json(res, { config: whatsappConfig, saved: true });
     return true;
@@ -595,7 +594,7 @@ async function handleChannelRoutes(
     } catch (e: any) {
       waStatus = 'disconnected';
       waError = e.message;
-      require('./context.js').error(res, e.message, 500);
+      apiError(res, e.message, 500);
     }
     return true;
   }
@@ -626,10 +625,10 @@ async function handleChannelRoutes(
   }
 
   if (url === '/api/telegram/connect' && method === 'POST') {
-    const body = await require('./context.js').parseBody(req) as any;
+    const body = await parseBody(req) as any;
     const botToken = body?.botToken;
     if (!botToken) {
-      require('./context.js').error(res, 'botToken is required', 400);
+      apiError(res, 'botToken is required', 400);
       return true;
     }
 
@@ -660,7 +659,7 @@ async function handleChannelRoutes(
     } catch (e: any) {
       tgStatus = 'disconnected';
       tgError = e.message;
-      require('./context.js').error(res, e.message, 500);
+      apiError(res, e.message, 500);
     }
     return true;
   }
