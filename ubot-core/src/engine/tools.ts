@@ -25,8 +25,17 @@ export const VISITOR_SAFE_TOOL_NAMES: ReadonlySet<string> = new Set([
 
 /** Get the filtered tool list based on whether the caller is the owner */
 export function getToolsForSource(isOwner: boolean): ToolDefinition[] {
-  if (isOwner) return AGENT_TOOLS;
-  return AGENT_TOOLS.filter(t => VISITOR_SAFE_TOOL_NAMES.has(t.name));
+  // Include dynamically registered MCP tools
+  let allTools = [...AGENT_TOOLS];
+  try {
+    const { getMcpServerManager } = require('../integrations/mcp/mcp-manager.js');
+    const mgr = getMcpServerManager();
+    const mcpDefs = mgr.getMcpToolDefinitions();
+    if (mcpDefs.length > 0) allTools = [...allTools, ...mcpDefs];
+  } catch {}
+
+  if (isOwner) return allTools;
+  return allTools.filter(t => VISITOR_SAFE_TOOL_NAMES.has(t.name));
 }
 
 /** Format tools for the system prompt (text-based fallback) */

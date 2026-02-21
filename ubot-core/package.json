@@ -24,6 +24,7 @@
   "license": "MIT",
   "dependencies": {
     "@google-cloud/local-auth": "^3.0.1",
+    "@modelcontextprotocol/sdk": "^1.26.0",
     "@whiskeysockets/baileys": "^7.0.0-rc.9",
     "better-sqlite3": "^12.6.2",
     "chrono-node": "^2.9.0",
@@ -38,7 +39,8 @@
     "puppeteer": "^24.37.3",
     "qrcode-terminal": "^0.12.0",
     "uuid": "^13.0.0",
-    "winston": "^3.19.0"
+    "winston": "^3.19.0",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@tailwindcss/cli": "^4.1.18",
