@@ -71,13 +71,34 @@ export interface ToolExecutionResult {
   duration: number;
 }
 
-export interface AgentConfig {
-  /** Ollama / OpenAI API base URL */
-  llmBaseUrl: string;
+export interface LLMProviderConfig {
+  /** Unique identifier */
+  id: string;
+  /** Display name, e.g. "Gemini Flash" */
+  name: string;
+  /** Provider type */
+  provider: 'openai' | 'gemini' | 'ollama' | 'custom';
+  /** API base URL */
+  baseUrl: string;
+  /** API key (empty for Ollama) */
+  apiKey: string;
   /** Model name */
+  model: string;
+  /** Whether this is the default provider */
+  isDefault: boolean;
+}
+
+export interface AgentConfig {
+  /** Ollama / OpenAI API base URL (derived from active provider) */
+  llmBaseUrl: string;
+  /** Model name (derived from active provider) */
   llmModel: string;
-  /** API key (use 'ollama' for local Ollama) */
+  /** API key (derived from active provider) */
   llmApiKey: string;
+  /** Configured LLM providers */
+  llmProviders: LLMProviderConfig[];
+  /** ID of the active/default LLM provider */
+  defaultLlmProviderId: string;
   /** Owner's name — used to identify the owner in conversations */
   ownerName: string;
   /** Owner's phone number (e.g. +971569737344) — used to route approval requests */
@@ -117,10 +138,24 @@ export interface AgentResponse {
   duration: number;
 }
 
+const DEFAULT_LLM_PROVIDER_ID = 'default-gemini';
+
+const DEFAULT_LLM_PROVIDER: LLMProviderConfig = {
+  id: DEFAULT_LLM_PROVIDER_ID,
+  name: 'Gemini Flash',
+  provider: 'gemini',
+  baseUrl: process.env.LLM_BASE_URL || 'https://generativelanguage.googleapis.com/v1beta/openai/',
+  apiKey: process.env.LLM_API_KEY || process.env.GOOGLE_API_KEY || '',
+  model: process.env.LLM_MODEL || 'gemini-2.0-flash',
+  isDefault: true,
+};
+
 export const DEFAULT_AGENT_CONFIG: AgentConfig = {
-  llmBaseUrl: process.env.LLM_BASE_URL || 'https://generativelanguage.googleapis.com/v1beta/openai/',
-  llmModel: process.env.LLM_MODEL || 'gemini-2.0-flash',
-  llmApiKey: process.env.LLM_API_KEY || process.env.GOOGLE_API_KEY || '',
+  llmBaseUrl: DEFAULT_LLM_PROVIDER.baseUrl,
+  llmModel: DEFAULT_LLM_PROVIDER.model,
+  llmApiKey: DEFAULT_LLM_PROVIDER.apiKey,
+  llmProviders: [DEFAULT_LLM_PROVIDER],
+  defaultLlmProviderId: DEFAULT_LLM_PROVIDER_ID,
   ownerName: '',
   ownerPhone: '',
   systemPrompt: `You are Ubot, a personal AI assistant. You help users automate tasks through WhatsApp and other messaging platforms.

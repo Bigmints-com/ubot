@@ -464,7 +464,11 @@ export function createAgentOrchestrator(
           const toolResultContent = result.success 
             ? (result.result || 'Success') 
             : `Error: ${result.error}`;
-          log.info('Agent', `Tool result for ${toolCall.toolName}: ${toolResultContent.slice(0, 200)}`);
+          if (result.success) {
+            log.info('Agent', `Tool result for ${toolCall.toolName}: ${toolResultContent.slice(0, 200)}`);
+          } else {
+            log.error('Agent', `Tool failed: ${toolCall.toolName} — ${result.error}`);
+          }
           messages.push({
             role: 'tool',
             tool_call_id: toolCall.id,
@@ -533,6 +537,21 @@ export function createAgentOrchestrator(
 
     updateConfig(updates: Partial<AgentConfig>): AgentConfig {
       currentConfig = { ...currentConfig, ...updates };
+
+      // Derive flat LLM fields from the active provider
+      if (currentConfig.llmProviders?.length > 0) {
+        const activeProvider = currentConfig.llmProviders.find(
+          p => p.id === currentConfig.defaultLlmProviderId
+        ) || currentConfig.llmProviders.find(p => p.isDefault) || currentConfig.llmProviders[0];
+
+        if (activeProvider) {
+          currentConfig.llmBaseUrl = activeProvider.baseUrl;
+          currentConfig.llmModel = activeProvider.model;
+          currentConfig.llmApiKey = activeProvider.apiKey;
+          currentConfig.defaultLlmProviderId = activeProvider.id;
+        }
+      }
+
       return { ...currentConfig };
     },
 

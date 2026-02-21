@@ -4,6 +4,8 @@
  */
 
 import http from 'http';
+import crypto from 'crypto';
+import type { LLMProviderConfig } from '../engine/types.js';
 import { createSkillsService, type SkillsService } from '../capabilities/skills/service.js';
 import type { DatabaseConnection } from '../capabilities/skills/repository.js';
 import type { DatabaseConnection as CoreDatabaseConnection } from '../data/database/types.js';
@@ -371,6 +373,22 @@ export function initializeApi(db?: DatabaseConnection, agent?: AgentOrchestrator
       if (savedAutoReplyWA) configUpdates.autoReplyWhatsApp = savedAutoReplyWA === 'true';
       if (savedAutoReplyTG) configUpdates.autoReplyTelegram = savedAutoReplyTG === 'true';
 
+      // Load saved LLM providers
+      const savedProviders = loadConfigValue('llm_providers');
+      const savedDefaultId = loadConfigValue('default_llm_provider_id');
+      if (savedProviders) {
+        try {
+          const providers = JSON.parse(savedProviders) as LLMProviderConfig[];
+          if (Array.isArray(providers) && providers.length > 0) {
+            configUpdates.llmProviders = providers;
+            configUpdates.defaultLlmProviderId = savedDefaultId || providers.find(p => p.isDefault)?.id || providers[0].id;
+            log.info('Config', `Loaded ${providers.length} LLM providers from DB`);
+          }
+        } catch {
+          log.error('Config', 'Failed to parse saved LLM providers');
+        }
+      }
+
       if (Object.keys(configUpdates).length > 0) {
         agent.updateConfig(configUpdates);
         log.info('Config', `Loaded saved settings: ${Object.keys(configUpdates).join(', ')}`);
@@ -671,6 +689,199 @@ export async function handleApiRoute(
 
   if (url === '/api/whatsapp/messages' && method === 'GET') {
     json(res, { messages: waMessages.slice(-50) });
+    return true;
+  }
+
+  // ── LLM Providers ─────────────────────────────────────
+
+  // Model discovery — fetches available models from an OpenAI-compatible API
+  if (url.startsWith('/api/llm-providers/models') && method === 'GET') {
+    const params = new URL(url, 'http://localhost').searchParams;
+    let baseUrl = params.get('baseUrl') || '';
+    let apiKey = params.get('apiKey') || '';
+    const providerType = params.get('provider') || 'custom';
+    const providerId = params.get('providerId') || '';
+
+    // If a providerId is given, look up the real (unmasked) API key from the stored config
+    if (providerId && agentOrchestrator) {
+      const config = agentOrchestrator.getConfig();
+      const stored = (config.llmProviders || []).find(p => p.id === providerId);
+      if (stored) {
+        // Use the stored key unless the caller explicitly provided a new (non-masked) key
+        if (!apiKey || apiKey.includes('*')) {
+          apiKey = stored.apiKey;
+        }
+        if (!baseUrl) baseUrl = stored.baseUrl;
+      }
+    }
+
+    if (!baseUrl) {
+      error(res, 'baseUrl is required');
+      return true;
+    }
+
+    try {
+      let models: Array<{ id: string; name: string }> = [];
+
+      // Ollama has a special /api/tags endpoint for local models
+      if (providerType === 'ollama') {
+        // Extract host from baseUrl (e.g. http://localhost:11434/v1 → http://localhost:11434)
+        const ollamaHost = baseUrl.replace(/\/v1\/?$/, '');
+        const ollamaRes = await fetch(`${ollamaHost}/api/tags`);
+        if (ollamaRes.ok) {
+          const data = await ollamaRes.json() as any;
+          models = (data.models || []).map((m: any) => ({
+            id: m.name || m.model,
+            name: `${m.name}${m.details?.parameter_size ? ` (${m.details.parameter_size})` : ''}`,
+          }));
+        }
+      } else {
+        // Standard OpenAI-compatible /models endpoint (works with OpenAI, Gemini, vLLM, etc.)
+        const normalizedUrl = baseUrl.replace(/\/+$/, '');
+        const modelsUrl = `${normalizedUrl}/models`;
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+        if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
+
+        const modelsRes = await fetch(modelsUrl, { headers });
+        if (modelsRes.ok) {
+          const data = await modelsRes.json() as any;
+          models = (data.data || []).map((m: any) => ({
+            id: m.id,
+            name: m.id,
+          }));
+        }
+      }
+
+      // Sort alphabetically
+      models.sort((a, b) => a.id.localeCompare(b.id));
+      json(res, { models });
+    } catch (err: any) {
+      // Don't fail hard — return empty list with the error
+      json(res, { models: [], error: err.message });
+    }
+    return true;
+  }
+
+  if (url === '/api/llm-providers' && method === 'GET') {
+    if (!agentOrchestrator) {
+      json(res, { providers: [], defaultId: '' });
+      return true;
+    }
+    const config = agentOrchestrator.getConfig();
+    // Mask API keys in the response
+    const providers = (config.llmProviders || []).map(p => ({
+      ...p,
+      apiKey: p.apiKey ? `${p.apiKey.slice(0, 4)}${'*'.repeat(Math.max(0, p.apiKey.length - 8))}${p.apiKey.slice(-4)}` : '',
+    }));
+    json(res, { providers, defaultId: config.defaultLlmProviderId });
+    return true;
+  }
+
+  if (url === '/api/llm-providers' && method === 'POST') {
+    if (!agentOrchestrator) {
+      error(res, 'Agent not initialized', 503);
+      return true;
+    }
+    const body = await parseBody(req) as any;
+    if (!body.name || !body.model || !body.baseUrl) {
+      error(res, 'name, model, and baseUrl are required');
+      return true;
+    }
+    const config = agentOrchestrator.getConfig();
+    const providers = [...(config.llmProviders || [])];
+    const newProvider: LLMProviderConfig = {
+      id: crypto.randomUUID(),
+      name: body.name,
+      provider: body.provider || 'custom',
+      baseUrl: body.baseUrl,
+      apiKey: body.apiKey || '',
+      model: body.model,
+      isDefault: providers.length === 0,
+    };
+    providers.push(newProvider);
+    const defaultId = newProvider.isDefault ? newProvider.id : config.defaultLlmProviderId;
+    agentOrchestrator.updateConfig({ llmProviders: providers, defaultLlmProviderId: defaultId });
+    saveConfigValue('llm_providers', JSON.stringify(providers));
+    saveConfigValue('default_llm_provider_id', defaultId);
+    json(res, { provider: { ...newProvider, apiKey: newProvider.apiKey ? '***' : '' }, saved: true }, 201);
+    return true;
+  }
+
+  if (url.match(/^\/api\/llm-providers\/[^/]+\/default$/) && method === 'PUT') {
+    if (!agentOrchestrator) {
+      error(res, 'Agent not initialized', 503);
+      return true;
+    }
+    const parts = url.split('/');
+    const id = parts[parts.length - 2];
+    const config = agentOrchestrator.getConfig();
+    const providers = (config.llmProviders || []).map(p => ({
+      ...p,
+      isDefault: p.id === id,
+    }));
+    if (!providers.find(p => p.id === id)) {
+      error(res, 'Provider not found', 404);
+      return true;
+    }
+    agentOrchestrator.updateConfig({ llmProviders: providers, defaultLlmProviderId: id });
+    saveConfigValue('llm_providers', JSON.stringify(providers));
+    saveConfigValue('default_llm_provider_id', id);
+    json(res, { defaultId: id, saved: true });
+    return true;
+  }
+
+  if (url.match(/^\/api\/llm-providers\/[^/]+$/) && method === 'PUT') {
+    if (!agentOrchestrator) {
+      error(res, 'Agent not initialized', 503);
+      return true;
+    }
+    const id = url.split('/').pop()!;
+    const body = await parseBody(req) as any;
+    const config = agentOrchestrator.getConfig();
+    const providers = [...(config.llmProviders || [])];
+    const idx = providers.findIndex(p => p.id === id);
+    if (idx === -1) {
+      error(res, 'Provider not found', 404);
+      return true;
+    }
+    // Update fields (keep existing apiKey if not provided or if placeholder)
+    const existing = providers[idx];
+    providers[idx] = {
+      ...existing,
+      name: body.name ?? existing.name,
+      provider: body.provider ?? existing.provider,
+      baseUrl: body.baseUrl ?? existing.baseUrl,
+      apiKey: (body.apiKey && !body.apiKey.includes('*')) ? body.apiKey : existing.apiKey,
+      model: body.model ?? existing.model,
+    };
+    agentOrchestrator.updateConfig({ llmProviders: providers });
+    saveConfigValue('llm_providers', JSON.stringify(providers));
+    json(res, { provider: { ...providers[idx], apiKey: '***' }, saved: true });
+    return true;
+  }
+
+  if (url.match(/^\/api\/llm-providers\/[^/]+$/) && method === 'DELETE') {
+    if (!agentOrchestrator) {
+      error(res, 'Agent not initialized', 503);
+      return true;
+    }
+    const id = url.split('/').pop()!;
+    const config = agentOrchestrator.getConfig();
+    const providers = (config.llmProviders || []).filter(p => p.id !== id);
+    if (providers.length === config.llmProviders?.length) {
+      error(res, 'Provider not found', 404);
+      return true;
+    }
+    // If the deleted provider was the default, pick a new one
+    let defaultId = config.defaultLlmProviderId;
+    if (defaultId === id && providers.length > 0) {
+      providers[0].isDefault = true;
+      defaultId = providers[0].id;
+    }
+    agentOrchestrator.updateConfig({ llmProviders: providers, defaultLlmProviderId: defaultId });
+    saveConfigValue('llm_providers', JSON.stringify(providers));
+    saveConfigValue('default_llm_provider_id', defaultId);
+    json(res, { deleted: true });
     return true;
   }
 
@@ -1211,6 +1422,171 @@ export async function handleApiRoute(
       const { saveGoogleServicesConfig } = await import('../channels/google/auth.js');
       const updated = await saveGoogleServicesConfig(body.services || {});
       json(res, { services: updated });
+    } catch (err: any) {
+      error(res, err.message, 500);
+    }
+    return true;
+  }
+
+  // ── SaveADay Auth API Endpoints ──────────────────────
+  if (url === '/api/saveaday/auth/status' && method === 'GET') {
+    try {
+      const { getSaveADayAuthStatus } = await import('../channels/saveaday/auth.js');
+      const status = getSaveADayAuthStatus();
+      json(res, status);
+    } catch (err: any) {
+      error(res, err.message, 500);
+    }
+    return true;
+  }
+
+  if (url === '/api/saveaday/auth/connect' && method === 'POST') {
+    try {
+      const body = await parseBody(req) as any;
+      if (!body.apiToken) {
+        error(res, 'apiToken is required');
+        return true;
+      }
+      const { saveSaveADayToken } = await import('../channels/saveaday/auth.js');
+      const tokenData = await saveSaveADayToken(body.apiToken, body.baseUrl, body.tenantId);
+      json(res, { success: true, ...tokenData, message: 'SaveADay connected successfully.' });
+    } catch (err: any) {
+      error(res, `SaveADay connection failed: ${err.message}`, 500);
+    }
+    return true;
+  }
+
+  if (url === '/api/saveaday/auth/clear' && method === 'POST') {
+    try {
+      const { clearSaveADayToken } = await import('../channels/saveaday/auth.js');
+      await clearSaveADayToken();
+      json(res, { success: true, message: 'SaveADay disconnected.' });
+    } catch (err: any) {
+      error(res, err.message, 500);
+    }
+    return true;
+  }
+
+  if (url === '/api/saveaday/services/config' && method === 'GET') {
+    try {
+      const { getSaveADayServicesConfig } = await import('../channels/saveaday/auth.js');
+      const services = getSaveADayServicesConfig();
+      json(res, { services });
+    } catch (err: any) {
+      error(res, err.message, 500);
+    }
+    return true;
+  }
+
+  if (url === '/api/saveaday/services/config' && method === 'PUT') {
+    try {
+      const body = await parseBody(req) as any;
+      const { saveSaveADayServicesConfig } = await import('../channels/saveaday/auth.js');
+      const updated = await saveSaveADayServicesConfig(body.services || {});
+      json(res, { services: updated });
+    } catch (err: any) {
+      error(res, err.message, 500);
+    }
+    return true;
+  }
+
+  // ── Antigravity ─────────────────────────────────────────
+  if (url === '/api/antigravity/check' && method === 'POST') {
+    const body = await parseBody(req) as any;
+    const searchPath = String(body.path || '~').replace(/^~/, process.env.HOME || '');
+    try {
+      const { ShellSkill } = await import('../capabilities/skills/shell-skill.js');
+      const sh = new ShellSkill({ timeout: 10000 });
+
+      // Check if it's a file or directory
+      const stat = await sh.execute(`test -f "${searchPath}" && echo "file" || echo "dir"`);
+      if (stat.stdout.trim() === 'file') {
+        const content = await sh.execute(`cat "${searchPath}"`);
+        json(res, { success: true, result: content.stdout, files: [searchPath] });
+      } else {
+        const find = await sh.execute(`find "${searchPath}" -maxdepth 3 \\( -name "*.yaml" -o -name "*.yml" \\) 2>/dev/null | head -20`);
+        const allFiles = find.stdout.trim().split('\n').filter(Boolean);
+        const queueFiles: string[] = [];
+        for (const f of allFiles) {
+          const check = await sh.execute(`grep -l "^queue:" "${f}" 2>/dev/null`);
+          if (check.exitCode === 0 && check.stdout.trim()) queueFiles.push(f.trim());
+        }
+        if (queueFiles.length === 0) {
+          json(res, { success: true, result: 'No queue files found.', files: [] });
+        } else {
+          const contents: Record<string, string> = {};
+          for (const qf of queueFiles.slice(0, 5)) {
+            const c = await sh.execute(`cat "${qf}"`);
+            contents[qf] = c.stdout;
+          }
+          json(res, { success: true, files: queueFiles, contents });
+        }
+      }
+    } catch (err: any) {
+      error(res, err.message, 500);
+    }
+    return true;
+  }
+
+  if (url === '/api/antigravity/create' && method === 'POST') {
+    const body = await parseBody(req) as any;
+    const filePath = String(body.path || '').replace(/^~/, process.env.HOME || '');
+    const prompts = body.prompts;
+    if (!filePath || !prompts) { error(res, 'path and prompts are required'); return true; }
+    try {
+      const items = typeof prompts === 'string' ? JSON.parse(prompts) : prompts;
+      let yaml = '# antigravity-batch prompt queue\n\nqueue:\n';
+      for (const p of items) {
+        yaml += `  - name: "${p.name}"\n    prompt: "${String(p.prompt).replace(/"/g, '\\"')}"\n\n`;
+      }
+      const { ShellSkill } = await import('../capabilities/skills/shell-skill.js');
+      const sh = new ShellSkill({ timeout: 5000 });
+      await sh.execute(`mkdir -p "$(dirname "${filePath}")"`);
+      const { writeFileSync } = await import('fs');
+      writeFileSync(filePath, yaml, 'utf-8');
+      json(res, { success: true, path: filePath, count: items.length });
+    } catch (err: any) {
+      error(res, err.message, 500);
+    }
+    return true;
+  }
+
+  if (url === '/api/antigravity/run' && method === 'POST') {
+    const body = await parseBody(req) as any;
+    const queueFile = String(body.queue_file || '').replace(/^~/, process.env.HOME || '');
+    const workdir = String(body.workdir || '.').replace(/^~/, process.env.HOME || '');
+    const dryRun = Boolean(body.dry_run);
+    const approvalMode = String(body.approval_mode || 'yolo');
+    const continueOnError = Boolean(body.continue_on_error);
+    if (!queueFile) { error(res, 'queue_file is required'); return true; }
+    try {
+      const { ShellSkill } = await import('../capabilities/skills/shell-skill.js');
+      const sh = new ShellSkill({ timeout: 300000 });
+      const parts = ['antigravity-batch', '--queue', `"${queueFile}"`, '--workdir', `"${workdir}"`, '--approval-mode', approvalMode];
+      if (dryRun) parts.push('--dry-run');
+      if (continueOnError) parts.push('--continue-on-error');
+      const result = await sh.execute(parts.join(' '), { cwd: workdir });
+      json(res, { success: result.exitCode === 0, output: result.stdout + '\n' + result.stderr, exitCode: result.exitCode });
+    } catch (err: any) {
+      error(res, err.message, 500);
+    }
+    return true;
+  }
+
+  if (url === '/api/antigravity/runs' && method === 'GET') {
+    try {
+      const { ShellSkill } = await import('../capabilities/skills/shell-skill.js');
+      const sh = new ShellSkill({ timeout: 5000 });
+      const logDir = './runs';
+      const check = await sh.execute(`test -d "${logDir}" && ls -1t "${logDir}"/run-*.log 2>/dev/null | head -10`);
+      if (!check.stdout.trim()) {
+        json(res, { runs: [] });
+      } else {
+        const files = check.stdout.trim().split('\n');
+        // Read latest
+        const latest = await sh.execute(`cat "${files[0].trim()}"`);
+        json(res, { runs: files.map(f => f.trim()), latestContent: latest.stdout });
+      }
     } catch (err: any) {
       error(res, err.message, 500);
     }

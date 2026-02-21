@@ -13,6 +13,8 @@ import {
   Brain,
   Globe,
   ScrollText,
+  CalendarCheck,
+  Rocket,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -45,6 +47,8 @@ const channelItems = [
   { title: "WhatsApp", href: "/whatsapp", icon: MessageCircle },
   { title: "Telegram", href: "/telegram", icon: Send },
   { title: "Google Apps", href: "/google", icon: Globe },
+  { title: "SaveADay", href: "/saveaday", icon: CalendarCheck },
+  { title: "Antigravity", href: "/antigravity", icon: Rocket },
 ];
 
 export function AppSidebar() {

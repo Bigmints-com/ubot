@@ -234,15 +234,16 @@ User-created automations following: **Event → Trigger → Processor → Outcom
 
 ### Tool Modules (`src/tools/`)
 
-| Module       | Tools | Description                                            |
-| ------------ | ----- | ------------------------------------------------------ |
-| `messaging`  | 8     | send, search, contacts, conversations, delete, reply   |
-| `approvals`  | 3     | ask_owner, respond, list_pending                       |
-| `web-search` | 1     | web_search (SearXNG + Puppeteer fallback)              |
-| `skills`     | 4     | CRUD skills                                            |
-| `browser`    | 8     | browse, click, type, read, screenshot, scroll, emails  |
-| `scheduler`  | 6     | schedule, remind, list, delete, trigger, auto_reply    |
-| `google`     | 29    | Gmail, Drive, Sheets, Docs, Contacts, Calendar, Places |
+| Module       | Tools | Description                                                                                       |
+| ------------ | ----- | ------------------------------------------------------------------------------------------------- |
+| `messaging`  | 8     | send, search, contacts, conversations, delete, reply                                              |
+| `approvals`  | 3     | ask_owner, respond, list_pending                                                                  |
+| `web-search` | 1     | web_search (SearXNG + Puppeteer fallback)                                                         |
+| `skills`     | 4     | CRUD skills                                                                                       |
+| `browser`    | 8     | browse, click, type, read, screenshot, scroll, emails                                             |
+| `scheduler`  | 6     | schedule, remind, list, delete, trigger, auto_reply                                               |
+| `google`     | 29    | Gmail, Drive, Sheets, Docs, Contacts, Calendar, Places                                            |
+| `saveaday`   | 58    | Booking, Catalogues, Contacts, Feeds, Leads, Links, Referrals, Rewards, Surveys, Tasks, Waitlists |
 
 ### Owner Approval System (`src/engine/pending-approvals.ts`)
 

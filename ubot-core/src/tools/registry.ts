@@ -9,12 +9,14 @@ import type { ToolModule, ToolRegistry, ToolContext, ToolDefinition } from './ty
 
 // Import each service's tool module from its own directory
 import googleTools from './google.js';
+import saveadayTools from './saveaday.js';
 import messagingTools from './messaging.js';
 import skillsTools from './skills.js';
 import browserTools from './browser.js';
 import schedulerTools from './scheduler.js';
 import approvalsTools from './approvals.js';
 import webSearchTools from './web-search.js';
+import antigravityTools from './antigravity.js';
 
 /**
  * All available tool modules, in registration order.
@@ -28,6 +30,8 @@ const ALL_MODULES: ToolModule[] = [
   browserTools,
   schedulerTools,
   googleTools,
+  saveadayTools,
+  antigravityTools,
 ];
 
 /**

@@ -32,9 +32,16 @@ Dashboard: [http://localhost:11490](http://localhost:11490)
 ```bash
 ubot start           # Start on port 11490
 ubot stop            # Graceful shutdown
+ubot restart         # Stop + start
 ubot status          # Show PID, port, dashboard URL
 ubot logs            # Last 50 log lines
 ubot logs -f         # Follow logs
+ubot config          # Show current config
+ubot config edit     # Open config in $EDITOR
+ubot config set k v  # Set a config value (e.g. server.port 8080)
+ubot config get k    # Get a config value
+ubot doctor          # Health check (Node, install, config, port)
+ubot open            # Open dashboard in browser
 ubot version         # Version info
 ```
 
