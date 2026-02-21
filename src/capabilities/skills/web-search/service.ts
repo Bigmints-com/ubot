@@ -178,8 +178,7 @@ export class WebSearchService {
   }
 
   /**
-   * Fetch search results from search engine using Puppeteer.
-   * Searches Google via the shared browser instance, with DuckDuckGo fallback.
+   * Fetch search results — tries Serper.dev API first, falls back to Puppeteer.
    */
   private async fetchSearchResults(
     query: string,
@@ -187,6 +186,30 @@ export class WebSearchService {
     maxResults: number,
     options?: SearchQueryOptions
   ): Promise<SearchResultItem[]> {
+    // Try Serper.dev first (fast, reliable Google results)
+    try {
+      const { isSerperAvailable, serperSearch } = await import('./adapters/serper.js');
+      if (isSerperAvailable()) {
+        const { results } = await serperSearch(query, { count: maxResults });
+        return results.map((r, idx) => ({
+          id: generateResultId(),
+          title: r.title,
+          url: r.link,
+          snippet: r.snippet || '',
+          type: detectResultType(r.link),
+          domain: new URL(r.link).hostname.replace(/^www\./, ''),
+          source: 'serper' as any,
+          position: idx + 1,
+          relevanceScore: 0,
+          retrievedAt: new Date(),
+          fetchedAt: new Date(),
+        }));
+      }
+    } catch (err) {
+      this.logger.warn('Serper search failed, falling back to Puppeteer', { error: (err as Error).message });
+    }
+
+    // Fallback: Puppeteer-based search
     const { puppeteerSearch } = await import('./adapters/puppeteer.js');
     const results = await puppeteerSearch(query, { maxResults });
 
