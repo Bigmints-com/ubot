@@ -62,10 +62,16 @@ export default function McpServersPage() {
 
   // Add dialog state
   const [addOpen, setAddOpen] = useState(false);
+  const [inputMode, setInputMode] = useState<"json" | "form">("json");
+  // JSON mode
+  const [jsonInput, setJsonInput] = useState("");
+  const [jsonError, setJsonError] = useState<string | null>(null);
+  // Form mode
   const [addName, setAddName] = useState("");
   const [addCommand, setAddCommand] = useState("");
   const [addArgs, setAddArgs] = useState("");
   const [addEnv, setAddEnv] = useState("");
+  // Shared
   const [validating, setValidating] = useState(false);
   const [validated, setValidated] = useState(false);
   const [discoveredTools, setDiscoveredTools] = useState<McpToolInfo[]>([]);
@@ -88,6 +94,68 @@ export default function McpServersPage() {
     const interval = setInterval(fetchServers, 10000);
     return () => clearInterval(interval);
   }, [fetchServers]);
+
+  // ── JSON Parsing ────────────────────────────────────────
+
+  const JSON_PLACEHOLDER = `{
+  "filesystem": {
+    "command": "npx",
+    "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"],
+    "env": {}
+  }
+}`;
+
+  /**
+   * Parse the standard mcpServers JSON config format.
+   * Accepts either { "name": { command, args, env } }
+   * or { "mcpServers": { "name": { command, args, env } } }
+   */
+  const parseJsonConfig = (
+    raw: string
+  ): { name: string; command: string; args: string[]; env: Record<string, string> } | null => {
+    try {
+      let parsed = JSON.parse(raw);
+
+      // Unwrap if wrapped in mcpServers key
+      if (parsed.mcpServers && typeof parsed.mcpServers === "object") {
+        parsed = parsed.mcpServers;
+      }
+
+      const keys = Object.keys(parsed);
+      if (keys.length === 0) {
+        setJsonError("No server entries found");
+        return null;
+      }
+      if (keys.length > 1) {
+        setJsonError("Please add one server at a time");
+        return null;
+      }
+
+      const name = keys[0];
+      const config = parsed[name];
+
+      if (!config.command || typeof config.command !== "string") {
+        setJsonError(`"${name}.command" is required and must be a string`);
+        return null;
+      }
+
+      setJsonError(null);
+      return {
+        name,
+        command: config.command,
+        args: Array.isArray(config.args) ? config.args.map(String) : [],
+        env:
+          config.env && typeof config.env === "object"
+            ? Object.fromEntries(
+                Object.entries(config.env).map(([k, v]) => [k, String(v)])
+              )
+            : {},
+      };
+    } catch (e: any) {
+      setJsonError(e.message || "Invalid JSON");
+      return null;
+    }
+  };
 
   // ── Helpers ──────────────────────────────────────────────
 
@@ -115,6 +183,42 @@ export default function McpServersPage() {
     setSuccessMsg(null);
   };
 
+  /**
+   * Build the server config from the current input mode.
+   */
+  const getServerConfig = (): {
+    name: string;
+    command: string;
+    args: string[];
+    env: Record<string, string>;
+  } | null => {
+    if (inputMode === "json") {
+      return parseJsonConfig(jsonInput);
+    }
+    if (!addName.trim() || !addCommand.trim()) return null;
+    return {
+      name: addName.trim(),
+      command: addCommand.trim(),
+      args: parseArgs(addArgs),
+      env: parseEnv(addEnv),
+    };
+  };
+
+  const canValidate = (): boolean => {
+    if (inputMode === "json") {
+      return jsonInput.trim().length > 0;
+    }
+    return addCommand.trim().length > 0;
+  };
+
+  const canAdd = (): boolean => {
+    if (!validated) return false;
+    if (inputMode === "json") {
+      return jsonInput.trim().length > 0 && !jsonError;
+    }
+    return addName.trim().length > 0 && addCommand.trim().length > 0;
+  };
+
   // ── Validate ────────────────────────────────────────────
 
   const handleValidate = async () => {
@@ -125,6 +229,12 @@ export default function McpServersPage() {
     setDiscoveredTools([]);
     setSelectedTools(new Set());
 
+    const config = getServerConfig();
+    if (!config) {
+      setValidating(false);
+      return;
+    }
+
     try {
       const data = await api<{
         valid: boolean;
@@ -133,16 +243,15 @@ export default function McpServersPage() {
       }>("/api/mcp/servers/validate", {
         method: "POST",
         body: {
-          command: addCommand.trim(),
-          args: parseArgs(addArgs),
-          env: parseEnv(addEnv),
+          command: config.command,
+          args: config.args,
+          env: config.env,
         },
       });
 
       if (data.valid) {
         setValidated(true);
         setDiscoveredTools(data.tools);
-        // Select all tools by default
         setSelectedTools(new Set(data.tools.map((t) => t.name)));
       } else {
         setValidateError(data.error || "Validation failed");
@@ -159,20 +268,25 @@ export default function McpServersPage() {
   const handleAdd = async () => {
     clearMessages();
     setAdding(true);
+    const config = getServerConfig();
+    if (!config) {
+      setAdding(false);
+      return;
+    }
     try {
       await api("/api/mcp/servers", {
         method: "POST",
         body: {
-          name: addName.trim(),
-          command: addCommand.trim(),
-          args: parseArgs(addArgs),
-          env: parseEnv(addEnv),
+          name: config.name,
+          command: config.command,
+          args: config.args,
+          env: config.env,
           enabledTools: [...selectedTools],
           discoveredTools,
           autoConnect: true,
         },
       });
-      setSuccessMsg(`MCP server "${addName}" added and connected!`);
+      setSuccessMsg(`MCP server "${config.name}" added and connected!`);
       resetAddDialog();
       setAddOpen(false);
       fetchServers();
@@ -184,6 +298,9 @@ export default function McpServersPage() {
   };
 
   const resetAddDialog = () => {
+    setInputMode("json");
+    setJsonInput("");
+    setJsonError(null);
     setAddName("");
     setAddCommand("");
     setAddArgs("");
@@ -232,7 +349,6 @@ export default function McpServersPage() {
       ? [...server.enabledTools, toolName]
       : server.enabledTools.filter((t) => t !== toolName);
 
-    // Optimistic update
     setServers((prev) =>
       prev.map((s) => (s.id === server.id ? { ...s, enabledTools: updated } : s))
     );
@@ -245,7 +361,7 @@ export default function McpServersPage() {
       fetchServers();
     } catch (err: any) {
       setError(err.message);
-      fetchServers(); // revert
+      fetchServers();
     }
   };
 
@@ -301,75 +417,131 @@ export default function McpServersPage() {
             <DialogHeader>
               <DialogTitle>Add MCP Server</DialogTitle>
               <DialogDescription>
-                Configure an MCP server to discover and enable tools for the
-                agent.
+                Paste the standard JSON config from any MCP server documentation,
+                or fill in the form manually.
               </DialogDescription>
             </DialogHeader>
 
             <div className="space-y-4">
-              {/* Name */}
-              <div className="space-y-2">
-                <Label htmlFor="mcp-name">Server Name</Label>
-                <Input
-                  id="mcp-name"
-                  placeholder="e.g. Filesystem, GitHub, Slack"
-                  value={addName}
-                  onChange={(e) => setAddName(e.target.value)}
-                />
+              {/* Mode Toggle */}
+              <div className="flex gap-1 p-1 rounded-lg bg-zinc-900 border border-zinc-800">
+                <button
+                  onClick={() => { setInputMode("json"); setValidated(false); }}
+                  className={`flex-1 text-sm py-1.5 px-3 rounded-md transition-all ${
+                    inputMode === "json"
+                      ? "bg-zinc-800 text-white font-medium shadow-sm"
+                      : "text-zinc-400 hover:text-zinc-300"
+                  }`}
+                >
+                  JSON Config
+                </button>
+                <button
+                  onClick={() => { setInputMode("form"); setValidated(false); }}
+                  className={`flex-1 text-sm py-1.5 px-3 rounded-md transition-all ${
+                    inputMode === "form"
+                      ? "bg-zinc-800 text-white font-medium shadow-sm"
+                      : "text-zinc-400 hover:text-zinc-300"
+                  }`}
+                >
+                  Form
+                </button>
               </div>
 
-              {/* Command */}
-              <div className="space-y-2">
-                <Label htmlFor="mcp-command">Command</Label>
-                <Input
-                  id="mcp-command"
-                  placeholder="e.g. npx, node, python"
-                  value={addCommand}
-                  onChange={(e) => {
-                    setAddCommand(e.target.value);
-                    setValidated(false);
-                  }}
-                  className="font-mono text-sm"
-                />
-              </div>
+              {/* JSON Mode */}
+              {inputMode === "json" && (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="mcp-json">Server Configuration</Label>
+                    <span className="text-xs text-muted-foreground">
+                      Claude Desktop / Cursor format
+                    </span>
+                  </div>
+                  <Textarea
+                    id="mcp-json"
+                    placeholder={JSON_PLACEHOLDER}
+                    value={jsonInput}
+                    onChange={(e) => {
+                      setJsonInput(e.target.value);
+                      setValidated(false);
+                      setJsonError(null);
+                    }}
+                    className="font-mono text-sm min-h-[180px]"
+                    rows={8}
+                  />
+                  {jsonError && (
+                    <p className="text-xs text-red-400 flex items-center gap-1.5">
+                      <XCircle className="h-3 w-3 shrink-0" />
+                      {jsonError}
+                    </p>
+                  )}
+                  <p className="text-xs text-muted-foreground">
+                    Accepts <code className="bg-muted px-1 py-0.5 rounded text-[11px]">{"{ \"name\": { command, args, env } }"}</code> or{" "}
+                    <code className="bg-muted px-1 py-0.5 rounded text-[11px]">{"{ \"mcpServers\": { ... } }"}</code>
+                  </p>
+                </div>
+              )}
 
-              {/* Args */}
-              <div className="space-y-2">
-                <Label htmlFor="mcp-args">Arguments (space-separated)</Label>
-                <Input
-                  id="mcp-args"
-                  placeholder="e.g. -y @modelcontextprotocol/server-filesystem /tmp"
-                  value={addArgs}
-                  onChange={(e) => {
-                    setAddArgs(e.target.value);
-                    setValidated(false);
-                  }}
-                  className="font-mono text-sm"
-                />
-              </div>
-
-              {/* Env */}
-              <div className="space-y-2">
-                <Label htmlFor="mcp-env">
-                  Environment Variables (KEY=VALUE, one per line)
-                </Label>
-                <Textarea
-                  id="mcp-env"
-                  placeholder={"API_KEY=sk-...\nDEBUG=true"}
-                  value={addEnv}
-                  onChange={(e) => {
-                    setAddEnv(e.target.value);
-                    setValidated(false);
-                  }}
-                  className="font-mono text-sm"
-                  rows={3}
-                />
-              </div>
+              {/* Form Mode */}
+              {inputMode === "form" && (
+                <>
+                  <div className="space-y-2">
+                    <Label htmlFor="mcp-name">Server Name</Label>
+                    <Input
+                      id="mcp-name"
+                      placeholder="e.g. Filesystem, GitHub, Slack"
+                      value={addName}
+                      onChange={(e) => setAddName(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="mcp-command">Command</Label>
+                    <Input
+                      id="mcp-command"
+                      placeholder="e.g. npx, node, python"
+                      value={addCommand}
+                      onChange={(e) => {
+                        setAddCommand(e.target.value);
+                        setValidated(false);
+                      }}
+                      className="font-mono text-sm"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="mcp-args">Arguments</Label>
+                    <Input
+                      id="mcp-args"
+                      placeholder="e.g. -y @modelcontextprotocol/server-filesystem /tmp"
+                      value={addArgs}
+                      onChange={(e) => {
+                        setAddArgs(e.target.value);
+                        setValidated(false);
+                      }}
+                      className="font-mono text-sm"
+                    />
+                    <p className="text-xs text-muted-foreground">Space-separated</p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="mcp-env">Environment Variables</Label>
+                    <Textarea
+                      id="mcp-env"
+                      placeholder={"API_KEY=sk-...\nDEBUG=true"}
+                      value={addEnv}
+                      onChange={(e) => {
+                        setAddEnv(e.target.value);
+                        setValidated(false);
+                      }}
+                      className="font-mono text-sm"
+                      rows={3}
+                    />
+                    <p className="text-xs text-muted-foreground">KEY=VALUE, one per line</p>
+                  </div>
+                </>
+              )}
 
               {/* Validate Button */}
               <Button
                 onClick={handleValidate}
-                disabled={!addCommand.trim() || validating}
+                disabled={!canValidate() || validating}
                 variant="outline"
                 className="w-full gap-2"
               >
@@ -491,12 +663,7 @@ export default function McpServersPage() {
               </Button>
               <Button
                 onClick={handleAdd}
-                disabled={
-                  !addName.trim() ||
-                  !addCommand.trim() ||
-                  !validated ||
-                  adding
-                }
+                disabled={!canAdd() || adding}
                 className="gap-2"
               >
                 {adding ? (
