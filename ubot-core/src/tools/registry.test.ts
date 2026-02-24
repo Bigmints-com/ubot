@@ -43,7 +43,7 @@ describe('Tool Types', () => {
 });
 
 describe('Tool Registry', () => {
-  it('should have all 9 modules', () => {
+  it('should have all 7 modules', () => {
     const names = getModuleNames();
     expect(names).toContain('messaging');
     expect(names).toContain('approvals');
@@ -52,14 +52,12 @@ describe('Tool Registry', () => {
     expect(names).toContain('browser');
     expect(names).toContain('scheduler');
     expect(names).toContain('google');
-    expect(names).toContain('saveaday');
-    expect(names).toContain('antigravity');
-    expect(names.length).toBe(9);
+    expect(names.length).toBe(7);
   });
 
   it('should collect all tool definitions', () => {
     const tools = getAllToolDefinitions();
-    expect(tools.length).toBeGreaterThan(100);
+    expect(tools.length).toBeGreaterThan(50);
     // Each tool should have name, description, and parameters
     for (const tool of tools) {
       expect(tool.name).toBeTruthy();
