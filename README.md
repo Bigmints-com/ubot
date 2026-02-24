@@ -1,96 +1,79 @@
 # Ubot Core
 
-Personal AI assistant that manages your messaging channels. Acts as your private secretary — answers visitors from your profile, escalates what it can't handle, and automates tasks on your behalf.
+> The backend engine and API for Ubot — a self-hosted AI assistant.
 
-## Features
+This is the main application package containing the AI orchestrator, tool registry, messaging channels, integrations, and REST API.
 
-- **Multi-Channel** — WhatsApp + Telegram, unified message handling
-- **Owner & Visitor Model** — Owner gets full access; visitors get smart, policy-gated responses
-- **Soul System** — Evolving personality profiles for you and every contact
-- **Skill Engine** — Event-driven automation (spam deletion, scheduled tasks, browsing)
-- **Browser Automation** — Puppeteer-based browsing with self-healing recovery
-- **Google Integration** — Gmail, Calendar, Contacts, Drive, Docs, Sheets
-- **Live Dashboard** — Next.js UI with real-time log viewer
+## Stack
 
-## Quick Start
-
-### Prerequisites
-
-- Node.js 20+
-- An LLM API key (OpenRouter, OpenAI, Anthropic, or Gemini)
-
-### Install
-
-```bash
-git clone https://github.com/Bigmints-com/ubot.git
-cd ubot/ubot-core
-npm install
-```
-
-### Configure
-
-```bash
-cp .env.example .env
-# Edit .env with your LLM API key
-```
-
-### Run
-
-```bash
-# Start backend + dashboard
-./start.sh
-
-# Dashboard: http://localhost:4080
-# API: http://localhost:4081
-```
-
-### Connect Channels
-
-1. Open the dashboard at `http://localhost:4080`
-2. Go to **Settings** → add your LLM API key
-3. Go to **Telegram** → connect your bot token
-4. Go to **WhatsApp** → scan the QR code
+| Layer      | Technology                                                               |
+| ---------- | ------------------------------------------------------------------------ |
+| Runtime    | Node.js (ES2022)                                                         |
+| Language   | TypeScript (strict)                                                      |
+| LLM Client | OpenAI SDK (compatible with Gemini, Ollama, OpenAI, Anthropic)           |
+| Database   | SQLite via `better-sqlite3`                                              |
+| Messaging  | WhatsApp (`@whiskeysockets/baileys`), Telegram (`node-telegram-bot-api`) |
+| Browser    | Puppeteer                                                                |
+| Scheduler  | `node-cron`                                                              |
+| Email      | `nodemailer`                                                             |
+| Testing    | Vitest                                                                   |
+| Web UI     | Next.js + shadcn/ui (in `web/`)                                          |
 
 ## Architecture
 
 ```
 src/
-├── index.ts              # Entry point
-├── agent/                # 🧠 Orchestrator, soul, memory, conversation
-├── api/                  # 🌐 HTTP API routes
-├── browser/              # 🌍 Browser automation (Puppeteer)
-├── config/               # ⚙️ App configuration
-├── database/             # 💾 SQLite database layer
-├── google/               # 📧 Google workspace integration
-├── llm/                  # 🤖 LLM client
-├── logger/               # 📊 Structured logging
-├── messaging/            # 💬 Unified message handler + registry
-├── metrics/              # 📈 Usage metrics
-├── safety/               # 🛡️ Content safety rules
-├── scheduler/            # ⏰ Cron-style task scheduler
-├── skills/               # 🔧 Event-driven skill engine
-├── telegram/             # 📱 Telegram adapter
-├── tools/                # 🛠️ Tool registry + definitions
-└── whatsapp/             # 📲 WhatsApp adapter (Baileys)
+├── index.ts              # HTTP server + app bootstrap
+├── api/                  # REST API layer
+│   ├── index.ts          # State management, channel routes
+│   ├── context.ts        # Shared ApiContext + utilities
+│   └── routes/           # Route handlers
+├── engine/               # Core AI engine
+│   ├── orchestrator.ts   # Main agent loop: message → LLM → tools → response
+│   ├── handler.ts        # Unified message handler (all channels)
+│   ├── llm.ts            # LLM API client wrapper
+│   └── prompt-builder/   # Dynamic system prompt construction
+├── tools/                # Modular tool registry (LLM-callable functions)
+│   ├── registry.ts       # Central loader (7 modules, 59 tools)
+│   ├── messaging.ts      # 8 tools: send, search, contacts, etc.
+│   ├── google.ts         # 29 tools: Gmail, Drive, Sheets, Docs, etc.
+│   ├── browser.ts        # 8 tools: browse, click, type, screenshot
+│   ├── scheduler.ts      # 6 tools: schedule, remind, auto-reply
+│   ├── skills.ts         # 4 tools: CRUD automations
+│   ├── web-search.ts     # 1 tool: web search
+│   └── approvals.ts      # 3 tools: owner approval flow
+├── channels/             # Messaging channels
+│   ├── whatsapp/         # WhatsApp (Baileys)
+│   └── telegram/         # Telegram (node-telegram-bot-api)
+├── integrations/         # External service integrations
+│   ├── google/           # Google Workspace (OAuth2)
+│   └── mcp/              # Model Context Protocol servers
+├── capabilities/         # Built-in capabilities
+│   ├── browser/          # Puppeteer browser automation
+│   ├── scheduler/        # Cron-based task scheduler
+│   └── skills/           # Skill engine (Event → Trigger → Processor → Outcome)
+├── memory/               # Personas, conversation history, memory store
+├── data/                 # SQLite database + config management
+├── safety/               # Safety rules & guardrails
+└── logger/               # Structured logging (Winston + Pino)
 ```
 
-### Message Flow
+## Message Flow
 
 ```
-Incoming Message
+Incoming Message (WhatsApp / Telegram / Web)
     ↓
-Unified Handler (detect owner/visitor)
+Unified Handler → detect owner vs visitor
     ↓
 ┌─────────────────┐    ┌──────────────────┐
 │  Owner           │    │  Visitor          │
 │  All 59 tools    │    │  ask_owner tool   │
-│  Full access     │    │  Security policy  │
-│                  │    │  Owner profile    │
+│  Full access     │    │  Safety rules     │
 └────────┬────────┘    └────────┬─────────┘
          ↓                      ↓
-    Orchestrator (same path for both)
+    Orchestrator (LLM loop)
          ↓
-    LLM → Tool calls → Response
+    Tool calls → Response
          ↓
     Soul extraction (update contact profiles)
 ```
@@ -102,12 +85,27 @@ Unified Handler (detect owner/visitor)
 npx tsc --noEmit
 
 # Run tests
+npx vitest run
+
+# Watch mode
 npx vitest
 
+# Build backend
+npm run build
+
 # Build dashboard
-cd web && npx next build
+cd web && npm run build
 ```
+
+## Key Concepts
+
+- **Orchestrator** — Multi-turn agent loop: message → LLM → tools → response
+- **Soul System** — Evolving personality profiles (bot soul, owner soul, contact souls)
+- **Skill Engine** — User-created automations: Event → Trigger → Processor → Outcome
+- **Tool Registry** — Modular tool system, each module exports a `ToolModule`
+- **Safety Rules** — Configurable guardrails for content and actions
+- **MCP Support** — Extend with any Model Context Protocol server
 
 ## License
 
-Private — © Bigmints
+MIT
