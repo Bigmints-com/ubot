@@ -1,14 +1,38 @@
 # Ubot — Your Personal AI Assistant
 
-> Chat-powered automation for WhatsApp, Telegram, Gmail, and more. Runs locally, thinks globally.
+> Open-source, self-hosted AI assistant for WhatsApp, Telegram, Gmail, and more. Runs locally. Privacy-first.
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Node.js](https://img.shields.io/badge/Node.js-%E2%89%A522-green)](https://nodejs.org)
+[![TypeScript](https://img.shields.io/badge/TypeScript-strict-blue)](https://www.typescriptlang.org)
 
 ## What is Ubot?
 
 Ubot is a self-hosted AI assistant that connects to your messaging apps and automates your digital life through natural conversations. Tell it what you need in plain English — it'll browse the web, send emails, manage files, schedule tasks, and reply to people on your behalf.
 
-**59 tools** across **7 modules** • **WhatsApp & Telegram** • **Google Workspace** • **Browser automation** • **Privacy-first (runs on your machine)**
+**59 tools** across **7 modules** • **WhatsApp & Telegram** • **Google Workspace** • **Browser automation** • **Extensible via MCP**
 
-## Quick Start
+## ✨ Features
+
+| Module         | Tools | What it does                                           |
+| -------------- | ----- | ------------------------------------------------------ |
+| **Messaging**  | 8     | Send, search, forward messages across channels         |
+| **Google**     | 29    | Gmail, Drive, Sheets, Docs, Contacts, Calendar, Places |
+| **Browser**    | 8     | Browse, click, type, screenshot — Puppeteer-powered    |
+| **Scheduler**  | 6     | Cron jobs, reminders, auto-reply, one-time tasks       |
+| **Skills**     | 4     | Create custom automations with triggers & outcomes     |
+| **Web Search** | 1     | SearXNG + Puppeteer fallback                           |
+| **Approvals**  | 3     | Owner approval flow for sensitive actions              |
+
+**Plus:**
+
+- 🤖 **Multi-LLM** — Works with OpenAI, Anthropic, Google Gemini, and Ollama (local)
+- 🧠 **Soul System** — Evolving personality profiles for you and every contact
+- 🔌 **MCP Servers** — Extend with any [Model Context Protocol](https://modelcontextprotocol.io/) server
+- 🛡️ **Safety Rules** — Configurable guardrails for what the bot can and can't do
+- 📊 **Dashboard** — Beautiful Next.js + shadcn/ui control center
+
+## 🚀 Quick Start
 
 ```bash
 # Clone
@@ -27,7 +51,15 @@ ubot start
 
 Dashboard: [http://localhost:11490](http://localhost:11490)
 
-## CLI
+### Connect Your Channels
+
+1. Open the dashboard
+2. Go to **Settings** → add your LLM API key
+3. Go to **WhatsApp** → scan the QR code
+4. Go to **Telegram** → enter your bot token
+5. Go to **Google** → connect your Google account
+
+## 🖥️ CLI
 
 ```bash
 ubot start           # Start on port 11490
@@ -38,33 +70,22 @@ ubot logs            # Last 50 log lines
 ubot logs -f         # Follow logs
 ubot config          # Show current config
 ubot config edit     # Open config in $EDITOR
-ubot config set k v  # Set a config value (e.g. server.port 8080)
+ubot config set k v  # Set a config value
 ubot config get k    # Get a config value
-ubot doctor          # Health check (Node, install, config, port)
+ubot doctor          # Health check
 ubot open            # Open dashboard in browser
 ubot version         # Version info
 ```
 
-## Development
+## 🛠️ Development
 
 ```bash
 ./start.sh           # Backend on :4081 + Next.js UI on :4080 (hot reload)
 ./stop.sh            # Stop dev servers
+npx vitest           # Run tests
 ```
 
-## Features
-
-| Module         | Tools | What it does                                           |
-| -------------- | ----- | ------------------------------------------------------ |
-| **Messaging**  | 8     | Send, search, forward messages across channels         |
-| **Google**     | 29    | Gmail, Drive, Sheets, Docs, Contacts, Calendar, Places |
-| **Browser**    | 8     | Browse, click, type, screenshot — Puppeteer-powered    |
-| **Scheduler**  | 6     | Cron jobs, reminders, auto-reply, one-time tasks       |
-| **Skills**     | 4     | Create custom automations with triggers & outcomes     |
-| **Web Search** | 1     | SearXNG + Puppeteer fallback                           |
-| **Approvals**  | 3     | Owner approval flow for sensitive actions              |
-
-## Architecture
+## 🏗️ Architecture
 
 ```
 ubot/
@@ -74,16 +95,18 @@ ubot/
 └── ubot-core/            # Main application
     ├── src/
     │   ├── api/           # REST API endpoints
-    │   ├── engine/        # AI orchestrator, LLM, personas, memory
+    │   ├── engine/        # AI orchestrator, LLM, prompt builder, memory
     │   ├── tools/         # 59 tools in 7 modules
-    │   ├── channels/      # WhatsApp, Telegram, Google Workspace
-    │   ├── capabilities/  # Browser, Scheduler, Skills engine
-    │   ├── data/          # Database, config, safety
-    │   └── logger/        # Logging + ring buffer
+    │   ├── channels/      # WhatsApp & Telegram adapters
+    │   ├── integrations/  # Google Workspace, MCP servers
+    │   ├── capabilities/  # Browser, Scheduler, Skill engine
+    │   ├── data/          # SQLite database & config
+    │   ├── safety/        # Safety rules & guardrails
+    │   └── logger/        # Structured logging
     └── web/               # Next.js + shadcn/ui dashboard
 ```
 
-## Configuration
+## ⚙️ Configuration
 
 Config lives at `~/.ubot/config.json`:
 
@@ -100,12 +123,16 @@ Config lives at `~/.ubot/config.json`:
 
 Supports **OpenAI**, **Anthropic**, **Google Gemini**, and **Ollama** (local).
 
-## Requirements
+## 📋 Requirements
 
 - **Node.js** ≥ 22 (via [nvm](https://github.com/nvm-sh/nvm))
 - **npm** (comes with Node.js)
 - **make** (pre-installed on macOS/Linux)
 
-## License
+## 🤝 Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request. For major changes, please open an issue first to discuss what you would like to change.
+
+## 📄 License
 
 MIT — Built by [Bigmints](https://bigmints.com)
