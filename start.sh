@@ -5,8 +5,22 @@ set -e
 DIR="$(cd "$(dirname "$0")/ubot-core" && pwd)"
 
 echo "🛑 Killing any existing processes..."
+# Kill by saved PID files (and their process groups)
+for pidfile in "$DIR/ubot.pid" "$DIR/web.pid"; do
+  if [ -f "$pidfile" ]; then
+    pid=$(cat "$pidfile")
+    # Kill the entire process group
+    kill -- -"$pid" 2>/dev/null || kill "$pid" 2>/dev/null || true
+    rm -f "$pidfile"
+  fi
+done
+# Kill by port (catches any stragglers)
 lsof -ti:4080 | xargs kill -9 2>/dev/null || true
 lsof -ti:4081 | xargs kill -9 2>/dev/null || true
+# Kill zombie child processes by pattern
+pkill -9 -f 'tsx watch src/index.ts' 2>/dev/null || true
+pkill -9 -f 'concurrently.*dev:server.*dev:css' 2>/dev/null || true
+pkill -9 -f 'tailwindcss.*input.css.*output.css.*watch' 2>/dev/null || true
 sleep 1
 
 # 1) Start backend API on internal port 4081

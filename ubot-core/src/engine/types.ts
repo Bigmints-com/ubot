@@ -144,9 +144,9 @@ const DEFAULT_LLM_PROVIDER: LLMProviderConfig = {
   id: DEFAULT_LLM_PROVIDER_ID,
   name: 'Gemini Flash',
   provider: 'gemini',
-  baseUrl: process.env.LLM_BASE_URL || 'https://generativelanguage.googleapis.com/v1beta/openai/',
-  apiKey: process.env.LLM_API_KEY || process.env.GOOGLE_API_KEY || '',
-  model: process.env.LLM_MODEL || 'gemini-2.0-flash',
+  baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai/',
+  apiKey: '',
+  model: 'gemini-2.0-flash',
   isDefault: true,
 };
 

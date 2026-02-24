@@ -2,11 +2,17 @@
     "server": {
         "port": 11490
     },
+    "database": {
+        "path": "data/ubot.db"
+    },
     "llm": {
         "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
         "model": "gemini-2.0-flash",
         "api_key": "",
         "google_api_key": ""
+    },
+    "integrations": {
+        "serper_api_key": ""
     },
     "channels": {
         "whatsapp": {

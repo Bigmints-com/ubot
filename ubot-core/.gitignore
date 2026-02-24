@@ -16,6 +16,7 @@ public/_not-found/
 .env
 .env.*
 !.env.example
+config.json
 
 # Runtime data
 data/

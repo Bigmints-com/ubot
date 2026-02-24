@@ -48,11 +48,9 @@ describe('Serper Adapter', () => {
   });
 
   it('isSerperAvailable should return false without API key', async () => {
-    const originalKey = process.env.SERPER_API_KEY;
-    delete process.env.SERPER_API_KEY;
-    const { isSerperAvailable } = await import('../capabilities/skills/web-search/adapters/serper.js');
+    const { isSerperAvailable, setSerperApiKey } = await import('../capabilities/skills/web-search/adapters/serper.js');
+    setSerperApiKey(null);
     expect(isSerperAvailable()).toBe(false);
-    if (originalKey) process.env.SERPER_API_KEY = originalKey;
   });
 
   it('formatSerperResults should format results correctly', async () => {

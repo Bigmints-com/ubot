@@ -49,11 +49,20 @@ export interface SerperResponse {
   peopleAlsoAsk?: Array<{ question: string; snippet: string; link: string }>;
 }
 
+let _serperApiKey: string | null = null;
+
 /**
- * Get the Serper API key from environment.
+ * Set the Serper API key (called at startup from config.json).
+ */
+export function setSerperApiKey(key: string | null | undefined): void {
+  _serperApiKey = key || null;
+}
+
+/**
+ * Get the Serper API key.
  */
 export function getSerperApiKey(): string | null {
-  return process.env.SERPER_API_KEY || null;
+  return _serperApiKey;
 }
 
 /**

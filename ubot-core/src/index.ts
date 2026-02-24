@@ -2,14 +2,6 @@ import http from 'http';
 import fs from 'fs';
 import path from 'path';
 
-// Only load dotenv in development (production uses config.json via CLI)
-if (process.env.NODE_ENV !== 'production') {
-  try { require('dotenv').config(); } catch { /* dotenv not available */ }
-}
-
-// ─── UBOT_HOME resolution ──────────────────────────────────────────────────────
-const UBOT_HOME = process.env.UBOT_HOME || '';
-const IS_PRODUCTION = process.env.NODE_ENV === 'production';
 import { handleApiRoute, initializeApi } from './api/index.js';
 import { metricsCollector } from './metrics/index.js';
 import { log } from './logger/ring-buffer.js';
@@ -20,8 +12,42 @@ import { createMemoryStore, memoryMigrations } from './memory/memory-store.js';
 import { createSoul } from './memory/soul.js';
 import { createAgentOrchestrator } from './engine/orchestrator.js';
 import { DEFAULT_AGENT_CONFIG } from './engine/types.js';
+import { setSerperApiKey } from './capabilities/skills/web-search/adapters/serper.js';
 
-const PORT = parseInt(process.env.PORT || '11490', 10);
+// ─── UBOT_HOME + config.json resolution ────────────────────────────────────────
+const UBOT_HOME = process.env.UBOT_HOME || '';
+const IS_PRODUCTION = process.env.NODE_ENV === 'production';
+
+/** Shape of ~/.ubot/config.json */
+export interface UbotConfig {
+  server?: { port?: number };
+  database?: { path?: string };
+  llm?: { base_url?: string; model?: string; api_key?: string; google_api_key?: string };
+  integrations?: { serper_api_key?: string };
+  channels?: {
+    whatsapp?: { enabled?: boolean };
+    telegram?: { enabled?: boolean; token?: string };
+  };
+}
+
+function loadUbotConfig(): UbotConfig {
+  // Try UBOT_HOME first, then current directory
+  const candidates = [
+    UBOT_HOME ? path.join(UBOT_HOME, 'config.json') : '',
+    path.join(process.cwd(), 'config.json'),
+  ].filter(Boolean);
+
+  for (const configPath of candidates) {
+    try {
+      const raw = fs.readFileSync(configPath, 'utf8');
+      return JSON.parse(raw) as UbotConfig;
+    } catch { /* try next */ }
+  }
+  return {}; // no config file found — use defaults
+}
+
+const ubotConfig = loadUbotConfig();
+const PORT = ubotConfig.server?.port ?? 11490;
 
 // In-memory application state
 interface AppState {
@@ -39,8 +65,11 @@ const appState: AppState = {
 };
 
 // Initialize database
-const dbPath = process.env.DATABASE_PATH
-  || (UBOT_HOME ? path.join(UBOT_HOME, 'data', 'ubot.db') : './data/ubot.db');
+const dbPath = ubotConfig.database?.path
+  ? (path.isAbsolute(ubotConfig.database.path)
+    ? ubotConfig.database.path
+    : path.join(UBOT_HOME || process.cwd(), ubotConfig.database.path))
+  : (UBOT_HOME ? path.join(UBOT_HOME, 'data', 'ubot.db') : './data/ubot.db');
 // Ensure data directory exists
 const dataDir = path.dirname(dbPath);
 if (!fs.existsSync(dataDir)) {
@@ -53,21 +82,24 @@ const db = createConnection({
   autoMigrate: true,
 });
 
-// Initialize agent
+// Initialize agent — read LLM config from config.json
 const conversationStore = createConversationStore(db);
 const memoryStore = createMemoryStore(db);
 const soul = createSoul(memoryStore);
 const agent = createAgentOrchestrator(
   {
     ...DEFAULT_AGENT_CONFIG,
-    llmBaseUrl: process.env.LLM_BASE_URL || DEFAULT_AGENT_CONFIG.llmBaseUrl,
-    llmModel: process.env.LLM_MODEL || DEFAULT_AGENT_CONFIG.llmModel,
-    llmApiKey: process.env.LLM_API_KEY || DEFAULT_AGENT_CONFIG.llmApiKey,
+    llmBaseUrl: ubotConfig.llm?.base_url || DEFAULT_AGENT_CONFIG.llmBaseUrl,
+    llmModel: ubotConfig.llm?.model || DEFAULT_AGENT_CONFIG.llmModel,
+    llmApiKey: ubotConfig.llm?.api_key || ubotConfig.llm?.google_api_key || DEFAULT_AGENT_CONFIG.llmApiKey,
   },
   conversationStore,
   memoryStore,
   soul,
 );
+
+// Initialize integrations from config.json
+setSerperApiKey(ubotConfig.integrations?.serper_api_key);
 
 // Initialize API with agent
 initializeApi(db as any, agent);

@@ -113,10 +113,16 @@ Config lives at `~/.ubot/config.json`:
 ```json
 {
   "server": { "port": 11490 },
+  "database": { "path": "data/ubot.db" },
   "llm": {
     "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
     "model": "gemini-2.0-flash",
     "api_key": "YOUR_API_KEY"
+  },
+  "integrations": { "serper_api_key": "" },
+  "channels": {
+    "whatsapp": { "enabled": false },
+    "telegram": { "enabled": false, "token": "" }
   }
 }
 ```
