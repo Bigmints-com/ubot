@@ -218,9 +218,9 @@ export function createConnection(options: DatabaseOptions): DatabaseConnection {
 
 export function createDefaultConfig(path?: string): DatabaseConfig {
   return {
-    path: path || process.env.DATABASE_PATH || ':memory:',
+    path: path || ':memory:',
     readonly: false,
     timeout: 5000,
-    verbose: process.env.NODE_ENV === 'development',
+    verbose: false,
   };
 }
