@@ -9,7 +9,7 @@
  * and actions (e.g., Google Workspace, SaveADay, Stripe).
  */
 
-export type IntegrationType = 'google' | 'saveaday';
+export type IntegrationType = 'google';
 
 export type IntegrationStatus = 'connected' | 'disconnected' | 'error';
 

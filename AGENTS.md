@@ -78,7 +78,7 @@ ubot/                                  # Monorepo root
 │   │   │       ├── skills.ts          # /api/skills/*
 │   │   │       ├── safety.ts          # /api/safety/*
 │   │   │       ├── memory.ts          # /api/personas/*, /api/memories/*, /api/scheduler/*, /api/approvals/*
-│   │   │       └── integrations.ts    # /api/google/*, /api/saveaday/*, /api/antigravity/*
+│   │   │       └── integrations.ts    # /api/google/*
 │   │   │
 │   │   ├── engine/                    # Core AI engine
 │   │   │   ├── orchestrator.ts        # Main agent loop: message → LLM → tools → response
@@ -109,9 +109,7 @@ ubot/                                  # Monorepo root
 │   │   │   ├── browser.ts             # 8 tools: browse, click, type, read, screenshot, etc.
 │   │   │   ├── scheduler.ts           # 6 tools: schedule, remind, list, delete, trigger, set_auto_reply
 │   │   │   ├── google.ts              # 29 tools: Gmail, Drive, Sheets, Docs, Contacts, Calendar, Places
-│   │   │   ├── saveaday.ts            # 58 tools: Booking, Catalogues, Contacts, Feeds, etc.
-│   │   │   └── antigravity.ts         # 4 tools: queue management for Antigravity CLI
-│   │   │
+
 │   │   ├── channels/                  # Messaging channels (bidirectional chat pipes)
 │   │   │   ├── registry.ts            # Provider registry (WhatsApp, Telegram)
 │   │   │   ├── types.ts               # MessagingProvider, ChannelType, Message interfaces
@@ -139,19 +137,7 @@ ubot/                                  # Monorepo root
 │   │   │   │   ├── docs.ts
 │   │   │   │   ├── contacts.ts
 │   │   │   │   └── places.ts
-│   │   │   └── saveaday/              # SaveADay CRM/Booking platform
-│   │   │       ├── auth.ts            # Token management
-│   │   │       ├── client.ts          # HTTP client
-│   │   │       ├── booking.ts
-│   │   │       ├── catalogues.ts
-│   │   │       ├── contacts.ts
-│   │   │       ├── feeds.ts
-│   │   │       ├── forms.ts
-│   │   │       ├── links.ts
-│   │   │       ├── referrals.ts
-│   │   │       ├── rewards.ts
-│   │   │       ├── surveys.ts
-│   │   │       └── waitlists.ts
+
 │   │   │
 │   │   ├── capabilities/              # Built-in system capabilities
 │   │   │   ├── browser/               # Puppeteer browser automation
@@ -231,7 +217,7 @@ Ubot's architecture is organized into 5 clearly defined layers:
 | Layer           | Definition                                                              | Location                   | Examples                                     |
 | --------------- | ----------------------------------------------------------------------- | -------------------------- | -------------------------------------------- |
 | **Channel**     | Bidirectional communication pipe through which users interact with ubot | `src/channels/`            | WhatsApp, Telegram                           |
-| **Integration** | Connection to an external third-party service via API                   | `src/integrations/`        | Google Workspace, SaveADay                   |
+| **Integration** | Connection to an external third-party service via API                   | `src/integrations/`        | Google Workspace                             |
 | **Capability**  | Built-in system capability that powers tools (internal)                 | `src/capabilities/`        | Browser (Puppeteer), Scheduler, Skill Engine |
 | **Tool**        | LLM-callable function exposed to the AI engine                          | `src/tools/`               | `send_message`, `gmail_search`, `browse_url` |
 | **Skill**       | User-created automation rule (Event→Trigger→Processor→Outcome)          | `src/capabilities/skills/` | "Auto-reply to John", "Forward invoices"     |
@@ -274,17 +260,15 @@ User-created automations following: **Event → Trigger → Processor → Outcom
 
 ### Tool Modules (`src/tools/`)
 
-| Module        | Tools | Description                                                                                       |
-| ------------- | ----- | ------------------------------------------------------------------------------------------------- |
-| `messaging`   | 8     | send, search, contacts, conversations, delete, reply                                              |
-| `approvals`   | 3     | ask_owner, respond, list_pending                                                                  |
-| `web-search`  | 1     | web_search (SearXNG + Puppeteer fallback)                                                         |
-| `skills`      | 4     | CRUD skills                                                                                       |
-| `browser`     | 8     | browse, click, type, read, screenshot, scroll, emails                                             |
-| `scheduler`   | 6     | schedule, remind, list, delete, trigger, auto_reply                                               |
-| `google`      | 29    | Gmail, Drive, Sheets, Docs, Contacts, Calendar, Places                                            |
-| `saveaday`    | 58    | Booking, Catalogues, Contacts, Feeds, Leads, Links, Referrals, Rewards, Surveys, Tasks, Waitlists |
-| `antigravity` | 4     | Queue management for Antigravity CLI                                                              |
+| Module       | Tools | Description                                            |
+| ------------ | ----- | ------------------------------------------------------ |
+| `messaging`  | 8     | send, search, contacts, conversations, delete, reply   |
+| `approvals`  | 3     | ask_owner, respond, list_pending                       |
+| `web-search` | 1     | web_search (SearXNG + Puppeteer fallback)              |
+| `skills`     | 4     | CRUD skills                                            |
+| `browser`    | 8     | browse, click, type, read, screenshot, scroll, emails  |
+| `scheduler`  | 6     | schedule, remind, list, delete, trigger, auto_reply    |
+| `google`     | 29    | Gmail, Drive, Sheets, Docs, Contacts, Calendar, Places |
 
 ### Owner Approval System (`src/engine/pending-approvals.ts`)
 
