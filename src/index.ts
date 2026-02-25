@@ -13,38 +13,11 @@ import { createSoul } from './memory/soul.js';
 import { createAgentOrchestrator } from './engine/orchestrator.js';
 import { DEFAULT_AGENT_CONFIG } from './engine/types.js';
 import { setSerperApiKey } from './capabilities/skills/web-search/adapters/serper.js';
+import { loadUbotConfig, type UbotConfig } from './data/config.js';
 
-// ─── UBOT_HOME + config.json resolution ────────────────────────────────────────
+// ─── UBOT_HOME resolution ──────────────────────────────────────────────────────
 const UBOT_HOME = process.env.UBOT_HOME || '';
 const IS_PRODUCTION = process.env.NODE_ENV === 'production';
-
-/** Shape of ~/.ubot/config.json */
-export interface UbotConfig {
-  server?: { port?: number };
-  database?: { path?: string };
-  llm?: { base_url?: string; model?: string; api_key?: string; google_api_key?: string };
-  integrations?: { serper_api_key?: string };
-  channels?: {
-    whatsapp?: { enabled?: boolean };
-    telegram?: { enabled?: boolean; token?: string };
-  };
-}
-
-function loadUbotConfig(): UbotConfig {
-  // Try UBOT_HOME first, then current directory
-  const candidates = [
-    UBOT_HOME ? path.join(UBOT_HOME, 'config.json') : '',
-    path.join(process.cwd(), 'config.json'),
-  ].filter(Boolean);
-
-  for (const configPath of candidates) {
-    try {
-      const raw = fs.readFileSync(configPath, 'utf8');
-      return JSON.parse(raw) as UbotConfig;
-    } catch { /* try next */ }
-  }
-  return {}; // no config file found — use defaults
-}
 
 const ubotConfig = loadUbotConfig();
 const PORT = ubotConfig.server?.port ?? 11490;

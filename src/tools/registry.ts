@@ -15,6 +15,7 @@ import browserTools from './browser.js';
 import schedulerTools from './scheduler.js';
 import approvalsTools from './approvals.js';
 import webSearchTools from './web-search.js';
+import memoryTools from './memory.js';
 /**
  * All available tool modules, in registration order.
  * Add new modules here.
@@ -26,6 +27,7 @@ const ALL_MODULES: ToolModule[] = [
   skillsTools,
   browserTools,
   schedulerTools,
+  memoryTools,
   googleTools,
 ];
 
@@ -34,6 +36,13 @@ const ALL_MODULES: ToolModule[] = [
  */
 export function getAllToolDefinitions(): ToolDefinition[] {
   return ALL_MODULES.flatMap(m => m.tools);
+}
+
+/**
+ * Collect all tool definitions along with their source module name.
+ */
+export function getAllToolsWithModules(): Array<{ module: string; tool: ToolDefinition }> {
+  return ALL_MODULES.flatMap(m => m.tools.map(tool => ({ module: m.name, tool })));
 }
 
 /**
