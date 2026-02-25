@@ -15,6 +15,7 @@ import {
   ScrollText,
   CalendarCheck,
   Plug,
+  Wrench,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -38,6 +39,7 @@ const mainItems = [
   { title: "Approvals", href: "/approvals", icon: Shield },
   { title: "Skills", href: "/skills", icon: Puzzle },
   { title: "Personas", href: "/personas", icon: Brain },
+  { title: "Tools Health", href: "/tools", icon: Wrench },
   { title: "Safety Rules", href: "/safety", icon: Shield },
   { title: "Scheduler", href: "/scheduler", icon: Clock },
   { title: "Logs", href: "/logs", icon: ScrollText },

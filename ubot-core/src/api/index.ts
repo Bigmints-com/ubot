@@ -21,6 +21,7 @@ import { MessagingRegistry } from '../channels/registry.js';
 import { createSkillRepository, type SkillRepository } from '../capabilities/skills/skill-repository.js';
 import { createSkillEngine, type SkillEngine } from '../capabilities/skills/skill-engine.js';
 import { createEventBus, type EventBus } from '../capabilities/skills/event-bus.js';
+import { loadUbotConfig, saveUbotConfig } from '../data/config.js';
 
 import { createApprovalStore, type ApprovalStore } from '../memory/pending-approvals.js';
 
@@ -37,6 +38,7 @@ import { handleSkillRoutes } from './routes/skills.js';
 import { handleSafetyRoutes } from './routes/safety.js';
 import { handleMemoryRoutes } from './routes/memory.js';
 import { handleIntegrationRoutes } from './routes/integrations.js';
+import { handleToolsRoutes } from './routes/tools.js';
 import { json, parseBody, error as apiError, type ApiContext } from './context.js';
 
 // ─── In-memory State ─────────────────────────────────────
@@ -90,31 +92,68 @@ let approvalStore: ApprovalStore | null = null;
 // Database reference for config persistence
 let coreDb: CoreDatabaseConnection | null = null;
 
-// ─── Config Persistence ──────────────────────────────────
+// ─── Config Persistence (Unified JSON) ──────────────────
 
 function saveConfigValue(key: string, value: string): void {
-  if (!coreDb) return;
   try {
-    const now = new Date().toISOString();
-    coreDb.execute(
-      `INSERT INTO config_store (key, value, source, created_at, updated_at)
-       VALUES (?, ?, 'database', ?, ?)
-       ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
-      [key, value, now, now]
-    );
+    const config = loadUbotConfig();
+    
+    // Map existing DB keys to JSON structure
+    if (key === 'ownerPhone') {
+      if (!config.owner) config.owner = {};
+      config.owner.phone = value;
+    } else if (key === 'ownerTelegramId') {
+      if (!config.owner) config.owner = {};
+      config.owner.telegram_id = value;
+    } else if (key === 'ownerTelegramUsername') {
+      if (!config.owner) config.owner = {};
+      config.owner.telegram_username = value;
+    } else if (key === 'autoReplyWhatsApp') {
+      if (!config.channels) config.channels = {};
+      if (!config.channels.whatsapp) config.channels.whatsapp = {};
+      config.channels.whatsapp.auto_reply = value === 'true';
+    } else if (key === 'autoReplyTelegram') {
+      if (!config.channels) config.channels = {};
+      if (!config.channels.telegram) config.channels.telegram = {};
+      config.channels.telegram.auto_reply = value === 'true';
+    } else if (key === 'llm_providers') {
+      if (!config.llm) config.llm = {};
+      config.llm.providers = JSON.parse(value);
+    } else if (key === 'default_llm_provider_id') {
+      if (!config.llm) config.llm = {};
+      config.llm.default_provider_id = value;
+    } else if (key === 'telegram_bot_token') {
+      if (!config.channels) config.channels = {};
+      if (!config.channels.telegram) config.channels.telegram = {};
+      config.channels.telegram.token = value;
+    } else {
+      // Fallback for unknown keys (e.g. MCP)
+      (config as any)[key] = value;
+    }
+
+    saveUbotConfig(config);
+    log.info('Config', `Saved ${key} to config.json`);
   } catch (err: any) {
-    console.error(`[Config] Failed to save ${key}:`, err.message);
+    console.error(`[Config] Failed to save ${key} to JSON:`, err.message);
   }
 }
 
 function loadConfigValue(key: string): string | null {
-  if (!coreDb) return null;
   try {
-    const row = coreDb.queryOne<{ value: string }>(
-      `SELECT value FROM config_store WHERE key = ?`,
-      [key]
-    );
-    return row?.value ?? null;
+    const config = loadUbotConfig();
+    let val: any = null;
+
+    if (key === 'ownerPhone') val = config.owner?.phone;
+    else if (key === 'ownerTelegramId') val = config.owner?.telegram_id;
+    else if (key === 'ownerTelegramUsername') val = config.owner?.telegram_username;
+    else if (key === 'autoReplyWhatsApp') val = config.channels?.whatsapp?.auto_reply === true ? 'true' : 'false';
+    else if (key === 'autoReplyTelegram') val = config.channels?.telegram?.auto_reply === true ? 'true' : 'false';
+    else if (key === 'llm_providers') val = config.llm?.providers ? JSON.stringify(config.llm.providers) : null;
+    else if (key === 'default_llm_provider_id') val = config.llm?.default_provider_id;
+    else if (key === 'telegram_bot_token') val = config.channels?.telegram?.token;
+    else val = (config as any)[key];
+
+    return val ? String(val) : null;
   } catch {
     return null;
   }
@@ -731,6 +770,7 @@ export async function handleApiRoute(
   if (await handleSafetyRoutes(req, res, url, method, ctx)) return true;
   if (await handleMemoryRoutes(req, res, url, method, ctx)) return true;
   if (await handleIntegrationRoutes(req, res, url, method, ctx)) return true;
+  if (await handleToolsRoutes(req, res, url, method, ctx)) return true;
 
   return false;
 }

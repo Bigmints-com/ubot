@@ -51,7 +51,8 @@ install: build
 	@echo "   Installed backend to $(UBOT_HOME)/lib/"
 
 	@# Copy node_modules (needed at runtime)
-	@cp -r $(CORE_DIR)/node_modules $(UBOT_HOME)/node_modules 2>/dev/null || true
+	@mkdir -p $(UBOT_HOME)/node_modules
+	@cp -R $(CORE_DIR)/node_modules/* $(UBOT_HOME)/node_modules/ 2>/dev/null || true
 	@echo "   Installed dependencies to $(UBOT_HOME)/node_modules/"
 
 	@# Copy static web UI

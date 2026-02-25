@@ -327,6 +327,7 @@ export function createAgentOrchestrator(
     const client = createLLMClient();
     const filteredTools = getToolsForSource(isOwner);
     const tools = formatToolsForAPI(filteredTools);
+    log.info('Agent', `Calling LLM: ${currentConfig.llmModel} (via ${currentConfig.llmBaseUrl})`);
     log.info('Agent', `Tools available: ${filteredTools.length} (isOwner: ${isOwner})`);
     
     try {
