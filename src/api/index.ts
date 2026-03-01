@@ -463,7 +463,7 @@ function setupIMessageHandlers(conn: BlueBubblesConnection): void {
 
     // Auto-reply via agent if enabled
     const config = loadUbotConfig();
-    if (config.imessage?.autoReply && agentOrchestrator && imProvider) {
+    if (config.channels?.imessage?.auto_reply && agentOrchestrator && imProvider) {
       const chatGuid = bbMsg.chats?.[0]?.guid;
       if (!chatGuid) return;
 
@@ -504,12 +504,14 @@ function setupIMessageHandlers(conn: BlueBubblesConnection): void {
 }
 
 async function autoConnectIMessage(): Promise<void> {
-  const savedServerUrl = loadConfigValue('imessage_server_url');
-  const savedPassword = loadConfigValue('imessage_password');
-  if (!savedServerUrl || !savedPassword) {
+  const config = loadUbotConfig();
+  const imConfig = config.channels?.imessage;
+  if (!imConfig?.server_url || !imConfig?.password) {
     console.log('[iMessage] No saved BlueBubbles config — waiting for manual connect via UI');
     return;
   }
+  const savedServerUrl = imConfig.server_url;
+  const savedPassword = imConfig.password;
 
   log.info('iMessage', 'Found saved BlueBubbles config, auto-reconnecting...');
   imStatus = 'connecting';
@@ -905,7 +907,7 @@ async function handleChannelRoutes(
     json(res, {
       status: imStatus,
       error: imError,
-      serverUrl: loadConfigValue('imessage_server_url') ? '(configured)' : null,
+      serverUrl: loadUbotConfig().channels?.imessage?.server_url ? '(configured)' : null,
     });
     return true;
   }
@@ -931,9 +933,11 @@ async function handleChannelRoutes(
       setupIMessageHandlers(imConnection);
       await imConnection.connect();
 
-      // Save config
-      saveConfigValue('imessage_server_url', serverUrl);
-      saveConfigValue('imessage_password', password);
+      // Save config under channels.imessage
+      const cfg = loadUbotConfig();
+      if (!cfg.channels) cfg.channels = {};
+      cfg.channels.imessage = { enabled: true, server_url: serverUrl, password, auto_reply: cfg.channels.imessage?.auto_reply ?? false };
+      saveUbotConfig(cfg);
       log.info('iMessage', 'BlueBubbles config saved');
 
       // Register messaging provider
@@ -964,8 +968,11 @@ async function handleChannelRoutes(
     }
     imStatus = 'disconnected';
     imError = null;
-    saveConfigValue('imessage_server_url', '');
-    saveConfigValue('imessage_password', '');
+    const cfg = loadUbotConfig();
+    if (cfg.channels?.imessage) {
+      cfg.channels.imessage = { enabled: false };
+      saveUbotConfig(cfg);
+    }
     json(res, { status: 'disconnected' });
     return true;
   }
@@ -1050,7 +1057,14 @@ export async function handleApiRoute(
   // Skip rate limiting for dashboard requests (same-origin UI polling).
   // Rate limiting is for external API consumers, not the built-in dashboard.
   const origin = req.headers['origin'] || req.headers['referer'] || '';
-  const isDashboard = origin.includes('localhost:11490') || origin.includes('localhost:4080');
+  const serverPort = process.env.PORT || '11490';
+  const isDashboard = origin.includes('localhost') && (
+    origin.includes(`:${serverPort}`) ||
+    origin.includes(':4080') ||
+    origin.includes(':4081') ||
+    origin.includes(':11490') ||
+    origin.includes(':3000')
+  );
   if (!isDashboard) {
     const rateLimitId = clientName || req.socket.remoteAddress || 'unknown';
     const rateLimitResult = rateLimiter.check(rateLimitId, url);
