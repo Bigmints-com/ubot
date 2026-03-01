@@ -41,5 +41,8 @@
         "provider": "gemini",
         "workDir": "custom/staging",
         "timeout": 300000
+    },
+    "filesystem": {
+        "allowed_paths": []
     }
 }
