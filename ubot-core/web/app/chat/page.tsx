@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -37,11 +37,34 @@ export default function ChatPage() {
   const [status, setStatus] = useState({ wa: "unknown", model: "—" });
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const messageCountRef = useRef(0);
 
   useEffect(() => {
     loadHistory();
     loadStatus();
   }, []);
+
+  // Poll for server-injected messages (e.g. CLI completion notifications)
+  const pollForNewMessages = useCallback(async () => {
+    try {
+      const data = await api<{ messages: Record<string, unknown>[] }>(
+        "/api/chat/history?sessionId=web-console&limit=50"
+      );
+      if (data.messages?.length && data.messages.length > messageCountRef.current) {
+        // New messages appeared server-side — append only the new ones
+        const newMsgs = data.messages.slice(messageCountRef.current).map(normalizeMessage);
+        messageCountRef.current = data.messages.length;
+        setMessages(prev => [...prev, ...newMsgs]);
+      }
+    } catch { /* ignore */ }
+  }, []);
+
+  useEffect(() => {
+    // Only poll when we're not actively sending (loading === false)
+    if (loading) return;
+    const interval = setInterval(pollForNewMessages, 3000);
+    return () => clearInterval(interval);
+  }, [loading, pollForNewMessages]);
 
   useEffect(() => {
     scrollToBottom();
@@ -101,7 +124,10 @@ export default function ChatPage() {
         "/api/chat/history?sessionId=web-console&limit=50"
       );
       if (data.messages?.length) {
+        messageCountRef.current = data.messages.length;
         setMessages(data.messages.map(normalizeMessage));
+      } else {
+        messageCountRef.current = 0;
       }
     } catch {
       /* empty history */
@@ -124,6 +150,8 @@ export default function ChatPage() {
     const trimmed = input.trim();
     if (!trimmed || loading) return;
 
+    // Bump the count so polling doesn't re-add messages we already have
+    messageCountRef.current += 1;
     const userMsg: ChatMessage = {
       role: "user",
       content: trimmed,
@@ -145,6 +173,7 @@ export default function ChatPage() {
         body: { message: trimmed, sessionId: "web-console" },
       });
 
+      messageCountRef.current += 1;
       setMessages((prev) => [
         ...prev,
         {
