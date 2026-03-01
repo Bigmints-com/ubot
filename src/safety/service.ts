@@ -450,6 +450,32 @@ export class SafetyService {
   }
 
   /**
+   * Check if a path is within any of the allowed paths (workspace + config allowed_paths)
+   */
+  isPathInAllowedPaths(targetPath: string, workspaceRoot: string, allowedPaths: string[]): boolean {
+    // Always check workspace root first
+    if (this.isPathSafe(targetPath, workspaceRoot)) return true;
+
+    // Check additional allowed paths
+    try {
+      const absoluteTarget = path.isAbsolute(targetPath)
+        ? path.resolve(targetPath)
+        : path.resolve(workspaceRoot, targetPath);
+
+      for (const allowed of allowedPaths) {
+        // Expand ~ to home directory
+        const expandedPath = allowed.startsWith('~') 
+          ? path.join(process.env.HOME || '', allowed.slice(1))
+          : allowed;
+        const absoluteAllowed = path.resolve(expandedPath);
+        if (absoluteTarget.startsWith(absoluteAllowed)) return true;
+      }
+    } catch { /* deny on error */ }
+
+    return false;
+  }
+
+  /**
    * Validate a path and return the absolute path if safe, otherwise throw
    */
   validatePath(targetPath: string, workspaceRoot: string): string {
@@ -462,6 +488,23 @@ export class SafetyService {
     }
     
     return path.isAbsolute(targetPath) 
+      ? path.resolve(targetPath)
+      : path.resolve(workspaceRoot, targetPath);
+  }
+
+  /**
+   * Validate a path against workspace + allowed paths. Returns absolute path or throws.
+   */
+  validatePathWithAllowedPaths(targetPath: string, workspaceRoot: string, allowedPaths: string[]): string {
+    if (!workspaceRoot) {
+      throw new Error('Security Error: Workspace root not defined');
+    }
+
+    if (!this.isPathInAllowedPaths(targetPath, workspaceRoot, allowedPaths)) {
+      throw new Error(`Security Error: Access denied. Path "${targetPath}" is outside allowed directories.`);
+    }
+
+    return path.isAbsolute(targetPath)
       ? path.resolve(targetPath)
       : path.resolve(workspaceRoot, targetPath);
   }
