@@ -14,13 +14,32 @@
     "integrations": {
         "serper_api_key": ""
     },
+    "owner": {
+        "phone": "",
+        "telegram_id": "",
+        "telegram_username": ""
+    },
     "channels": {
         "whatsapp": {
-            "enabled": false
+            "enabled": false,
+            "auto_reply": false
         },
         "telegram": {
             "enabled": false,
-            "token": ""
+            "token": "",
+            "auto_reply": false
+        },
+        "imessage": {
+            "enabled": false,
+            "server_url": "",
+            "password": "",
+            "auto_reply": false
         }
+    },
+    "cli": {
+        "enabled": false,
+        "provider": "gemini",
+        "workDir": "custom/staging",
+        "timeout": 300000
     }
 }
