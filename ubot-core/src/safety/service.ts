@@ -3,6 +3,7 @@
  * Main service for content safety checks and moderation
  */
 
+import path from 'path';
 import type {
   SafetyRule,
   SafetyRuleCreate,
@@ -427,6 +428,42 @@ export class SafetyService {
 
   isEnabled(): boolean {
     return this.config.enabled;
+  }
+
+  // Path Security & Sandboxing
+  /**
+   * Check if a path is safe (within the workspace root)
+   */
+  isPathSafe(targetPath: string, workspaceRoot: string): boolean {
+    if (!workspaceRoot) return false;
+    
+    try {
+      const absoluteWorkspace = path.resolve(workspaceRoot);
+      const absoluteTarget = path.isAbsolute(targetPath) 
+        ? path.resolve(targetPath)
+        : path.resolve(workspaceRoot, targetPath);
+        
+      return absoluteTarget.startsWith(absoluteWorkspace);
+    } catch (err) {
+      return false;
+    }
+  }
+
+  /**
+   * Validate a path and return the absolute path if safe, otherwise throw
+   */
+  validatePath(targetPath: string, workspaceRoot: string): string {
+    if (!workspaceRoot) {
+      throw new Error('Security Error: Workspace root not defined');
+    }
+    
+    if (!this.isPathSafe(targetPath, workspaceRoot)) {
+      throw new Error(`Security Error: Access denied. Path is outside the allowed workspace: ${targetPath}`);
+    }
+    
+    return path.isAbsolute(targetPath) 
+      ? path.resolve(targetPath)
+      : path.resolve(workspaceRoot, targetPath);
   }
 }
 

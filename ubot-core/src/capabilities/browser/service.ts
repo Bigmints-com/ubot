@@ -1,6 +1,8 @@
 import puppeteer, { Browser, Page } from 'puppeteer';
 import { join } from 'path';
 import { existsSync, unlinkSync } from 'fs';
+
+const UBOT_ROOT = process.env.UBOT_HOME || process.cwd();
 import { execSync } from 'child_process';
 import { log } from '../../logger/ring-buffer.js';
 
@@ -56,7 +58,7 @@ export class BrowserService {
 
   /** Remove lock files and kill orphaned Chrome processes for our profile */
   private forceCleanup(): void {
-    const userDataDir = join(process.cwd(), 'browser-profile');
+    const userDataDir = join(UBOT_ROOT, 'browser-profile');
     const lockFile = join(userDataDir, 'SingletonLock');
     if (existsSync(lockFile)) {
       try { unlinkSync(lockFile); } catch {}
@@ -106,7 +108,7 @@ export class BrowserService {
     if (!this.browser || !this.page) {
       this.forceCleanup();
       const chromePath = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
-      const userDataDir = join(process.cwd(), 'browser-profile');
+      const userDataDir = join(UBOT_ROOT, 'browser-profile');
       log.info('Browser', `Launching Chrome (headless=${this.config.headless})...`);
       this.browser = await puppeteer.launch({
         headless: this.config.headless,

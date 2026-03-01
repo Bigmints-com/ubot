@@ -5,6 +5,7 @@
 
 import http from 'http';
 import { parseBody, json, notFound, error, type ApiContext } from '../context.js';
+import { BOT_SOUL_ID, OWNER_SOUL_ID } from '../../memory/soul.js';
 
 export async function handleMemoryRoutes(
   req: http.IncomingMessage,
@@ -20,8 +21,16 @@ export async function handleMemoryRoutes(
       json(res, { personas: [] });
       return true;
     }
-    const personas = ctx.agentOrchestrator.getSoul().listPersonas();
-    json(res, { personas });
+    const soulPersonas = ctx.agentOrchestrator.getSoul().listPersonas();
+    const agents = ctx.agentOrchestrator.listAgents().map(a => ({
+      id: a.id,
+      label: a.name || a.id,
+      updatedAt: new Date(),
+      contentLength: 0,
+      type: 'agent'
+    }));
+    
+    json(res, { personas: [...soulPersonas.map(p => ({ ...p, type: 'core' })), ...agents] });
     return true;
   }
 
@@ -29,7 +38,12 @@ export async function handleMemoryRoutes(
     if (!ctx.agentOrchestrator) { json(res, { content: '' }); return true; }
     const parts = url.split('/');
     const personaId = decodeURIComponent(parts[3]);
-    const content = ctx.agentOrchestrator.getSoul().getDocument(personaId);
+    let content = ctx.agentOrchestrator.getSoul().getDocument(personaId);
+    
+    if (!content && personaId !== BOT_SOUL_ID && personaId !== OWNER_SOUL_ID) {
+      content = ctx.agentOrchestrator.getAgentMarkdown(personaId) || '';
+    }
+    
     json(res, { personaId, content });
     return true;
   }
@@ -43,7 +57,13 @@ export async function handleMemoryRoutes(
       json(res, { error: 'Missing required field: content' }, 400);
       return true;
     }
-    ctx.agentOrchestrator.getSoul().saveDocument(personaId, body.content);
+    
+    if (personaId === BOT_SOUL_ID || personaId === OWNER_SOUL_ID || ctx.agentOrchestrator.getSoul().getDocument(personaId)) {
+      ctx.agentOrchestrator.getSoul().saveDocument(personaId, body.content);
+    } else {
+      ctx.agentOrchestrator.saveAgentMarkdown(personaId, body.content);
+    }
+    
     json(res, { personaId, content: body.content, saved: true });
     return true;
   }

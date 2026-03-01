@@ -34,10 +34,11 @@ src/
 │   ├── llm.ts            # LLM API client wrapper
 │   └── prompt-builder/   # Dynamic system prompt construction
 ├── tools/                # Modular tool registry (LLM-callable functions)
-│   ├── registry.ts       # Central loader (7 modules, 59 tools)
+│   ├── registry.ts       # Central loader (8 modules, 64 tools)
 │   ├── messaging.ts      # 8 tools: send, search, contacts, etc.
 │   ├── google.ts         # 29 tools: Gmail, Drive, Sheets, Docs, etc.
 │   ├── browser.ts        # 8 tools: browse, click, type, screenshot
+│   ├── cli.ts            # 5 tools: cli_run, cli_status, cli_stop, etc.
 │   ├── scheduler.ts      # 6 tools: schedule, remind, auto-reply
 │   ├── skills.ts         # 4 tools: CRUD automations
 │   ├── web-search.ts     # 1 tool: web search
@@ -50,6 +51,7 @@ src/
 │   └── mcp/              # Model Context Protocol servers
 ├── capabilities/         # Built-in capabilities
 │   ├── browser/          # Puppeteer browser automation
+│   ├── cli/              # CLI agent integration (Gemini/Claude/Codex)
 │   ├── scheduler/        # Cron-based task scheduler
 │   └── skills/           # Skill engine (Event → Trigger → Processor → Outcome)
 ├── memory/               # Personas, conversation history, memory store

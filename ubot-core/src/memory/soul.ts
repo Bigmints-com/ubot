@@ -8,6 +8,8 @@
  * 3. Contact Souls — Profiles for each person the owner interacts with
  */
 
+import fs from 'fs';
+import path from 'path';
 import type { MemoryStore } from './memory-store.js';
 
 /* ------------------------------------------------------------------ */
@@ -17,6 +19,12 @@ import type { MemoryStore } from './memory-store.js';
 /** Special persona IDs for bot and owner souls */
 export const BOT_SOUL_ID = '__bot__';
 export const OWNER_SOUL_ID = '__owner__';
+
+/** File mapping for special personas */
+const SOUL_FILE_MAP: Record<string, string> = {
+  [BOT_SOUL_ID]: 'IDENTITY.md',
+  [OWNER_SOUL_ID]: 'SOUL.md',
+};
 
 /* ------------------------------------------------------------------ */
 /*  Default bot persona (YAML seed)                                    */
@@ -58,6 +66,9 @@ export interface Soul {
   /** Build a comprehensive system prompt section from all soul documents */
   buildSoulPrompt(contactId?: string, isOwner?: boolean): string;
 
+  /** Sync documents from SQLite to filesystem if they don't exist */
+  syncToFilesystem(): void;
+
   /** Get the raw memory store for direct access */
   getStore(): MemoryStore;
 }
@@ -66,8 +77,54 @@ export interface Soul {
 /*  Implementation                                                     */
 /* ------------------------------------------------------------------ */
 
-export function createSoul(memoryStore: MemoryStore): Soul {
-  // Seed default documents if not already present
+export function createSoul(memoryStore: MemoryStore, workspacePath?: string): Soul {
+  // Ensure workspace directory exists if provided
+  if (workspacePath && !fs.existsSync(workspacePath)) {
+    fs.mkdirSync(workspacePath, { recursive: true });
+  }
+
+  // File cache to avoid frequent disk reads
+  const fileCache: Record<string, string> = {};
+
+  const getFilePath = (personaId: string): string | null => {
+    if (!workspacePath) return null;
+    const filename = SOUL_FILE_MAP[personaId];
+    if (!filename) return null;
+    return path.join(workspacePath, filename);
+  };
+
+  const loadFile = (personaId: string): string | null => {
+    const filePath = getFilePath(personaId);
+    if (!filePath || !fs.existsSync(filePath)) return null;
+    try {
+      const content = fs.readFileSync(filePath, 'utf8');
+      fileCache[personaId] = content;
+      return content;
+    } catch (err) {
+      console.error(`[Soul] Error reading file ${filePath}:`, err);
+      return null;
+    }
+  };
+
+  // Setup file watching
+  if (workspacePath) {
+    Object.values(SOUL_FILE_MAP).forEach(filename => {
+      const filePath = path.join(workspacePath, filename);
+      if (fs.existsSync(filePath)) {
+        fs.watch(filePath, (event) => {
+          if (event === 'change') {
+            const personaId = Object.keys(SOUL_FILE_MAP).find(key => SOUL_FILE_MAP[key] === filename);
+            if (personaId) {
+              console.log(`[Soul] 🔄 Reloading ${filename} due to external change`);
+              loadFile(personaId);
+            }
+          }
+        });
+      }
+    });
+  }
+
+  // Seed default documents if not already present in memoryStore
   const existingBot = memoryStore.getDocument(BOT_SOUL_ID);
   if (!existingBot) {
     memoryStore.saveDocument(BOT_SOUL_ID, DEFAULT_BOT_SOUL);
@@ -82,12 +139,27 @@ export function createSoul(memoryStore: MemoryStore): Soul {
 
   return {
     getDocument(personaId: string): string {
+      // Prioritize file-based identity if matched and exists
+      const fileContent = loadFile(personaId);
+      if (fileContent) return fileContent;
+
       const doc = memoryStore.getDocument(personaId);
       return doc?.content || '';
     },
 
     saveDocument(personaId: string, content: string): void {
       memoryStore.saveDocument(personaId, content);
+      
+      // Also write to file if it's a mapped persona
+      const filePath = getFilePath(personaId);
+      if (filePath) {
+        try {
+          fs.writeFileSync(filePath, content, 'utf8');
+          fileCache[personaId] = content;
+        } catch (err) {
+          console.error(`[Soul] Error writing to file ${filePath}:`, err);
+        }
+      }
     },
 
     deleteDocument(personaId: string): boolean {
@@ -216,6 +288,21 @@ NEVER share with visitors:
       }
 
       return sections.join('\n');
+    },
+
+    syncToFilesystem(): void {
+      if (!workspacePath) return;
+      
+      Object.keys(SOUL_FILE_MAP).forEach(personaId => {
+        const filePath = getFilePath(personaId);
+        if (filePath && !fs.existsSync(filePath)) {
+          console.log(`[Soul] 📂 Exporting ${personaId} to ${filePath}`);
+          const content = this.getDocument(personaId);
+          if (content) {
+            fs.writeFileSync(filePath, content, 'utf8');
+          }
+        }
+      });
     },
 
     getStore(): MemoryStore {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import approvalsModule from './approvals.js';
+import approvalsModule from '../approvals.js';
 import { registerModule, createMockContext } from './test-helpers.js';
 
 describe('Approvals Tool Module', () => {

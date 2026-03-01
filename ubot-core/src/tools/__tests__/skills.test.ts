@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import skillsModule from './skills.js';
+import skillsModule from '../skills.js';
 import { registerModule, createMockContext } from './test-helpers.js';
 
 describe('Skills Tool Module', () => {

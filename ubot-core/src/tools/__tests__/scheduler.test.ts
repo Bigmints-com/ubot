@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import schedulerModule from './scheduler.js';
+import schedulerModule from '../scheduler.js';
 import { registerModule, createMockContext } from './test-helpers.js';
 
 describe('Scheduler Tool Module', () => {

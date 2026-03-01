@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { toolResult, safeExecutor } from './types.js';
-import { getAllToolDefinitions, getModuleNames } from './registry.js';
+import { toolResult, safeExecutor } from '../types.js';
+import { getAllToolDefinitions, getModuleNames } from '../registry.js';
 
 describe('Tool Types', () => {
   describe('toolResult', () => {
@@ -43,7 +43,7 @@ describe('Tool Types', () => {
 });
 
 describe('Tool Registry', () => {
-  it('should have all 7 modules', () => {
+  it('should have all 10 modules', () => {
     const names = getModuleNames();
     expect(names).toContain('messaging');
     expect(names).toContain('approvals');
@@ -51,8 +51,11 @@ describe('Tool Registry', () => {
     expect(names).toContain('skills');
     expect(names).toContain('browser');
     expect(names).toContain('scheduler');
+    expect(names).toContain('personas');
+    expect(names).toContain('files');
     expect(names).toContain('google');
-    expect(names.length).toBe(7);
+    expect(names).toContain('cli');
+    expect(names.length).toBe(10);
   });
 
   it('should collect all tool definitions', () => {

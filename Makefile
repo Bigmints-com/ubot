@@ -36,7 +36,16 @@ install: build
 	@echo ""
 	@echo "📦 Installing Ubot to $(UBOT_HOME) ..."
 
-	@# Create directory structure
+	@# ── Create directory structure ──────────────────────────────────────
+	@# User data directories (NEVER replaced by install):
+	@#   data/           → database (personas, skills, memories, chats)
+	@#   creds/          → OAuth credentials and tokens
+	@#   sessions/       → WhatsApp session data
+	@#   logs/           → Server logs
+	@#   browser-profile/→ Chrome profile for browser automation
+	@#   workspace/      → CLI project files
+	@#   custom/         → Custom tool modules
+	@#   config.json     → User configuration (merged, never overwritten)
 	@mkdir -p $(UBOT_HOME)/lib
 	@mkdir -p $(UBOT_HOME)/web
 	@mkdir -p $(UBOT_HOME)/data
@@ -44,6 +53,18 @@ install: build
 	@mkdir -p $(UBOT_HOME)/sessions
 	@mkdir -p $(UBOT_HOME)/creds
 	@mkdir -p $(UBOT_HOME)/browser-profile
+	@mkdir -p $(UBOT_HOME)/workspace
+	@mkdir -p $(UBOT_HOME)/custom/modules
+	@mkdir -p $(UBOT_HOME)/custom/staging
+
+	@# ── Backup database before install ─────────────────────────────────
+	@if [ -f $(UBOT_HOME)/data/ubot.db ]; then \
+		cp $(UBOT_HOME)/data/ubot.db $(UBOT_HOME)/data/ubot.db.bak; \
+		echo "   Backed up database to data/ubot.db.bak"; \
+	fi
+
+	@# ── Application code (replaced on every install) ───────────────────
+	@# These are safe to replace — they contain only compiled code, not user data.
 
 	@# Copy compiled backend (clean copy to avoid stale files)
 	@rm -rf $(UBOT_HOME)/lib
@@ -55,8 +76,10 @@ install: build
 	@cp -R $(CORE_DIR)/node_modules/* $(UBOT_HOME)/node_modules/ 2>/dev/null || true
 	@echo "   Installed dependencies to $(UBOT_HOME)/node_modules/"
 
-	@# Copy static web UI
+	@# Copy static web UI (clean copy)
 	@if [ -d $(WEB_DIR)/out ]; then \
+		rm -rf $(UBOT_HOME)/web; \
+		mkdir -p $(UBOT_HOME)/web; \
 		cp -r $(WEB_DIR)/out/* $(UBOT_HOME)/web/; \
 		echo "   Installed web UI to $(UBOT_HOME)/web/"; \
 	else \
@@ -66,12 +89,12 @@ install: build
 	@# Copy public assets for backend static serving
 	@cp -r $(CORE_DIR)/public $(UBOT_HOME)/public 2>/dev/null || true
 
-	@# Create default config if none exists
+	@# ── Config (merge, never overwrite) ────────────────────────────────
 	@if [ ! -f $(UBOT_HOME)/config.json ]; then \
 		cp $(CLI_DIR)/default-config.json $(UBOT_HOME)/config.json; \
 		echo "   Created default config at $(UBOT_HOME)/config.json"; \
 	else \
-		echo "   Config already exists, skipping."; \
+		python3 $(CLI_DIR)/merge-config.py $(UBOT_HOME)/config.json $(CLI_DIR)/default-config.json; \
 	fi
 
 	@# Install CLI to PATH
@@ -79,6 +102,31 @@ install: build
 	@cp $(CLI_DIR)/ubot $(INSTALL_BIN_DIR)/ubot
 	@chmod +x $(INSTALL_BIN_DIR)/ubot
 	@echo "   Installed CLI to $(INSTALL_BIN_DIR)/ubot"
+
+	@# ── Post-install: Check macOS permissions ────────────────
+	@echo ""
+	@if [ "$$(uname)" = "Darwin" ]; then \
+		FDA_OK=true; \
+		if ! sqlite3 "$$HOME/Library/Messages/chat.db" "SELECT 1" >/dev/null 2>&1; then \
+			FDA_OK=false; \
+		fi; \
+		if [ "$$FDA_OK" = "false" ]; then \
+			echo "⚠️  Full Disk Access not granted."; \
+			echo "   Some features (iMessage, Safari history, etc.) need this permission."; \
+			echo "   To grant it:"; \
+			echo "     1. System Settings → Privacy & Security → Full Disk Access"; \
+			echo "     2. Add your Terminal app (Terminal.app, iTerm2, Warp, etc.)"; \
+			echo "     3. Add Node.js: $$(which node)"; \
+			echo ""; \
+			printf "   Open System Settings now? [y/N] "; \
+			read -r ans; \
+			if [ "$$ans" = "y" ] || [ "$$ans" = "Y" ]; then \
+				open "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles"; \
+			fi; \
+		else \
+			echo "✅ Full Disk Access: granted"; \
+		fi; \
+	fi
 
 	@echo ""
 	@echo "✅ Ubot installed!"

@@ -14,8 +14,9 @@ import { existsSync } from 'fs';
 import { join } from 'path';
 type GoogleAuthClient = any;
 
-// Paths relative to project root
-const CREDS_DIR = join(process.cwd(), 'creds');
+// Use UBOT_HOME if set (production), fallback to cwd (dev mode)
+const UBOT_ROOT = process.env.UBOT_HOME || process.cwd();
+const CREDS_DIR = join(UBOT_ROOT, 'creds');
 const CREDENTIALS_PATH = join(CREDS_DIR, 'google-oauth-credentials.json');
 const TOKEN_PATH = join(CREDS_DIR, 'google-token.json');
 

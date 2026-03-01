@@ -10,7 +10,7 @@
 
 Ubot is a self-hosted AI assistant that connects to your messaging apps and automates your digital life through natural conversations. Tell it what you need in plain English — it'll browse the web, send emails, manage files, schedule tasks, and reply to people on your behalf.
 
-**59 tools** across **7 modules** • **WhatsApp & Telegram** • **Google Workspace** • **Browser automation** • **Extensible via MCP**
+**64 tools** across **8 modules** • **WhatsApp & Telegram** • **Google Workspace** • **Browser automation** • **CLI Agents** • **Extensible via MCP**
 
 ## ✨ Features
 
@@ -19,6 +19,7 @@ Ubot is a self-hosted AI assistant that connects to your messaging apps and auto
 | **Messaging**  | 8     | Send, search, forward messages across channels         |
 | **Google**     | 29    | Gmail, Drive, Sheets, Docs, Contacts, Calendar, Places |
 | **Browser**    | 8     | Browse, click, type, screenshot — Puppeteer-powered    |
+| **CLI**        | 5     | Delegate coding tasks to Gemini/Claude/Codex CLI       |
 | **Scheduler**  | 6     | Cron jobs, reminders, auto-reply, one-time tasks       |
 | **Skills**     | 4     | Create custom automations with triggers & outcomes     |
 | **Web Search** | 1     | SearXNG + Puppeteer fallback                           |
@@ -96,10 +97,10 @@ ubot/
     ├── src/
     │   ├── api/           # REST API endpoints
     │   ├── engine/        # AI orchestrator, LLM, prompt builder, memory
-    │   ├── tools/         # 59 tools in 7 modules
+    │   ├── tools/         # 64 tools in 8 modules
     │   ├── channels/      # WhatsApp & Telegram adapters
     │   ├── integrations/  # Google Workspace, MCP servers
-    │   ├── capabilities/  # Browser, Scheduler, Skill engine
+    │   ├── capabilities/  # Browser, Scheduler, Skill engine, CLI agents
     │   ├── data/          # SQLite database & config
     │   ├── safety/        # Safety rules & guardrails
     │   └── logger/        # Structured logging

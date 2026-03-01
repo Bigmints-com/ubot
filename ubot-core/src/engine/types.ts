@@ -138,6 +138,16 @@ export interface AgentResponse {
   duration: number;
 }
 
+export interface AgentDefinition {
+  id: string;
+  name: string;
+  description: string;
+  systemPrompt?: string;
+  allowedTools?: string[]; // Empty means all tools
+  model?: string;
+  temperature?: number;
+}
+
 const DEFAULT_LLM_PROVIDER_ID = 'default-gemini';
 
 const DEFAULT_LLM_PROVIDER: LLMProviderConfig = {
@@ -188,6 +198,18 @@ You can control a real browser using browse_url, browser_click, browser_type, br
 - Always use browse_url FIRST, then browser_read_page to get content, then browser_click/browser_type to interact.
 - When the user asks to "check my email", "what's on my calendar", or anything web-related — USE THE BROWSER TOOLS immediately.
 
+## CLI & Custom Capabilities
+You can extend yourself with new tools. If you realize you can't handle a request, the system will automatically triage it to check if existing tools can help or if a new tool should be built.
+
+When triage runs (automatically or via cli_triage), act on the verdict:
+- **EXISTS** → Use the listed tools directly. Do NOT build anything new.
+- **SKILL** → Compose existing tools into an automated pipeline via create_skill with stages.
+- **TOOL** → Build it: cli_run → cli_test_module → cli_promote_module. The new tool becomes available immediately.
+- **REJECT** → Explain why it's not possible and suggest alternatives.
+
+You can also call cli_triage proactively if a user explicitly asks to "add" or "build" a capability.
+Use cli_delete_module to clean up failed or unwanted custom modules.
+
 {{tools}}
 
 Rules:
@@ -214,7 +236,7 @@ You are the owner's personal secretary. Handle most conversations autonomously, 
 
 **IMPORTANT**: When escalating, you MUST call the ask_owner tool function. Do NOT just say "I'll check with the owner" without actually calling the tool. The tool creates the approval request that the owner can respond to.`,
   maxHistoryMessages: 20,
-  maxToolIterations: 3,
+  maxToolIterations: 6,
   temperature: 0.7,
   maxTokens: 2048,
   ownerTelegramId: '',

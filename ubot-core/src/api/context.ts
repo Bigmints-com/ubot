@@ -85,10 +85,14 @@ export async function parseBody(req: http.IncomingMessage): Promise<unknown> {
 }
 
 export function json(res: http.ServerResponse, data: unknown, status = 200): void {
-  res.writeHead(status, {
+  const headers: Record<string, string> = {
     'Content-Type': 'application/json',
-    'Access-Control-Allow-Origin': '*',
-  });
+  };
+  // Only set CORS if not already set by middleware
+  if (!res.getHeader('Access-Control-Allow-Origin')) {
+    headers['Access-Control-Allow-Origin'] = '*';
+  }
+  res.writeHead(status, headers);
   res.end(JSON.stringify(data));
 }
 

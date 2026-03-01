@@ -56,9 +56,16 @@ const db = createConnection({
 });
 
 // Initialize agent — read LLM config from config.json
+const WORKSPACE_PATH = UBOT_HOME 
+  ? path.join(UBOT_HOME, 'workspace') 
+  : path.join(process.cwd(), 'workspace');
+
 const conversationStore = createConversationStore(db);
 const memoryStore = createMemoryStore(db);
-const soul = createSoul(memoryStore);
+const soul = createSoul(memoryStore, WORKSPACE_PATH);
+
+// Initial sync of soul documents to filesystem
+soul.syncToFilesystem();
 const agent = createAgentOrchestrator(
   {
     ...DEFAULT_AGENT_CONFIG,
@@ -69,13 +76,14 @@ const agent = createAgentOrchestrator(
   conversationStore,
   memoryStore,
   soul,
+  WORKSPACE_PATH,
 );
 
 // Initialize integrations from config.json
 setSerperApiKey(ubotConfig.integrations?.serper_api_key);
 
 // Initialize API with agent
-initializeApi(db as any, agent);
+initializeApi(db as any, agent, WORKSPACE_PATH);
 
 // MIME types for static file serving
 const MIME_TYPES: Record<string, string> = {
