@@ -30,7 +30,7 @@ creds/
 !.env.example
 
 # ── Agent tooling (private) ───────────────────
-.agents/
+.agents/skills/
 .factory/
 .gemini/
 .antigravityignore
