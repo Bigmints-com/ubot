@@ -1,28 +1,28 @@
 # Ubot Core — Agent Instructions
 
 > Personal AI assistant platform — manages messaging, automation, and contacts
-> across WhatsApp, Telegram, and web.
-> Last updated: 2026-02-20
+> across WhatsApp, Telegram, iMessage, and web.
+> Last updated: 2026-03-01
 
 ## Stack
 
-| Layer              | Technology                                                               |
-| ------------------ | ------------------------------------------------------------------------ |
-| Runtime            | Node.js (ES2022)                                                         |
-| Language           | TypeScript (strict)                                                      |
-| Package Manager    | npm                                                                      |
-| LLM Client         | OpenAI SDK (compatible with Gemini, Ollama, OpenAI)                      |
-| Database           | SQLite via `better-sqlite3`                                              |
-| Messaging          | WhatsApp (`@whiskeysockets/baileys`), Telegram (`node-telegram-bot-api`) |
-| Browser Automation | Puppeteer                                                                |
-| Scheduler          | `node-cron`                                                              |
-| Email              | `nodemailer`                                                             |
-| Logging            | Winston + Pino + Ring Buffer                                             |
-| Testing            | Vitest                                                                   |
-| Linter             | ESLint                                                                   |
-| CSS                | Tailwind CSS v4                                                          |
-| Web UI             | Next.js + shadcn/ui (separate `web/` directory)                          |
-| CLI                | Bash (`cli/ubot`)                                                        |
+| Layer              | Technology                                                                                                |
+| ------------------ | --------------------------------------------------------------------------------------------------------- |
+| Runtime            | Node.js (ES2022)                                                                                          |
+| Language           | TypeScript (strict)                                                                                       |
+| Package Manager    | npm                                                                                                       |
+| LLM Client         | OpenAI SDK (compatible with Gemini, Ollama, OpenAI)                                                       |
+| Database           | SQLite via `better-sqlite3`                                                                               |
+| Messaging          | WhatsApp (`@whiskeysockets/baileys`), Telegram (`node-telegram-bot-api`), iMessage (BlueBubbles REST API) |
+| Browser Automation | Puppeteer                                                                                                 |
+| Scheduler          | `node-cron`                                                                                               |
+| Email              | `nodemailer`                                                                                              |
+| Logging            | Winston + Pino + Ring Buffer                                                                              |
+| Testing            | Vitest                                                                                                    |
+| Linter             | ESLint                                                                                                    |
+| CSS                | Tailwind CSS v4                                                                                           |
+| Web UI             | Next.js + shadcn/ui (separate `web/` directory)                                                           |
+| CLI                | Bash (`cli/ubot`)                                                                                         |
 
 ## Architecture Overview
 
@@ -40,11 +40,14 @@
 │  Handler    │   (LLM loop)  │   → Outcome                      │
 ├─────────────┴───────────────┴───────────────────────────────────┤
 │  Tool Registry (tools/)                                          │
-│  64 tools across 8 modules: messaging, approvals,                │
-│  web-search, skills, browser, scheduler, google, cli             │
+│  77 tools across 10 modules: messaging, approvals,                │
+│  web-search, skills, browser, scheduler, google, cli, files,      │
+│  memory                                                           │
 ├──────────────┬───────────────┬──────────────────────────────────┤
-│  WhatsApp    │  Telegram     │  Google Workspace                │
-│  Connection  │  Connection   │  Gmail, Sheets, Drive, Calendar  │
+│  WhatsApp    │  Telegram     │  iMessage (BlueBubbles)          │
+│  Connection  │  Connection   │  Connection                      │
+├──────────────┴───────────────┴──────────────────────────────────┤
+│  Google Workspace  │  Filesystem (allowed_paths)                │
 ├──────────────┴───────────────┴──────────────────────────────────┤
 │  SQLite Database  │  Soul (Personas)  │  Memory Store           │
 └───────────────────┴───────────────────┴─────────────────────────┘
@@ -110,10 +113,12 @@ ubot/                                  # Monorepo root
 │   │   │   ├── browser.ts             # 8 tools: browse, click, type, read, screenshot, etc.
 │   │   │   ├── scheduler.ts           # 6 tools: schedule, remind, list, delete, trigger, set_auto_reply
 │   │   │   ├── google.ts              # 29 tools: Gmail, Drive, Sheets, Docs, Contacts, Calendar, Places
-│   │   │   └── cli.ts                 # 5 tools: cli_run, cli_status, cli_stop, cli_list_sessions, cli_send_input
+│   │   │   ├── files.ts               # 5 tools: read, write, list, delete, search (sandbox + allowed_paths)
+│   │   │   ├── memory.ts              # 3 tools: store, recall, manage memory
+│   │   │   └── cli.ts                 # 10 tools: cli_run, cli_status, cli_stop, cli_list_sessions, cli_send_input, etc.
 
 │   │   ├── channels/                  # Messaging channels (bidirectional chat pipes)
-│   │   │   ├── registry.ts            # Provider registry (WhatsApp, Telegram)
+│   │   │   ├── registry.ts            # Provider registry (WhatsApp, Telegram, iMessage)
 │   │   │   ├── types.ts               # MessagingProvider, ChannelType, Message interfaces
 │   │   │   ├── whatsapp/              # WhatsApp (Baileys)
 │   │   │   │   ├── connection.ts      # QR auth + session management
@@ -122,10 +127,15 @@ ubot/                                  # Monorepo root
 │   │   │   │   ├── rate-limiter.ts    # Anti-ban rate limiting
 │   │   │   │   ├── types.ts
 │   │   │   │   └── utils.ts
-│   │   │   └── telegram/              # Telegram (node-telegram-bot-api)
-│   │   │       ├── connection.ts
-│   │   │       ├── messaging-provider.ts
-│   │   │       └── types.ts
+│   │   │   ├── telegram/              # Telegram (node-telegram-bot-api)
+│   │   │   │   ├── connection.ts
+│   │   │   │   ├── messaging-provider.ts
+│   │   │   │   └── types.ts
+│   │   │   └── imessage/              # iMessage (BlueBubbles REST API)
+│   │   │       ├── connection.ts      # HTTP connection to BlueBubbles server
+│   │   │       ├── messaging-provider.ts  # Platform-agnostic messaging provider
+│   │   │       ├── types.ts           # BlueBubbles config, message, chat, handle types
+│   │   │       └── index.ts
 │   │   │
 │   │   ├── integrations/              # External service integrations (API-based)
 │   │   │   ├── registry.ts            # IntegrationRegistry
@@ -231,7 +241,7 @@ Ubot's architecture is organized into 5 clearly defined layers:
 
 | Layer           | Definition                                                              | Location                   | Examples                                          |
 | --------------- | ----------------------------------------------------------------------- | -------------------------- | ------------------------------------------------- |
-| **Channel**     | Bidirectional communication pipe through which users interact with ubot | `src/channels/`            | WhatsApp, Telegram                                |
+| **Channel**     | Bidirectional communication pipe through which users interact with ubot | `src/channels/`            | WhatsApp, Telegram, iMessage                      |
 | **Integration** | Connection to an external third-party service via API                   | `src/integrations/`        | Google Workspace                                  |
 | **Capability**  | Built-in system capability that powers tools (internal)                 | `src/capabilities/`        | Browser (Puppeteer), Scheduler, Skill Engine, CLI |
 | **Tool**        | LLM-callable function exposed to the AI engine                          | `src/tools/`               | `send_message`, `gmail_search`, `browse_url`      |
@@ -245,7 +255,7 @@ The core AI loop: receives a message → builds a system prompt (with soul conte
 
 ### Unified Message Handler (`src/engine/handler.ts`)
 
-All channels (WhatsApp, Telegram, web) normalize their messages into a `UnifiedMessage` and pass through `handleIncomingMessage()`. This is the single source of truth for owner detection, session routing, approval handling, and skill event emission.
+All channels (WhatsApp, Telegram, iMessage, web) normalize their messages into a `UnifiedMessage` and pass through `handleIncomingMessage()`. This is the single source of truth for owner detection, session routing, approval handling, and skill event emission.
 
 ### Tool Registry (`src/tools/registry.ts`)
 
@@ -284,6 +294,8 @@ User-created automations following: **Event → Trigger → Processor → Outcom
 | `browser`    | 8     | browse, click, type, read, screenshot, scroll, emails                                                                                                  |
 | `scheduler`  | 6     | schedule, remind, list, delete, trigger, auto_reply                                                                                                    |
 | `google`     | 29    | Gmail, Drive, Sheets, Docs, Contacts, Calendar, Places                                                                                                 |
+| `files`      | 5     | read_file, write_file, list_files, delete_file, search_files (workspace + allowed_paths)                                                               |
+| `memory`     | 3     | store, recall, manage memories and personas                                                                                                            |
 | `cli`        | 10    | cli_run, cli_status, cli_stop, cli_list_sessions, cli_send_input, cli_test_module, cli_promote_module, cli_list_modules, cli_triage, cli_delete_module |
 | `custom_*`   | var.  | CLI-generated custom modules — hot-loaded from `custom/modules/`                                                                                       |
 

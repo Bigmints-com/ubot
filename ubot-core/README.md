@@ -6,18 +6,18 @@ This is the main application package containing the AI orchestrator, tool regist
 
 ## Stack
 
-| Layer      | Technology                                                               |
-| ---------- | ------------------------------------------------------------------------ |
-| Runtime    | Node.js (ES2022)                                                         |
-| Language   | TypeScript (strict)                                                      |
-| LLM Client | OpenAI SDK (compatible with Gemini, Ollama, OpenAI, Anthropic)           |
-| Database   | SQLite via `better-sqlite3`                                              |
-| Messaging  | WhatsApp (`@whiskeysockets/baileys`), Telegram (`node-telegram-bot-api`) |
-| Browser    | Puppeteer                                                                |
-| Scheduler  | `node-cron`                                                              |
-| Email      | `nodemailer`                                                             |
-| Testing    | Vitest                                                                   |
-| Web UI     | Next.js + shadcn/ui (in `web/`)                                          |
+| Layer      | Technology                                                                                       |
+| ---------- | ------------------------------------------------------------------------------------------------ |
+| Runtime    | Node.js (ES2022)                                                                                 |
+| Language   | TypeScript (strict)                                                                              |
+| LLM Client | OpenAI SDK (compatible with Gemini, Ollama, OpenAI, Anthropic)                                   |
+| Database   | SQLite via `better-sqlite3`                                                                      |
+| Messaging  | WhatsApp (`@whiskeysockets/baileys`), Telegram (`node-telegram-bot-api`), iMessage (BlueBubbles) |
+| Browser    | Puppeteer                                                                                        |
+| Scheduler  | `node-cron`                                                                                      |
+| Email      | `nodemailer`                                                                                     |
+| Testing    | Vitest                                                                                           |
+| Web UI     | Next.js + shadcn/ui (in `web/`)                                                                  |
 
 ## Architecture
 
@@ -34,18 +34,21 @@ src/
 │   ├── llm.ts            # LLM API client wrapper
 │   └── prompt-builder/   # Dynamic system prompt construction
 ├── tools/                # Modular tool registry (LLM-callable functions)
-│   ├── registry.ts       # Central loader (8 modules, 64 tools)
+│   ├── registry.ts       # Central loader (10 modules, 77 tools)
 │   ├── messaging.ts      # 8 tools: send, search, contacts, etc.
 │   ├── google.ts         # 29 tools: Gmail, Drive, Sheets, Docs, etc.
 │   ├── browser.ts        # 8 tools: browse, click, type, screenshot
-│   ├── cli.ts            # 5 tools: cli_run, cli_status, cli_stop, etc.
+│   ├── cli.ts            # 10 tools: cli_run, cli_status, cli_stop, etc.
+│   ├── files.ts          # 5 tools: read, write, list, delete, search
 │   ├── scheduler.ts      # 6 tools: schedule, remind, auto-reply
 │   ├── skills.ts         # 4 tools: CRUD automations
+│   ├── memory.ts         # 3 tools: store, recall, manage
 │   ├── web-search.ts     # 1 tool: web search
 │   └── approvals.ts      # 3 tools: owner approval flow
 ├── channels/             # Messaging channels
 │   ├── whatsapp/         # WhatsApp (Baileys)
-│   └── telegram/         # Telegram (node-telegram-bot-api)
+│   ├── telegram/         # Telegram (node-telegram-bot-api)
+│   └── imessage/         # iMessage (BlueBubbles REST API)
 ├── integrations/         # External service integrations
 │   ├── google/           # Google Workspace (OAuth2)
 │   └── mcp/              # Model Context Protocol servers
@@ -63,13 +66,13 @@ src/
 ## Message Flow
 
 ```
-Incoming Message (WhatsApp / Telegram / Web)
+Incoming Message (WhatsApp / Telegram / iMessage / Web)
     ↓
 Unified Handler → detect owner vs visitor
     ↓
 ┌─────────────────┐    ┌──────────────────┐
 │  Owner           │    │  Visitor          │
-│  All 59 tools    │    │  ask_owner tool   │
+│  All 77 tools    │    │  ask_owner tool   │
 │  Full access     │    │  Safety rules     │
 └────────┬────────┘    └────────┬─────────┘
          ↓                      ↓
