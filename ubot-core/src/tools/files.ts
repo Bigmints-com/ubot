@@ -15,46 +15,54 @@ import type { ToolModule, ToolRegistry, ToolContext, ToolDefinition } from './ty
 import { getSafetyService } from '../safety/service.js';
 import { loadUbotConfig } from '../data/config.js';
 
-const FILES_TOOLS: ToolDefinition[] = [
-  {
-    name: 'read_file',
-    description: 'Read the contents of a file. Supports workspace paths (relative) or absolute paths within allowed directories.',
-    parameters: [
-      { name: 'path', type: 'string', description: 'File path — relative (within workspace) or absolute (must be in allowed_paths)', required: true },
-    ],
-  },
-  {
-    name: 'write_file',
-    description: 'Write or overwrite a file. Automatically creates parent directories. Supports workspace or allowed paths.',
-    parameters: [
-      { name: 'path', type: 'string', description: 'File path — relative (within workspace) or absolute (must be in allowed_paths)', required: true },
-      { name: 'content', type: 'string', description: 'The text content to write', required: true },
-    ],
-  },
-  {
-    name: 'list_files',
-    description: 'List files and directories. Supports workspace or allowed paths.',
-    parameters: [
-      { name: 'path', type: 'string', description: 'Directory path — relative (within workspace) or absolute (must be in allowed_paths). Empty for workspace root.', required: false },
-    ],
-  },
-  {
-    name: 'delete_file',
-    description: 'Delete a file or directory. Supports workspace or allowed paths.',
-    parameters: [
-      { name: 'path', type: 'string', description: 'File/directory path — relative (within workspace) or absolute (must be in allowed_paths)', required: true },
-    ],
-  },
-  {
-    name: 'search_files',
-    description: 'Search for files by name pattern within workspace or allowed directories.',
-    parameters: [
-      { name: 'pattern', type: 'string', description: 'Filename pattern to search for (e.g. "*.pdf", "report")', required: true },
-      { name: 'path', type: 'string', description: 'Directory to search in (default: workspace root)', required: false },
-      { name: 'max_depth', type: 'number', description: 'Max directory depth to search (default: 3)', required: false },
-    ],
-  },
-];
+/** Build the descriptions with actual allowed paths listed */
+function getToolDescriptions(): ToolDefinition[] {
+  const paths = loadUbotConfig().filesystem?.allowed_paths || [];
+  const pathList = paths.length > 0 
+    ? `Allowed directories: workspace (always), ${paths.join(', ')}` 
+    : 'Only the workspace directory is accessible.';
+
+  return [
+    {
+      name: 'read_file',
+      description: `Read the contents of a file. Use absolute paths for non-workspace files. ${pathList}`,
+      parameters: [
+        { name: 'path', type: 'string', description: 'File path — relative (workspace) or absolute (allowed directories)', required: true },
+      ],
+    },
+    {
+      name: 'write_file',
+      description: `Write or overwrite a file. Creates parent directories automatically. ${pathList}`,
+      parameters: [
+        { name: 'path', type: 'string', description: 'File path — relative (workspace) or absolute (allowed directories)', required: true },
+        { name: 'content', type: 'string', description: 'The text content to write', required: true },
+      ],
+    },
+    {
+      name: 'list_files',
+      description: `List files and directories with sizes. ${pathList}`,
+      parameters: [
+        { name: 'path', type: 'string', description: 'Directory path — absolute to browse allowed dirs (e.g. /Users/pretheesh/Desktop), or relative for workspace. Empty for workspace root.', required: false },
+      ],
+    },
+    {
+      name: 'delete_file',
+      description: `Delete a file or directory. ${pathList}`,
+      parameters: [
+        { name: 'path', type: 'string', description: 'File/directory path — relative (workspace) or absolute (allowed directories)', required: true },
+      ],
+    },
+    {
+      name: 'search_files',
+      description: `Search for files by name pattern (e.g. *.pdf, report*). ${pathList}`,
+      parameters: [
+        { name: 'pattern', type: 'string', description: 'Filename pattern to search for (e.g. "*.pdf", "report")', required: true },
+        { name: 'path', type: 'string', description: 'Directory to search in (default: workspace root)', required: false },
+        { name: 'max_depth', type: 'number', description: 'Max directory depth to search (default: 3)', required: false },
+      ],
+    },
+  ];
+}
 
 /** Resolve allowed paths from config, expanding ~ */
 function getAllowedPaths(): string[] {
@@ -96,7 +104,7 @@ async function searchDir(dir: string, pattern: string, maxDepth: number, current
 
 const filesToolModule: ToolModule = {
   name: 'files',
-  tools: FILES_TOOLS,
+  get tools() { return getToolDescriptions(); },
   register(registry: ToolRegistry, ctx: ToolContext) {
     const safety = getSafetyService();
     const workspaceRoot = ctx.getWorkspacePath();
