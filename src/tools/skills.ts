@@ -14,7 +14,7 @@ const SKILLS_TOOLS: ToolDefinition[] = [
   },
   {
     name: 'create_skill',
-    description: 'Create a new skill (automated pipeline). Each skill has: TRIGGER (what event activates it), PROCESSOR (instructions for the LLM), OUTCOME (what to do with the result).',
+    description: 'Create a new skill (automated pipeline). Each skill has: TRIGGER (what event activates it), PROCESSOR (instructions or multi-stage pipeline), OUTCOME (what to do with the result). For simple skills, provide instructions. For multi-stage pipelines, provide stages as JSON.',
     parameters: [
       { name: 'name', type: 'string', description: 'Skill name', required: true },
       { name: 'description', type: 'string', description: 'What the skill does', required: true },
@@ -28,6 +28,7 @@ const SKILLS_TOOLS: ToolDefinition[] = [
       { name: 'outcome', type: 'string', description: 'What to do with the result: "reply", "send", "store", "silent". Default: "reply"', required: false },
       { name: 'outcome_target', type: 'string', description: 'For outcome "send": target recipient phone/email', required: false },
       { name: 'enabled', type: 'boolean', description: 'Whether the skill is active (default: true)', required: false },
+      { name: 'stages', type: 'string', description: 'JSON array of WorkflowStage objects for multi-stage pipeline. Each stage has: {id, name, type ("prompt"|"tool"|"condition"|"parallel"), instructions?, tool?: {name, arguments}, condition?, stages?, outputKey?, retries?, onError?}. When provided, overrides single-instruction mode.', required: false },
     ],
   },
   {
@@ -103,15 +104,30 @@ const skillsToolModule: ToolModule = {
       if (args.pattern) filters.pattern = String(args.pattern);
       if (args.source) filters.source = String(args.source);
 
+      // Parse stages if provided
+      let stages: any[] | undefined;
+      if (args.stages) {
+        try {
+          stages = JSON.parse(String(args.stages));
+          if (!Array.isArray(stages)) throw new Error('stages must be an array');
+        } catch (err: any) {
+          return { toolName: 'create_skill', success: false, result: `Invalid stages JSON: ${err.message}`, duration: 0 };
+        }
+      }
+
       const saved = engine.saveSkill({
         name: String(args.name || ''),
         description: String(args.description || ''),
         trigger: { events, condition: args.condition ? String(args.condition) : undefined, filters: Object.keys(filters).length > 0 ? filters as any : undefined },
-        processor: { instructions: String(args.instructions || args.prompt || '') },
+        processor: {
+          instructions: String(args.instructions || args.prompt || ''),
+          ...(stages ? { stages } : {}),
+        },
         outcome: { action: (args.outcome || 'reply') as any, target: args.outcome_target ? String(args.outcome_target) : undefined, channel: args.outcome_channel ? String(args.outcome_channel) : undefined },
         enabled: args.enabled !== false,
       });
-      return { toolName: 'create_skill', success: true, result: `Created skill "${saved.name}" (ID: ${saved.id}), events: ${saved.trigger.events.join(', ')}, outcome: ${saved.outcome.action}, enabled: ${saved.enabled}`, duration: 0 };
+      const mode = stages ? `pipeline (${stages.length} stages)` : 'single-instruction';
+      return { toolName: 'create_skill', success: true, result: `Created skill "${saved.name}" (ID: ${saved.id}), mode: ${mode}, events: ${saved.trigger.events.join(', ')}, outcome: ${saved.outcome.action}, enabled: ${saved.enabled}`, duration: 0 };
     });
 
     registry.register('update_skill', async (args) => {

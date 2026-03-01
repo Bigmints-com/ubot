@@ -51,6 +51,31 @@ export const defaultMigrations: Migration[] = [
       DROP TABLE IF EXISTS agents;
     `,
   },
+  {
+    id: '002',
+    name: 'capability_log',
+    up: `
+      CREATE TABLE IF NOT EXISTS capability_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        action TEXT NOT NULL,
+        module_name TEXT,
+        triage_verdict TEXT,
+        triage_reason TEXT,
+        test_passed INTEGER,
+        test_details TEXT,
+        request TEXT,
+        session_id TEXT,
+        source TEXT DEFAULT 'web',
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_caplog_action ON capability_log(action);
+      CREATE INDEX IF NOT EXISTS idx_caplog_module ON capability_log(module_name);
+    `,
+    down: `
+      DROP TABLE IF EXISTS capability_log;
+    `,
+  },
 ];
 
 export function createMigration(

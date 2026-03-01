@@ -8,8 +8,28 @@ import type { ToolDefinition, ToolCallResult, ToolExecutionResult } from './type
 
 import { getAllToolDefinitions } from '../tools/registry.js';
 
+/** Core orchestrator tools that are always available */
+export const CORE_ORCHESTRATOR_TOOLS: ToolDefinition[] = [
+  {
+    name: 'list_agents',
+    description: 'List all available specialized agents (personas) in the workspace.',
+    parameters: [],
+  },
+  {
+    name: 'switch_agent',
+    description: 'Switch the active agent persona for the current session.',
+    parameters: [
+      { name: 'agentId', type: 'string', description: 'The ID of the agent to switch to (e.g., "dev", "researcher"). Use "main" to switch back to the default Ubot persona.', required: true },
+      { name: 'sessionId', type: 'string', description: 'The unique ID of the current conversation session.', required: true },
+    ],
+  },
+];
+
 /** All available tool definitions for prompt injection — dynamically loaded from tool modules */
-export const AGENT_TOOLS: ToolDefinition[] = getAllToolDefinitions();
+export const AGENT_TOOLS: ToolDefinition[] = [
+  ...CORE_ORCHESTRATOR_TOOLS,
+  ...getAllToolDefinitions(),
+];
 
 /**
  * Tools safe for visitor (non-owner) sessions.
@@ -32,6 +52,13 @@ export function getToolsForSource(isOwner: boolean): ToolDefinition[] {
     const mgr = getMcpServerManager();
     const mcpDefs = mgr.getMcpToolDefinitions();
     if (mcpDefs.length > 0) allTools = [...allTools, ...mcpDefs];
+  } catch {}
+
+  // Include dynamically loaded custom module tools
+  try {
+    const { getCustomToolDefinitions } = require('../capabilities/cli/custom-loader.js');
+    const customDefs = getCustomToolDefinitions();
+    if (customDefs.length > 0) allTools = [...allTools, ...customDefs];
   } catch {}
 
   if (isOwner) return allTools;
@@ -122,6 +149,7 @@ export type ToolExecutor = (args: Record<string, unknown>) => Promise<ToolExecut
 /** Registry of tool executors */
 export interface ToolRegistry {
   register(toolName: string, executor: ToolExecutor): void;
+  unregister(toolName: string): boolean;
   execute(toolCall: ToolCallResult): Promise<ToolExecutionResult>;
   has(toolName: string): boolean;
 }
@@ -165,6 +193,10 @@ export function createToolRegistry(): ToolRegistry {
 
     has(toolName: string): boolean {
       return executors.has(toolName);
+    },
+
+    unregister(toolName: string): boolean {
+      return executors.delete(toolName);
     },
   };
 }

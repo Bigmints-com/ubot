@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import messagingModule from './messaging.js';
+import messagingModule from '../messaging.js';
 import { registerModule, createMockContext } from './test-helpers.js';
 
 describe('Messaging Tool Module', () => {

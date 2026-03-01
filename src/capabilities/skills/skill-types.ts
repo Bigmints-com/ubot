@@ -58,6 +58,49 @@ export interface SkillProcessor {
   instructions: string;
   /** Optional: restrict which tools the LLM can use */
   tools?: string[];
+  /** Optional: multi-stage modular workflow pipeline */
+  stages?: WorkflowStage[];
+}
+
+export interface WorkflowStage {
+  id: string;
+  name: string;
+  /** Stage type:
+   *  - 'prompt': LLM generation with instructions
+   *  - 'tool': direct tool execution
+   *  - 'condition': run sub-stages only if condition matches
+   *  - 'parallel': run multiple sub-stages concurrently
+   */
+  type: 'prompt' | 'tool' | 'condition' | 'parallel';
+  /** For 'prompt': the LLM instructions for this stage */
+  instructions?: string;
+  /** For 'tool': the tool to execute */
+  tool?: {
+    name: string;
+    arguments: Record<string, unknown>;
+  };
+  /** For 'condition': natural language condition checked by LLM */
+  condition?: string;
+  /** For 'condition'/'parallel': sub-stages to execute */
+  stages?: WorkflowStage[];
+  /** Input mapping: variable name -> expression (e.g. {{event.body}}, {{stage_1.output}}) */
+  inputMap?: Record<string, string>;
+  /** Output name to store the result in context */
+  outputKey?: string;
+  /** Max retries on failure (default: 0) */
+  retries?: number;
+  /** What to do on error: 'skip' continues pipeline, 'abort' stops it (default: 'abort') */
+  onError?: 'skip' | 'abort';
+}
+
+/** Result of a single stage execution */
+export interface StageResult {
+  stageId: string;
+  stageName: string;
+  success: boolean;
+  output: string;
+  duration: number;
+  error?: string;
 }
 
 // ─── Outcome ──────────────────────────────────────────────

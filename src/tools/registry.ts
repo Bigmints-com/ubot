@@ -6,6 +6,7 @@
  */
 
 import type { ToolModule, ToolRegistry, ToolContext, ToolDefinition } from './types.js';
+import { loadAllCustomModules, getLoadedModules, getLoadedToolModules, setCoreToolNames } from '../capabilities/cli/custom-loader.js';
 
 // Import each service's tool module from its own directory
 import googleTools from './google.js';
@@ -16,6 +17,8 @@ import schedulerTools from './scheduler.js';
 import approvalsTools from './approvals.js';
 import webSearchTools from './web-search.js';
 import memoryTools from './memory.js';
+import filesTools from './files.js';
+import cliTools from './cli.js';
 /**
  * All available tool modules, in registration order.
  * Add new modules here.
@@ -28,21 +31,28 @@ const ALL_MODULES: ToolModule[] = [
   browserTools,
   schedulerTools,
   memoryTools,
+  filesTools,
   googleTools,
+  cliTools,
 ];
 
 /**
- * Collect all tool definitions from all modules.
+ * Collect all tool definitions from all modules (core + custom).
  */
 export function getAllToolDefinitions(): ToolDefinition[] {
-  return ALL_MODULES.flatMap(m => m.tools);
+  const customTools = getLoadedToolModules().flatMap(m => m.tools);
+  return [...ALL_MODULES.flatMap(m => m.tools), ...customTools];
 }
 
 /**
- * Collect all tool definitions along with their source module name.
+ * Collect all tool definitions along with their source module name (core + custom).
  */
 export function getAllToolsWithModules(): Array<{ module: string; tool: ToolDefinition }> {
-  return ALL_MODULES.flatMap(m => m.tools.map(tool => ({ module: m.name, tool })));
+  const core = ALL_MODULES.flatMap(m => m.tools.map(tool => ({ module: m.name, tool })));
+  const custom = getLoadedToolModules().flatMap(m => 
+    m.tools.map(tool => ({ module: `custom:${m.name}`, tool }))
+  );
+  return [...core, ...custom];
 }
 
 /**
@@ -61,4 +71,28 @@ export function registerAllToolModules(registry: ToolRegistry, ctx: ToolContext)
  */
 export function getModuleNames(): string[] {
   return ALL_MODULES.map(m => m.name);
+}
+
+/**
+ * Register custom modules from custom/modules/ directory.
+ * Called at startup after core modules are registered.
+ */
+export async function registerCustomModules(registry: ToolRegistry, ctx: ToolContext): Promise<void> {
+  // Set core tool names so custom modules can't override them
+  setCoreToolNames(getAllToolDefinitions().map(t => t.name));
+  
+  const result = await loadAllCustomModules(registry, ctx);
+  if (result.loaded.length > 0) {
+    console.log(`[Tools] Custom modules loaded: ${result.loaded.join(', ')}`);
+  }
+  if (result.failed.length > 0) {
+    console.warn(`[Tools] Custom modules failed: ${result.failed.map(f => f.name).join(', ')}`);
+  }
+}
+
+/**
+ * Get names of loaded custom modules.
+ */
+export function getCustomModuleNames(): string[] {
+  return getLoadedModules().map(m => m.name);
 }

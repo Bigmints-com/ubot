@@ -69,12 +69,12 @@ describe('WebSearchService', () => {
       expect(results.query).toBe('test query');
       expect(results.items).toBeInstanceOf(Array);
       expect(results.searchedAt).toBeInstanceOf(Date);
-    });
+    }, 30000);
 
     it('should normalize the query', async () => {
       const results = await service.search('  TEST   QUERY  ');
       expect(results.query).toBe('TEST QUERY');
-    });
+    }, 30000);
 
     it('should throw on empty query', async () => {
       await expect(service.search('')).rejects.toThrow('Query is required');
@@ -87,7 +87,7 @@ describe('WebSearchService', () => {
     it('should respect maxResults option', async () => {
       const results = await service.search('test', { maxResults: 3 });
       expect(results.items.length).toBeLessThanOrEqual(3);
-    });
+    }, 30000);
 
     it('should update statistics after search', async () => {
       await service.search('test query');
@@ -96,7 +96,7 @@ describe('WebSearchService', () => {
       expect(stats.totalSearches).toBe(1);
       expect(stats.successfulSearches).toBe(1);
       expect(stats.totalResults).toBeGreaterThan(0);
-    });
+    }, 30000);
 
     it('should cache results', async () => {
       const results1 = await service.search('cache test');
@@ -104,7 +104,7 @@ describe('WebSearchService', () => {
       
       expect(results1.queryId).toBe(results2.queryId);
       expect(service.getStats().cacheHits).toBe(1);
-    });
+    }, 30000);
   });
 
   describe('extractContent', () => {
@@ -116,7 +116,7 @@ describe('WebSearchService', () => {
       expect(content.title).toBeDefined();
       expect(content.content).toBeDefined();
       expect(content.wordCount).toBeGreaterThan(0);
-    });
+    }, 30000);
   });
 
   describe('batchSearch', () => {
@@ -133,7 +133,7 @@ describe('WebSearchService', () => {
       expect(results[0].success).toBe(true);
       expect(results[1].id).toBe('2');
       expect(results[1].success).toBe(true);
-    });
+    }, 60000);
   });
 
   describe('filterAndPaginate', () => {
@@ -150,7 +150,7 @@ describe('WebSearchService', () => {
       expect(paginated.items.length).toBeLessThanOrEqual(2);
       expect(paginated.page).toBe(1);
       expect(paginated.pageSize).toBe(2);
-    });
+    }, 30000);
   });
 
   describe('cache management', () => {
@@ -160,7 +160,7 @@ describe('WebSearchService', () => {
       
       service.clearCache();
       expect(service.getCacheSize()).toBe(0);
-    });
+    }, 30000);
   });
 
   describe('statistics', () => {
@@ -178,7 +178,7 @@ describe('WebSearchService', () => {
       
       const stats = service.getStats();
       expect(stats.totalSearches).toBe(0);
-    });
+    }, 30000);
   });
 
   describe('configuration', () => {

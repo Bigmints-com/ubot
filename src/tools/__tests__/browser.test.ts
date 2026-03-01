@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import browserModule from './browser.js';
+import browserModule from '../browser.js';
 import { registerModule } from './test-helpers.js';
 
 describe('Browser Tool Module', () => {
@@ -39,6 +39,30 @@ describe('Browser Tool Module', () => {
     expect(type?.parameters).toHaveLength(2);
   });
 
-  // Note: Browser tools require Puppeteer (dynamic import) so we test definitions and registration only.
-  // Execution tests would require mocking the BrowserService which is complex and fragile.
+  // Note: Browser tools require Puppeteer (dynamic import), so full execution tests
+  // are limited. We test error paths that don't require a browser instance.
+
+  describe('browse_url', () => {
+    it('should fail when URL is empty', async () => {
+      const registry = registerModule(browserModule);
+      const result = await registry.call('browse_url', { url: '' });
+      expect(result.success).toBe(false);
+    });
+  });
+
+  describe('browser_click', () => {
+    it('should fail when selector is empty', async () => {
+      const registry = registerModule(browserModule);
+      const result = await registry.call('browser_click', { selector: '' });
+      expect(result.success).toBe(false);
+    });
+  });
+
+  describe('browser_type', () => {
+    it('should fail when selector is empty', async () => {
+      const registry = registerModule(browserModule);
+      const result = await registry.call('browser_type', { selector: '', text: 'hello' });
+      expect(result.success).toBe(false);
+    });
+  });
 });

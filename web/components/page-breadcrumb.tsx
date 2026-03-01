@@ -7,6 +7,7 @@ const routeNames: Record<string, string> = {
   "/chat": "Command Center",
   "/skills": "Skills",
   "/whatsapp": "WhatsApp",
+  "/imessage": "iMessage",
   "/safety": "Safety Rules",
   "/scheduler": "Scheduler",
   "/settings": "Settings",

@@ -5,8 +5,8 @@
  * any tool module in isolation.
  */
 
-import type { ToolRegistry, ToolExecutor, ToolContext, ToolModule } from './types.js';
-import type { ToolCallResult, ToolExecutionResult } from '../engine/types.js';
+import type { ToolRegistry, ToolExecutor, ToolContext, ToolModule } from '../types.js';
+import type { ToolCallResult, ToolExecutionResult } from '../../engine/types.js';
 
 // ─── Mock Registry ───────────────────────────────────────
 
@@ -52,6 +52,10 @@ export function createMockRegistry(): MockRegistry {
     registeredNames(): string[] {
       return [...executors.keys()];
     },
+
+    unregister(toolName: string): boolean {
+      return executors.delete(toolName);
+    },
   };
 }
 
@@ -81,6 +85,8 @@ export function createMockContext(opts: MockContextOptions = {}): ToolContext {
     getTelegram: () => allNull ? null : createMockTelegram(),
     getAgent: () => allNull ? null : createMockAgent(),
     getEventBus: () => allNull ? null : createMockEventBus(),
+    getWorkspacePath: () => allNull ? null : '/tmp/ubot-test-workspace',
+    getCliService: () => null,
   };
 
   return {

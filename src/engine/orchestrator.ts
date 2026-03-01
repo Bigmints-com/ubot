@@ -5,21 +5,25 @@
  * Uses native OpenAI-compatible tool calling (works with Ollama, Gemini, OpenAI, etc.)
  */
 
+import fs from 'fs';
+import path from 'path';
 import OpenAI from 'openai';
 import type { 
-  AgentConfig, AgentResponse, ChatMessage, ChatMessageMetadata,
-  ToolExecutionResult, DEFAULT_AGENT_CONFIG 
+  AgentConfig, AgentResponse, ChatMessageMetadata,
+  ToolExecutionResult, AgentDefinition
 } from './types.js';
 import type { ConversationStore } from '../memory/conversation.js';
 import type { MemoryStore } from '../memory/memory-store.js';
 import { type Soul, SOUL_REWRITE_PROMPT, OWNER_MERGE_PROMPT, FACT_EXTRACTION_PROMPT, SUMMARY_UPDATE_PROMPT, mergeIntoOwnerDoc, OWNER_SOUL_ID } from '../memory/soul.js';
-import { AGENT_TOOLS, formatToolsForAPI, createToolRegistry, getToolsForSource, type ToolRegistry } from './tools.js';
+import { formatToolsForAPI, createToolRegistry, getToolsForSource, type ToolRegistry } from './tools.js';
+import { loadAgentDefinitions } from './agent-loader.js';
 import { metricsCollector } from '../metrics/index.js';
 import { log } from '../logger/ring-buffer.js';
+import { logCapability } from '../capabilities/cli/capability-log.js';
 
 export interface AgentOrchestrator {
   /** Process a message and return the agent's response */
-  chat(sessionId: string, message: string, source?: 'web' | 'whatsapp' | 'telegram', contactName?: string, isOwner?: boolean): Promise<AgentResponse>;
+  chat(sessionId: string, message: string, source?: 'web' | 'whatsapp' | 'telegram' | 'imessage', contactName?: string, isOwner?: boolean): Promise<AgentResponse>;
   /** Direct LLM text generation (no tools) — for skill generation, etc. */
   generate(systemPrompt: string, userMessage: string): Promise<string>;
   /** Get the current config */
@@ -34,6 +38,14 @@ export interface AgentOrchestrator {
   getMemoryStore(): MemoryStore;
   /** Get the soul */
   getSoul(): Soul;
+  /** Switch the active specialized agent for a session */
+  switchAgent(sessionId: string, agentId: string | null): void;
+  /** List available specialized agents */
+  listAgents(): AgentDefinition[];
+  /** Get raw markdown for a specialized agent */
+  getAgentMarkdown(agentId: string): string | null;
+  /** Save raw markdown for a specialized agent and reload it */
+  saveAgentMarkdown(agentId: string, content: string): void;
 }
 
 export function createAgentOrchestrator(
@@ -41,9 +53,51 @@ export function createAgentOrchestrator(
   conversationStore: ConversationStore,
   memoryStore: MemoryStore,
   soul: Soul,
+  workspacePath?: string,
 ): AgentOrchestrator {
   let currentConfig = { ...config };
   const toolRegistry = createToolRegistry();
+  
+  // Register core orchestrator tools
+  toolRegistry.register('list_agents', async () => {
+    const list = Array.from(agents.values());
+    if (list.length === 0) return { toolName: 'list_agents', success: true, result: 'No specialized agents found in workspace/agents/', duration: 0 };
+    const formatted = list.map(a => `- ${a.id}: ${a.name} (${a.description})`).join('\n');
+    return { toolName: 'list_agents', success: true, result: `Available agents:\n${formatted}`, duration: 0 };
+  });
+
+  toolRegistry.register('switch_agent', async (args) => {
+    const agentId = String(args.agentId || '');
+    const sessionId = String(args.sessionId || '');
+    
+    if (!sessionId) return { toolName: 'switch_agent', success: false, error: 'sessionId is required', duration: 0 };
+    
+    if (!agentId || agentId === 'main' || agentId === 'none') {
+      sessionAgents.delete(sessionId);
+      return { toolName: 'switch_agent', success: true, result: 'Switched back to main Ubot persona.', duration: 0 };
+    }
+    
+    if (!agents.has(agentId)) {
+      return { toolName: 'switch_agent', success: false, error: `Agent "${agentId}" not found.`, duration: 0 };
+    }
+    
+    sessionAgents.set(sessionId, agentId);
+    const agent = agents.get(agentId)!;
+    return { toolName: 'switch_agent', success: true, result: `Successfully switched to ${agent.name}. Instructions updated.`, duration: 0 };
+  });
+  
+  // Multi-agent state
+  const agents = new Map<string, AgentDefinition>();
+  const sessionAgents = new Map<string, string>(); // sessionId -> agentId
+
+  // Load specialized agents from workspace
+  if (workspacePath) {
+    const loadedAgents = loadAgentDefinitions(workspacePath);
+    for (const agent of loadedAgents) {
+      agents.set(agent.id, agent);
+      console.log(`[Orchestrator] Loaded specialized agent: ${agent.id} (${agent.name})`);
+    }
+  }
 
   function createLLMClient(): OpenAI {
     return new OpenAI({
@@ -52,18 +106,28 @@ export function createAgentOrchestrator(
     });
   }
 
-  function buildSystemPrompt(): string {
-    // Simple system prompt — tools are passed natively via the API
-    return currentConfig.systemPrompt.replace('{{tools}}', 'Tools are provided natively via the API. Use function calls to execute them.');
+  function buildSystemPrompt(agentId?: string): string {
+    let basePrompt = currentConfig.systemPrompt;
+    
+    // Override with specialized agent prompt if applicable
+    if (agentId && agents.has(agentId)) {
+      const agent = agents.get(agentId)!;
+      if (agent.systemPrompt) {
+        basePrompt = agent.systemPrompt;
+      }
+    }
+
+    return basePrompt.replace('{{tools}}', 'Tools are provided natively via the API. Use function calls to execute them.');
   }
 
   type ChatMsg = OpenAI.Chat.Completions.ChatCompletionMessageParam;
 
   function buildMessages(sessionId: string, userMessage: string, isOwner: boolean = false): ChatMsg[] {
     const history = conversationStore.getHistory(sessionId, currentConfig.maxHistoryMessages);
+    const activeAgentId = sessionAgents.get(sessionId);
     
     // Build system prompt with soul data (bot persona + owner + contact)
-    let systemPrompt = buildSystemPrompt();
+    let systemPrompt = buildSystemPrompt(activeAgentId);
     const soulPrompt = soul.buildSoulPrompt(sessionId, isOwner);
     if (soulPrompt) {
       systemPrompt += '\n\n' + soulPrompt;
@@ -319,13 +383,23 @@ export function createAgentOrchestrator(
   async function callLLM(
     messages: ChatMsg[],
     isOwner: boolean = true,
+    agentId?: string,
   ): Promise<{
     content: string;
     toolCalls: Array<{ id: string; toolName: string; arguments: Record<string, unknown> }>;
     usage?: { promptTokens: number; completionTokens: number; totalTokens: number };
   }> {
     const client = createLLMClient();
-    const filteredTools = getToolsForSource(isOwner);
+    
+    // Determine allowed tools
+    let filteredTools = getToolsForSource(isOwner);
+    if (agentId && agents.has(agentId)) {
+      const agent = agents.get(agentId)!;
+      if (agent.allowedTools && agent.allowedTools.length > 0) {
+        filteredTools = filteredTools.filter(t => agent.allowedTools!.includes(t.name));
+      }
+    }
+
     const tools = formatToolsForAPI(filteredTools);
     log.info('Agent', `Calling LLM: ${currentConfig.llmModel} (via ${currentConfig.llmBaseUrl})`);
     log.info('Agent', `Tools available: ${filteredTools.length} (isOwner: ${isOwner})`);
@@ -425,11 +499,64 @@ export function createAgentOrchestrator(
       while (iteration < currentConfig.maxToolIterations) {
         iteration++;
 
-        const llmResult = await callLLM(messages, ownerFlag);
+        const activeAgentId = sessionAgents.get(sessionId);
+        const llmResult = await callLLM(messages, ownerFlag, activeAgentId);
         lastUsage = llmResult.usage;
 
         if (llmResult.toolCalls.length === 0) {
-          // No tool calls — this is the final response
+          // No tool calls — check if this is an "I can't" response
+          // If so, auto-triage to see if we have tools or could build one
+          const cantPhrases = [
+            "i can't", "i cannot", "i don't have", "i'm unable", "not available",
+            "no tool", "don't currently", "not supported", "beyond my", "outside my",
+            "i lack", "not possible for me", "i'm not able",
+          ];
+          const lowerContent = llmResult.content.toLowerCase();
+          const signalsInability = cantPhrases.some(p => lowerContent.includes(p));
+
+          if (signalsInability && iteration === 1 && toolRegistry.has('cli_triage')) {
+            // Auto-triage: check if we actually DO have tools for this
+            log.info('Agent', `Fallback triage triggered — LLM said it can't, checking if tools exist`);
+            const triageResult = await toolRegistry.execute({
+              toolName: 'cli_triage',
+              arguments: { request: message },
+              rawText: '',
+            });
+            toolResults.push(triageResult);
+            metricsCollector.recordTool('cli_triage', triageResult.success);
+
+            if (triageResult.success && triageResult.result) {
+              // Re-inject triage result and let LLM reconsider
+              messages.push({
+                role: 'assistant',
+                content: llmResult.content || null,
+                tool_calls: [{
+                  id: 'auto_triage',
+                  type: 'function' as const,
+                  function: { name: 'cli_triage', arguments: JSON.stringify({ request: message }) },
+                }],
+              } as ChatMsg);
+              messages.push({
+                role: 'tool',
+                tool_call_id: 'auto_triage',
+                content: triageResult.result,
+              } as ChatMsg);
+              log.info('Agent', `Fallback triage result: ${triageResult.result.slice(0, 200)}`);
+              // Audit log the triage
+              logCapability({
+                action: 'triage',
+                request: message,
+                triageVerdict: triageResult.result.match(/Verdict:\s*(\w+)/i)?.[1] || 'unknown',
+                triageReason: triageResult.result.slice(0, 500),
+                sessionId,
+                source,
+              });
+              // Continue the loop — LLM will see triage result and act on it
+              continue;
+            }
+          }
+
+          // Truly the final response
           finalContent = llmResult.content;
           break;
         }
@@ -499,7 +626,7 @@ export function createAgentOrchestrator(
       metricsCollector.recordMessage(source || 'web', 'out');
 
       // Extract soul data in the background (don't block the response)
-      extractSoulData(sessionId, message, finalContent, source, contactName, ownerFlag).catch(err => {
+      extractSoulData(sessionId, message, finalContent, source, contactName, ownerFlag).catch((err: any) => {
         console.error('[Soul] Background extraction failed:', err.message);
       });
 
@@ -570,6 +697,50 @@ export function createAgentOrchestrator(
 
     getSoul(): Soul {
       return soul;
+    },
+    
+    switchAgent(sessionId: string, agentId: string | null): void {
+      if (!agentId || agentId === 'main') {
+        sessionAgents.delete(sessionId);
+      } else {
+        sessionAgents.set(sessionId, agentId);
+      }
+    },
+
+    listAgents(): AgentDefinition[] {
+      return Array.from(agents.values());
+    },
+
+    getAgentMarkdown(agentId: string): string | null {
+      if (!workspacePath) return null;
+      const filePath = path.join(workspacePath, 'agents', `${agentId}.agent.md`);
+      if (!fs.existsSync(filePath)) return null;
+      try {
+        return fs.readFileSync(filePath, 'utf8');
+      } catch (err: any) {
+        console.error(`[Orchestrator] Error reading agent file ${filePath}:`, err.message);
+        return null;
+      }
+    },
+
+    saveAgentMarkdown(agentId: string, content: string): void {
+      if (!workspacePath) return;
+      const agentsDir = path.join(workspacePath, 'agents');
+      if (!fs.existsSync(agentsDir)) fs.mkdirSync(agentsDir, { recursive: true });
+      
+      const filePath = path.join(agentsDir, `${agentId}.agent.md`);
+      try {
+        fs.writeFileSync(filePath, content, 'utf8');
+        // Reload the agent definition using the already imported function
+        const loadedAgents = loadAgentDefinitions(workspacePath);
+        const updatedAgent = loadedAgents.find(a => a.id === agentId);
+        if (updatedAgent) {
+          agents.set(agentId, updatedAgent);
+          console.log(`[Orchestrator] 🔄 Reloaded specialized agent: ${agentId}`);
+        }
+      } catch (err: any) {
+        console.error(`[Orchestrator] Error writing agent file ${filePath}:`, err.message);
+      }
     },
   };
 }

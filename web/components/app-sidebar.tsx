@@ -16,6 +16,8 @@ import {
   CalendarCheck,
   Plug,
   Wrench,
+  Terminal,
+  Apple,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -48,11 +50,16 @@ const mainItems = [
 const channelItems = [
   { title: "WhatsApp", href: "/whatsapp", icon: MessageCircle },
   { title: "Telegram", href: "/telegram", icon: Send },
+  { title: "iMessage", href: "/imessage", icon: Apple },
 ];
 
 const integrationItems = [
   { title: "Google Apps", href: "/google", icon: Globe },
   { title: "MCP Servers", href: "/mcp-servers", icon: Plug },
+];
+
+const developerItems = [
+  { title: "CLI", href: "/cli", icon: Terminal },
 ];
 
 export function AppSidebar() {
@@ -123,6 +130,15 @@ export function AppSidebar() {
           <SidebarGroupContent>
             <SidebarMenu>
               {integrationItems.map(renderItem)}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+
+        <SidebarGroup>
+          <SidebarGroupLabel>Developer</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {developerItems.map(renderItem)}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>

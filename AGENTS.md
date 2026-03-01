@@ -40,8 +40,8 @@
 │  Handler    │   (LLM loop)  │   → Outcome                      │
 ├─────────────┴───────────────┴───────────────────────────────────┤
 │  Tool Registry (tools/)                                          │
-│  59 tools across 7 modules: messaging, approvals,               │
-│  web-search, skills, browser, scheduler, google                  │
+│  64 tools across 8 modules: messaging, approvals,                │
+│  web-search, skills, browser, scheduler, google, cli             │
 ├──────────────┬───────────────┬──────────────────────────────────┤
 │  WhatsApp    │  Telegram     │  Google Workspace                │
 │  Connection  │  Connection   │  Gmail, Sheets, Drive, Calendar  │
@@ -78,7 +78,8 @@ ubot/                                  # Monorepo root
 │   │   │       ├── skills.ts          # /api/skills/*
 │   │   │       ├── safety.ts          # /api/safety/*
 │   │   │       ├── memory.ts          # /api/personas/*, /api/memories/*, /api/scheduler/*, /api/approvals/*
-│   │   │       └── integrations.ts    # /api/google/*
+│   │   │       ├── integrations.ts    # /api/google/*
+│   │   │       └── cli.ts             # /api/cli/* (status, toggle, install, auth, sessions)
 │   │   │
 │   │   ├── engine/                    # Core AI engine
 │   │   │   ├── orchestrator.ts        # Main agent loop: message → LLM → tools → response
@@ -109,6 +110,7 @@ ubot/                                  # Monorepo root
 │   │   │   ├── browser.ts             # 8 tools: browse, click, type, read, screenshot, etc.
 │   │   │   ├── scheduler.ts           # 6 tools: schedule, remind, list, delete, trigger, set_auto_reply
 │   │   │   ├── google.ts              # 29 tools: Gmail, Drive, Sheets, Docs, Contacts, Calendar, Places
+│   │   │   └── cli.ts                 # 5 tools: cli_run, cli_status, cli_stop, cli_list_sessions, cli_send_input
 
 │   │   ├── channels/                  # Messaging channels (bidirectional chat pipes)
 │   │   │   ├── registry.ts            # Provider registry (WhatsApp, Telegram)
@@ -156,6 +158,18 @@ ubot/                                  # Monorepo root
 │   │   │       ├── memory/            # Skill memory subsystem
 │   │   │       ├── file-management/   # File operations skill
 │   │   │       └── web-search/        # Web search skill
+│   │   │   └── cli/                   # CLI agent integration
+│   │   │       ├── service.ts         # CliService (session management, install, auth)
+│   │   │       ├── types.ts           # CLI types, provider binaries, packages
+│   │   │       ├── custom-loader.ts   # Dynamic loader for custom tool modules
+│   │   │       └── test-pipeline.ts   # Test/promote/delete pipeline for custom modules
+│   │   │
+│   ├── custom/                        # Custom tool modules (CLI-generated)
+│   │   ├── tsconfig.json              # TypeScript config for custom modules
+│   │   ├── templates/                 # Boilerplate templates for CLI agents
+│   │   │   └── tool-module.ts.tmpl    # ToolModule boilerplate with proper types
+│   │   ├── staging/                   # Modules being built/tested (not yet live)
+│   │   └── modules/                   # Promoted live modules (hot-loaded at startup)
 │   │   │
 │   │   ├── data/                      # Data & persistence
 │   │   │   ├── database/              # SQLite connection + migrations
@@ -192,6 +206,7 @@ ubot/                                  # Monorepo root
 │   │   │   ├── telegram/page.tsx      # Telegram bot
 │   │   │   ├── google/page.tsx        # Google Apps
 │   │   │   ├── approvals/page.tsx     # Owner approvals
+│   │   │   ├── cli/page.tsx           # CLI agent configuration & monitoring
 │   │   │   └── logs/page.tsx          # Log viewer
 │   │   └── components/
 │   │       ├── app-sidebar.tsx
@@ -214,13 +229,13 @@ ubot/                                  # Monorepo root
 
 Ubot's architecture is organized into 5 clearly defined layers:
 
-| Layer           | Definition                                                              | Location                   | Examples                                     |
-| --------------- | ----------------------------------------------------------------------- | -------------------------- | -------------------------------------------- |
-| **Channel**     | Bidirectional communication pipe through which users interact with ubot | `src/channels/`            | WhatsApp, Telegram                           |
-| **Integration** | Connection to an external third-party service via API                   | `src/integrations/`        | Google Workspace                             |
-| **Capability**  | Built-in system capability that powers tools (internal)                 | `src/capabilities/`        | Browser (Puppeteer), Scheduler, Skill Engine |
-| **Tool**        | LLM-callable function exposed to the AI engine                          | `src/tools/`               | `send_message`, `gmail_search`, `browse_url` |
-| **Skill**       | User-created automation rule (Event→Trigger→Processor→Outcome)          | `src/capabilities/skills/` | "Auto-reply to John", "Forward invoices"     |
+| Layer           | Definition                                                              | Location                   | Examples                                          |
+| --------------- | ----------------------------------------------------------------------- | -------------------------- | ------------------------------------------------- |
+| **Channel**     | Bidirectional communication pipe through which users interact with ubot | `src/channels/`            | WhatsApp, Telegram                                |
+| **Integration** | Connection to an external third-party service via API                   | `src/integrations/`        | Google Workspace                                  |
+| **Capability**  | Built-in system capability that powers tools (internal)                 | `src/capabilities/`        | Browser (Puppeteer), Scheduler, Skill Engine, CLI |
+| **Tool**        | LLM-callable function exposed to the AI engine                          | `src/tools/`               | `send_message`, `gmail_search`, `browse_url`      |
+| **Skill**       | User-created automation rule (Event→Trigger→Processor→Outcome)          | `src/capabilities/skills/` | "Auto-reply to John", "Forward invoices"          |
 
 ## Key Concepts
 
@@ -260,19 +275,65 @@ User-created automations following: **Event → Trigger → Processor → Outcom
 
 ### Tool Modules (`src/tools/`)
 
-| Module       | Tools | Description                                            |
-| ------------ | ----- | ------------------------------------------------------ |
-| `messaging`  | 8     | send, search, contacts, conversations, delete, reply   |
-| `approvals`  | 3     | ask_owner, respond, list_pending                       |
-| `web-search` | 1     | web_search (SearXNG + Puppeteer fallback)              |
-| `skills`     | 4     | CRUD skills                                            |
-| `browser`    | 8     | browse, click, type, read, screenshot, scroll, emails  |
-| `scheduler`  | 6     | schedule, remind, list, delete, trigger, auto_reply    |
-| `google`     | 29    | Gmail, Drive, Sheets, Docs, Contacts, Calendar, Places |
+| Module       | Tools | Description                                                                                                                                            |
+| ------------ | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `messaging`  | 8     | send, search, contacts, conversations, delete, reply                                                                                                   |
+| `approvals`  | 3     | ask_owner, respond, list_pending                                                                                                                       |
+| `web-search` | 1     | web_search (SearXNG + Puppeteer fallback)                                                                                                              |
+| `skills`     | 4     | CRUD skills                                                                                                                                            |
+| `browser`    | 8     | browse, click, type, read, screenshot, scroll, emails                                                                                                  |
+| `scheduler`  | 6     | schedule, remind, list, delete, trigger, auto_reply                                                                                                    |
+| `google`     | 29    | Gmail, Drive, Sheets, Docs, Contacts, Calendar, Places                                                                                                 |
+| `cli`        | 10    | cli_run, cli_status, cli_stop, cli_list_sessions, cli_send_input, cli_test_module, cli_promote_module, cli_list_modules, cli_triage, cli_delete_module |
+| `custom_*`   | var.  | CLI-generated custom modules — hot-loaded from `custom/modules/`                                                                                       |
 
 ### Owner Approval System (`src/engine/pending-approvals.ts`)
 
 When a third-party asks something sensitive, the bot escalates via `ask_owner` tool. The owner sees pending approvals in the dashboard and can respond.
+
+### Custom Capabilities Pipeline (Self-Extending Architecture)
+
+UBOT can autonomously extend itself with new tools. The pipeline is:
+
+```
+User request → Agent tries existing tools → Can't handle it?
+                                              ↓
+                                     AUTO-TRIAGE (fallback)
+                                     Checks all 78+ tools
+                                              ↓
+                              ┌───────┬───────┬───────┐
+                           EXISTS   SKILL   TOOL   REJECT
+                              │       │       │       │
+                           Use it  Create   Build   Explain
+                           directly skill   module  why not
+                                            ↓
+                                   cli_run (in custom/staging/)
+                                            ↓
+                                   cli_test_module (tsc + shape)
+                                            ↓
+                                   cli_promote_module (hot-load)
+                                            ↓
+                                   Tool immediately available ✅
+```
+
+**Key files:**
+
+- `src/engine/orchestrator.ts` — Fallback triage wired into the chat loop (line ~505)
+- `src/tools/cli.ts` — All CLI tools including `cli_triage`, `cli_delete_module`
+- `src/capabilities/cli/custom-loader.ts` — Dynamic module discovery, loading, validation, hot-reload
+- `src/capabilities/cli/test-pipeline.ts` — Test, promote, delete, list modules
+- `custom/templates/tool-module.ts.tmpl` — Boilerplate for CLI agents
+- `custom/tsconfig.json` — TypeScript config for custom modules (extends main tsconfig)
+
+**Triage verdicts:**
+| Verdict | Meaning | Action |
+|---------|---------|--------|
+| EXISTS | Tools already handle this | Use them directly |
+| SKILL | Composable from existing tools | Create skill with stages |
+| TOOL | Genuinely new capability | Build via CLI pipeline |
+| REJECT | Impossible or out of scope | Explain why |
+
+**Auto-triage trigger:** When the LLM responds with "I can't" / "not available" / "no tool" without calling any tools, the orchestrator automatically invokes `cli_triage` and feeds the result back to the LLM for reconsideration.
 
 ## CLI & Installation
 

@@ -1,0 +1,10 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "outDir": "../dist/custom",
+    "noEmit": true
+  },
+  "include": ["staging/**/*", "modules/**/*"],
+  "exclude": ["node_modules"]
+}

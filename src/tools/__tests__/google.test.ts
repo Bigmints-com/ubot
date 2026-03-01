@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import googleModule from './google.js';
+import googleModule from '../google.js';
 import { registerModule } from './test-helpers.js';
 
 const EXPECTED_TOOLS = [

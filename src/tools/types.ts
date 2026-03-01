@@ -17,6 +17,7 @@ export type ToolExecutor = (args: Record<string, unknown>) => Promise<ToolExecut
 /** Registry interface — register tool executors, execute tool calls */
 export interface ToolRegistry {
   register(toolName: string, executor: ToolExecutor): void;
+  unregister(toolName: string): boolean;
   execute(toolCall: ToolCallResult): Promise<ToolExecutionResult>;
   has(toolName: string): boolean;
 }
@@ -34,6 +35,8 @@ export interface ToolContext {
   getTelegram(): any | null;
   getAgent(): any | null;
   getEventBus(): any | null;
+  getWorkspacePath(): string | null;
+  getCliService(): any | null;
 }
 
 /**

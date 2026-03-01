@@ -22,7 +22,7 @@ import { OWNER_SOUL_ID } from '../memory/soul.js';
 
 // ─── Types ────────────────────────────────────────────────
 
-export type Channel = 'whatsapp' | 'telegram' | 'web';
+export type Channel = 'whatsapp' | 'telegram' | 'imessage' | 'web';
 
 export interface UnifiedMessage {
   /** Which transport delivered this message */
@@ -153,8 +153,10 @@ function resolveSessionId(msg: UnifiedMessage, isOwner: boolean): string {
   // Visitors get channel-specific sessions
   switch (msg.channel) {
     case 'telegram': return `telegram:${msg.senderId}`;
+    case 'imessage': return `imessage:${msg.senderId}`;
     case 'whatsapp': return msg.senderId; // WhatsApp JID is already the session
     case 'web': return 'web-console';
+    default: return msg.senderId;
   }
 }
 
@@ -291,8 +293,9 @@ export async function handleIncomingMessage(
 
 // ─── Helpers ─────────────────────────────────────────────
 
-function resolveChannelFromSessionId(sessionId: string): 'web' | 'whatsapp' | 'telegram' {
+function resolveChannelFromSessionId(sessionId: string): Channel {
   if (sessionId.startsWith('telegram:')) return 'telegram';
+  if (sessionId.startsWith('imessage:')) return 'imessage';
   if (sessionId === 'web-console') return 'web';
   return 'whatsapp';
 }

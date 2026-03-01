@@ -79,7 +79,9 @@ export async function handleToolsRoutes(
       if (module.startsWith('mcp:')) {
         const serverName = module.split(':')[1];
         if (ctx.mcpManager) {
-          const mcpStatus = ctx.mcpManager.getServerStatus(serverName);
+          const servers = ctx.mcpManager.getServers();
+          const server = servers.find(s => s.name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '') === serverName);
+          const mcpStatus = server?.status;
           if (mcpStatus !== 'connected') {
             status = 'disconnected';
             message = `MCP Server '${serverName}' is ${mcpStatus || 'offline'}`;

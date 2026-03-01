@@ -17,6 +17,8 @@ import { WhatsAppConnection } from '../channels/whatsapp/connection.js';
 import { WhatsAppMessagingProvider } from '../channels/whatsapp/messaging-provider.js';
 import { TelegramConnection } from '../channels/telegram/connection.js';
 import { TelegramMessagingProvider } from '../channels/telegram/messaging-provider.js';
+import { BlueBubblesConnection } from '../channels/imessage/connection.js';
+import { IMessageMessagingProvider } from '../channels/imessage/messaging-provider.js';
 import { MessagingRegistry } from '../channels/registry.js';
 import { createSkillRepository, type SkillRepository } from '../capabilities/skills/skill-repository.js';
 import { createSkillEngine, type SkillEngine } from '../capabilities/skills/skill-engine.js';
@@ -39,7 +41,40 @@ import { handleSafetyRoutes } from './routes/safety.js';
 import { handleMemoryRoutes } from './routes/memory.js';
 import { handleIntegrationRoutes } from './routes/integrations.js';
 import { handleToolsRoutes } from './routes/tools.js';
+import { handleCliRoutes } from './routes/cli.js';
 import { json, parseBody, error as apiError, type ApiContext } from './context.js';
+
+// Middleware
+import { requiresAuth, authenticate, sendUnauthorized } from './middleware/auth.js';
+import { ApiRateLimiter, sendRateLimited, setRateLimitHeaders } from './middleware/rate-limiter.js';
+import { logRequest, wrapResponse } from './middleware/request-logger.js';
+
+// ─── Rate Limiter Instance ───────────────────────────────
+
+const rateLimiter = new ApiRateLimiter();
+
+// ─── CORS Configuration ─────────────────────────────────
+
+function getAllowedOrigins(): string[] {
+  try {
+    const config = loadUbotConfig();
+    const origins = (config as any).api?.cors_origins;
+    if (Array.isArray(origins) && origins.length > 0) return origins;
+  } catch {}
+  // Default: allow localhost dev servers
+  return ['http://localhost:4080', 'http://localhost:4081', 'http://localhost:3000'];
+}
+
+function getCorsOrigin(req: http.IncomingMessage): string {
+  const origin = req.headers['origin'] || '';
+  const allowed = getAllowedOrigins();
+  // If wildcard is in the list, allow everything
+  if (allowed.includes('*')) return '*';
+  // Check if request origin is in the allowlist
+  if (allowed.includes(origin)) return origin;
+  // Default deny — return first allowed origin
+  return allowed[0] || '';
+}
 
 // ─── In-memory State ─────────────────────────────────────
 
@@ -51,6 +86,7 @@ let safetyRules: SafetyRule[] = DEFAULT_SAFETY_RULES.map((r, i) => ({
   updatedAt: new Date(),
 })) as SafetyRule[];
 let whatsappConfig: Partial<WhatsAppConnectionConfig> = { ...DEFAULT_WHATSAPP_CONFIG };
+let workspacePath: string | null = null;
 
 // WhatsApp connection state
 let waConnection: WhatsAppConnection | null = null;
@@ -80,6 +116,15 @@ let tgProvider: TelegramMessagingProvider | null = null;
 
 const tgMessages: Array<{ from: string; to: string; body: string; timestamp: string; isFromMe: boolean }> = [];
 const MAX_TG_MESSAGES = 100;
+
+// iMessage (BlueBubbles) connection state
+let imConnection: BlueBubblesConnection | null = null;
+let imStatus: string = 'disconnected';
+let imError: string | null = null;
+let imProvider: IMessageMessagingProvider | null = null;
+
+const imMessages: Array<{ from: string; to: string; body: string; timestamp: string; isFromMe: boolean }> = [];
+const MAX_IM_MESSAGES = 100;
 
 // Universal skill engine
 let skillRepo: SkillRepository | null = null;
@@ -393,9 +438,105 @@ async function autoConnectTelegram(): Promise<void> {
   }
 }
 
+// ─── iMessage (BlueBubbles) ──────────────────────────────
+
+function setupIMessageHandlers(conn: BlueBubblesConnection): void {
+  conn.on('connection.update', (status) => {
+    imStatus = status;
+    log.info('iMessage', `Status: ${status}`);
+  });
+
+  conn.on('message.received', (bbMsg) => {
+    const from = bbMsg.handle?.address || 'unknown';
+    const displayName = [bbMsg.handle?.firstName, bbMsg.handle?.lastName].filter(Boolean).join(' ') || from;
+
+    imMessages.push({
+      from: displayName,
+      to: 'me',
+      body: bbMsg.text || '',
+      timestamp: new Date(bbMsg.dateCreated).toISOString(),
+      isFromMe: false,
+    });
+    if (imMessages.length > MAX_IM_MESSAGES) imMessages.shift();
+
+    log.info('iMessage', `Message from ${displayName}: ${(bbMsg.text || '').slice(0, 50)}`);
+
+    // Auto-reply via agent if enabled
+    const config = loadUbotConfig();
+    if (config.imessage?.autoReply && agentOrchestrator && imProvider) {
+      const chatGuid = bbMsg.chats?.[0]?.guid;
+      if (!chatGuid) return;
+
+      const unified: UnifiedMessage = {
+        channel: 'imessage' as any,
+        senderId: chatGuid,
+        senderName: displayName,
+        body: bbMsg.text || '',
+        timestamp: new Date(bbMsg.dateCreated),
+        replyFn: async (text: string) => {
+          if (imConnection) {
+            await imConnection.sendMessage(chatGuid, text);
+            imMessages.push({ from: 'me', to: displayName, body: text, timestamp: new Date().toISOString(), isFromMe: true });
+          }
+        },
+        extra: { rawJid: chatGuid },
+      };
+
+      const deps: UnifiedDeps = {
+        orchestrator: agentOrchestrator,
+        approvalStore,
+        eventBus,
+        skillEngine,
+        saveConfigValue,
+        relayMessage: relayApprovalResponse,
+      };
+
+      handleIncomingMessage(unified, deps).catch(err => {
+        log.error('iMessage', `Agent reply error: ${err.message}`);
+      });
+    }
+  });
+
+  conn.on('error', (err) => {
+    imError = err.message;
+    log.error('iMessage', `Error: ${err.message}`);
+  });
+}
+
+async function autoConnectIMessage(): Promise<void> {
+  const savedServerUrl = loadConfigValue('imessage_server_url');
+  const savedPassword = loadConfigValue('imessage_password');
+  if (!savedServerUrl || !savedPassword) {
+    console.log('[iMessage] No saved BlueBubbles config — waiting for manual connect via UI');
+    return;
+  }
+
+  log.info('iMessage', 'Found saved BlueBubbles config, auto-reconnecting...');
+  imStatus = 'connecting';
+
+  try {
+    if (imConnection) {
+      try { await imConnection.disconnect(); } catch { /* ignore */ }
+    }
+    imConnection = new BlueBubblesConnection({ serverUrl: savedServerUrl, password: savedPassword });
+    setupIMessageHandlers(imConnection);
+    await imConnection.connect();
+
+    imProvider = new IMessageMessagingProvider(imConnection);
+    messagingRegistry.register(imProvider);
+    log.info('iMessage', 'Messaging provider registered');
+    log.info('iMessage', 'Auto-reconnected successfully');
+  } catch (e: any) {
+    log.error('iMessage', `Auto-connect failed: ${e.message}`);
+    imStatus = 'disconnected';
+    imError = e.message;
+  }
+}
+
 // ─── Initialization ──────────────────────────────────────
 
-export function initializeApi(db?: DatabaseConnection, agent?: AgentOrchestrator): void {
+export function initializeApi(db?: DatabaseConnection, agent?: AgentOrchestrator, wsPath?: string): void {
+  workspacePath = wsPath || null;
   if (db) {
 
     skillRepo = createSkillRepository(db as unknown as CoreDatabaseConnection);
@@ -512,6 +653,13 @@ export function initializeApi(db?: DatabaseConnection, agent?: AgentOrchestrator
   }
   scheduler = createTaskScheduler();
   scheduler.start().catch(err => console.error('[Scheduler] Failed to start:', err));
+
+  // Bridge scheduler events to the skill engine's EventBus
+  if (eventBus && scheduler) {
+    import('../engine/scheduler-adapter.js').then(({ wireSchedulerToEventBus }) => {
+      wireSchedulerToEventBus(scheduler!, eventBus!);
+    }).catch(err => console.error('[SchedulerAdapter] Failed to wire:', err.message));
+  }
   if (agent) {
     agentOrchestrator = agent;
     registerAgentTools(agent);
@@ -519,6 +667,7 @@ export function initializeApi(db?: DatabaseConnection, agent?: AgentOrchestrator
 
   autoConnectWhatsApp();
   autoConnectTelegram();
+  autoConnectIMessage();
 }
 
 async function registerAgentTools(agent: AgentOrchestrator): Promise<void> {
@@ -534,9 +683,21 @@ async function registerAgentTools(agent: AgentOrchestrator): Promise<void> {
     getTelegram: () => tgConnection,
     getAgent: () => agent,
     getEventBus: () => eventBus,
+    getWorkspacePath: () => workspacePath,
+    getCliService: () => null, // CLI service is lazily loaded in the tool module
   };
 
   registerAllToolModules(registry, toolContext);
+
+  // Load custom tool modules from custom/modules/
+  const { registerCustomModules } = await import('../tools/registry.js');
+  await registerCustomModules(registry, toolContext);
+
+  // Initialize capability audit log
+  if (coreDb) {
+    const { initCapabilityLog } = await import('../capabilities/cli/capability-log.js');
+    initCapabilityLog(coreDb);
+  }
 
   // Initialize MCP server manager and connect saved servers
   mcpManager = getMcpServerManager();
@@ -739,6 +900,93 @@ async function handleChannelRoutes(
     return true;
   }
 
+  // ── iMessage (BlueBubbles) ─────────────────────────────
+  if (url === '/api/imessage/status' && method === 'GET') {
+    json(res, {
+      status: imStatus,
+      error: imError,
+      serverUrl: loadConfigValue('imessage_server_url') ? '(configured)' : null,
+    });
+    return true;
+  }
+
+  if (url === '/api/imessage/connect' && method === 'POST') {
+    const body = await parseBody(req) as any;
+    const serverUrl = body?.serverUrl;
+    const password = body?.password;
+    if (!serverUrl || !password) {
+      apiError(res, 'serverUrl and password are required', 400);
+      return true;
+    }
+
+    imError = null;
+    imStatus = 'connecting';
+
+    try {
+      if (imConnection) {
+        try { await imConnection.disconnect(); } catch { /* ignore */ }
+      }
+
+      imConnection = new BlueBubblesConnection({ serverUrl, password });
+      setupIMessageHandlers(imConnection);
+      await imConnection.connect();
+
+      // Save config
+      saveConfigValue('imessage_server_url', serverUrl);
+      saveConfigValue('imessage_password', password);
+      log.info('iMessage', 'BlueBubbles config saved');
+
+      // Register messaging provider
+      if (imProvider) {
+        messagingRegistry.unregister('imessage');
+      }
+      imProvider = new IMessageMessagingProvider(imConnection);
+      messagingRegistry.register(imProvider);
+      log.info('iMessage', 'Messaging provider registered');
+
+      json(res, { status: 'connected', message: 'Connected to BlueBubbles' });
+    } catch (e: any) {
+      imStatus = 'disconnected';
+      imError = e.message;
+      apiError(res, e.message, 500);
+    }
+    return true;
+  }
+
+  if (url === '/api/imessage/disconnect' && method === 'POST') {
+    if (imConnection) {
+      try { await imConnection.disconnect(); } catch {}
+      imConnection = null;
+    }
+    if (imProvider) {
+      messagingRegistry.unregister('imessage');
+      imProvider = null;
+    }
+    imStatus = 'disconnected';
+    imError = null;
+    saveConfigValue('imessage_server_url', '');
+    saveConfigValue('imessage_password', '');
+    json(res, { status: 'disconnected' });
+    return true;
+  }
+
+  if (url === '/api/imessage/messages' && method === 'GET') {
+    json(res, { messages: [...imMessages].reverse().slice(0, 50) });
+    return true;
+  }
+
+  // BlueBubbles webhook endpoint (receives incoming messages)
+  if (url === '/api/imessage/webhook' && method === 'POST') {
+    const body = await parseBody(req) as any;
+    const event = body?.type || body?.event;
+    const data = body?.data;
+    if (imConnection && event && data) {
+      imConnection.handleWebhook(event, data);
+    }
+    json(res, { ok: true });
+    return true;
+  }
+
   return false;
 }
 
@@ -750,20 +998,76 @@ export async function handleApiRoute(
   url: string,
   method: string
 ): Promise<boolean> {
-  // CORS preflight
+  const corsOrigin = getCorsOrigin(req);
+
+  // ── CORS preflight ─────────────────────────────────────
   if (method === 'OPTIONS') {
     res.writeHead(204, {
-      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Origin': corsOrigin,
       'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type',
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+      'Access-Control-Max-Age': '86400',
     });
     res.end();
     return true;
   }
 
+  // Set CORS header on all responses
+  res.setHeader('Access-Control-Allow-Origin', corsOrigin);
+
+  // ── Request logging (wrap response to capture status) ──
+  wrapResponse(res);
+  let clientName: string | undefined;
+
+  // ── Health check (unauthenticated) ─────────────────────
+  if (url === '/api/health' && method === 'GET') {
+    const uptime = process.uptime();
+    json(res, {
+      status: 'ok',
+      uptime: Math.floor(uptime),
+      version: '1.0.0',
+      channels: {
+        whatsapp: waStatus,
+        telegram: tgStatus,
+      },
+      llm: agentOrchestrator ? 'online' : 'offline',
+      tools: agentOrchestrator ? (() => { try { const { getAllToolDefinitions } = require('../tools/registry.js'); return getAllToolDefinitions().length; } catch { return 0; } })() : 0,
+    });
+    return true;
+  }
+
+  // ── Authentication ─────────────────────────────────────
+  if (requiresAuth(method, url)) {
+    const authResult = authenticate(req);
+    if (!authResult.authenticated) {
+      sendUnauthorized(res, authResult.error || 'Unauthorized');
+      return true;
+    }
+    clientName = authResult.clientName;
+  }
+
+  // ── Rate limiting ──────────────────────────────────────
+  // Skip rate limiting for dashboard requests (same-origin UI polling).
+  // Rate limiting is for external API consumers, not the built-in dashboard.
+  const origin = req.headers['origin'] || req.headers['referer'] || '';
+  const isDashboard = origin.includes('localhost:11490') || origin.includes('localhost:4080');
+  if (!isDashboard) {
+    const rateLimitId = clientName || req.socket.remoteAddress || 'unknown';
+    const rateLimitResult = rateLimiter.check(rateLimitId, url);
+    if (!rateLimitResult.allowed) {
+      sendRateLimited(res, rateLimitResult);
+      return true;
+    }
+    setRateLimitHeaders(res, rateLimitResult);
+  }
+
+  // ── Request logging ────────────────────────────────────
+  const finishLog = logRequest(req, url, method, clientName);
+  res.on('finish', finishLog);
+
+  // ── Route handlers ─────────────────────────────────────
   const ctx = getApiContext();
 
-  // Try each route handler in order
   if (await handleChatRoutes(req, res, url, method, ctx)) return true;
   if (await handleChannelRoutes(req, res, url, method)) return true;
   if (await handleSkillRoutes(req, res, url, method, ctx)) return true;
@@ -771,6 +1075,7 @@ export async function handleApiRoute(
   if (await handleMemoryRoutes(req, res, url, method, ctx)) return true;
   if (await handleIntegrationRoutes(req, res, url, method, ctx)) return true;
   if (await handleToolsRoutes(req, res, url, method, ctx)) return true;
+  if (await handleCliRoutes(req, res, url, method, ctx)) return true;
 
   return false;
 }
