@@ -19,6 +19,8 @@ import webSearchTools from './web-search.js';
 import memoryTools from './memory.js';
 import filesTools from './files.js';
 import cliTools from './cli.js';
+import mediaTools from './media.js';
+import vaultTools from './vault.js';
 /**
  * All available tool modules, in registration order.
  * Add new modules here.
@@ -34,6 +36,8 @@ const ALL_MODULES: ToolModule[] = [
   filesTools,
   googleTools,
   cliTools,
+  mediaTools,
+  vaultTools,
 ];
 
 /**

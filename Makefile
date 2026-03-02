@@ -1,8 +1,10 @@
 .PHONY: all build build-backend build-web install uninstall clean dev help
 
 # ─── Shell & PATH (ensure nvm-managed node/npm is found) ────────────────────
-SHELL := /bin/zsh
-export PATH := $(HOME)/.nvm/versions/node/v22.22.0/bin:$(HOME)/.local/bin:$(PATH)
+SHELL := /bin/bash
+# Dynamically find the nvm-managed node directory (works across versions & platforms)
+NVM_NODE_DIR := $(shell ls -d $(HOME)/.nvm/versions/node/v22.*/bin 2>/dev/null | tail -1)
+export PATH := $(NVM_NODE_DIR):$(HOME)/.local/bin:$(PATH)
 
 # ─── Variables ──────────────────────────────────────────────────────────────────
 UBOT_HOME ?= $(HOME)/.ubot

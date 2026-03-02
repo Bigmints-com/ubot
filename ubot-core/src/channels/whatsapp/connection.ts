@@ -2,6 +2,7 @@ import makeWASocket, {
   DisconnectReason, 
   useMultiFileAuthState,
   fetchLatestBaileysVersion,
+  downloadMediaMessage,
   type WASocket
 } from '@whiskeysockets/baileys';
 import pino from 'pino';
@@ -40,6 +41,9 @@ export class WhatsAppConnection {
   private lidToPhone: Map<string, string> = new Map();
   private logger: pino.Logger;
   private rateLimiter: WhatsAppRateLimiter;
+  /** Keep recent raw messages for media download */
+  private rawMessages: Map<string, any> = new Map();
+  private readonly MAX_RAW_MESSAGES = 200;
 
   constructor(config: Partial<WhatsAppConnectionConfig> = {}) {
     this.config = { ...DEFAULT_WHATSAPP_CONFIG, ...config };
@@ -71,6 +75,31 @@ export class WhatsAppConnection {
   async sendMessage(jid: string, content: AnyMessageContent): Promise<WAMessage | undefined> {
     if (!this.socket) throw new Error('Not connected to WhatsApp');
     return this.rateLimiter.sendMessage(this.socket, jid, content);
+  }
+
+  /** Download media from a received message */
+  async downloadMedia(messageId: string): Promise<{ buffer: Buffer; mimeType: string } | null> {
+    const rawMsg = this.rawMessages.get(messageId);
+    if (!rawMsg) return null;
+
+    const msg = rawMsg.message;
+    if (!msg) return null;
+
+    // Determine MIME type from message content
+    let mimeType = 'application/octet-stream';
+    if (msg.imageMessage) mimeType = msg.imageMessage.mimetype || 'image/jpeg';
+    else if (msg.videoMessage) mimeType = msg.videoMessage.mimetype || 'video/mp4';
+    else if (msg.audioMessage) mimeType = msg.audioMessage.mimetype || 'audio/ogg';
+    else if (msg.documentMessage) mimeType = msg.documentMessage.mimetype || 'application/octet-stream';
+    else return null;
+
+    try {
+      const buffer = await downloadMediaMessage(rawMsg, 'buffer', {});
+      return { buffer: buffer as Buffer, mimeType };
+    } catch (err: any) {
+      console.error(`[WhatsApp] Failed to download media for ${messageId}:`, err.message);
+      return null;
+    }
   }
 
   /** Get the rate limiter instance (for stats / config updates) */
@@ -252,9 +281,23 @@ export class WhatsAppConnection {
     this.socket.ev.on('messages.upsert', ({ messages, type }) => {
       for (const msg of messages) {
         const body = this.extractBody(msg);
-        console.log(`[WhatsApp] 📩 type=${type} fromMe=${msg.key.fromMe} jid=${msg.key.remoteJid} body="${body.slice(0, 60)}"`);
-        if (!msg.key.fromMe && body) {
-          this.emit('message.received', this.parseMessage(msg, body));
+        const hasMedia = !!(msg.message?.imageMessage || msg.message?.videoMessage || msg.message?.audioMessage || msg.message?.documentMessage);
+        console.log(`[WhatsApp] 📩 type=${type} fromMe=${msg.key.fromMe} jid=${msg.key.remoteJid} hasMedia=${hasMedia} body="${body.slice(0, 60)}"`);
+        
+        // Store raw message for potential media download
+        if (msg.key.id && hasMedia) {
+          this.rawMessages.set(msg.key.id, msg);
+          // Prune old messages to prevent memory leak
+          if (this.rawMessages.size > this.MAX_RAW_MESSAGES) {
+            const oldest = this.rawMessages.keys().next().value;
+            if (oldest) this.rawMessages.delete(oldest);
+          }
+        }
+
+        // Emit message if it has body text OR media (media-only messages get a placeholder body)
+        if (!msg.key.fromMe && (body || hasMedia)) {
+          const parsed = this.parseMessage(msg, body || (hasMedia ? '[Media message]' : ''));
+          this.emit('message.received', parsed);
         }
       }
     });

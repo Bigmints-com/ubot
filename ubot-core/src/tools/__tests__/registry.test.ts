@@ -55,7 +55,7 @@ describe('Tool Registry', () => {
     expect(names).toContain('files');
     expect(names).toContain('google');
     expect(names).toContain('cli');
-    expect(names.length).toBe(10);
+    expect(names.length).toBe(12);
   });
 
   it('should collect all tool definitions', () => {

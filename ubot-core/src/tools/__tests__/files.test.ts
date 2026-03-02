@@ -5,9 +5,9 @@ import { createMockRegistry, createMockContext } from './test-helpers.js';
 describe('Files Tool Module', () => {
   it('should export correct module metadata', () => {
     expect(filesModule.name).toBe('files');
-    expect(filesModule.tools.length).toBe(4);
+    expect(filesModule.tools.length).toBe(5);
     expect(filesModule.tools.map(t => t.name)).toEqual([
-      'read_file', 'write_file', 'list_files', 'delete_file',
+      'read_file', 'write_file', 'list_files', 'delete_file', 'search_files',
     ]);
   });
 
@@ -45,7 +45,7 @@ describe('Files Tool Module', () => {
     const registry = createMockRegistry();
     const ctx = createMockContext();
     filesModule.register(registry, ctx);
-    expect(registry.registeredNames()).toHaveLength(4);
+    expect(registry.registeredNames()).toHaveLength(5);
     expect(registry.has('read_file')).toBe(true);
     expect(registry.has('write_file')).toBe(true);
     expect(registry.has('list_files')).toBe(true);

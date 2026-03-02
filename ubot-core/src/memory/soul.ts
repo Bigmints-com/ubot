@@ -228,7 +228,18 @@ export function createSoul(memoryStore: MemoryStore, workspacePath?: string): So
         }
       }
 
-      // 2c. Visitor security policy — clear intent-based rules
+      // 2c. Owner's rolling chat summary — long-term conversational memory
+      if (isOwner) {
+        const ownerSummaries = memoryStore.getMemories(OWNER_SOUL_ID, 'summary');
+        const ownerDigest = ownerSummaries.find(m => m.key === 'chat_digest');
+        if (ownerDigest && ownerDigest.value.trim()) {
+          sections.push('\n## Recent Conversation History');
+          sections.push('Key topics and actions from previous conversations:');
+          sections.push(ownerDigest.value.trim());
+        }
+      }
+
+      // 2d. Visitor security policy — clear intent-based rules
       if (!isOwner && contactId && contactId !== OWNER_SOUL_ID && contactId !== BOT_SOUL_ID) {
         sections.push(`
 ## Visitor Security Policy
@@ -480,15 +491,18 @@ export const SUMMARY_UPDATE_PROMPT = `You maintain a rolling summary of conversa
 
 You will be given:
 1. The CURRENT summary (may be empty for first conversation)
-2. A new CONVERSATION snippet
+2. A new CONVERSATION snippet (may include tool actions taken)
 
 Your task:
 - Update the summary to include key points from the new conversation
 - Keep it as a concise digest of all past interactions
-- Focus on: what was discussed, what was asked, what was decided/resolved
+- Focus on: what was discussed, what actions were taken (tool calls and their results), what was decided/resolved
+- ALWAYS preserve what tools were used and their outcomes — this is critical context for future conversations
+- Include specific details like file paths, names, numbers, and results when relevant
 - Drop trivial details (greetings, small talk)
-- Keep the summary under 500 characters
+- Keep the summary under 2000 characters
 - Most recent topics should appear first
+- Use a structured format: group related items, use dashes for lists
 
 If the current summary is empty, create a new one from the conversation.
 Respond with ONLY the updated summary text, nothing else.`;

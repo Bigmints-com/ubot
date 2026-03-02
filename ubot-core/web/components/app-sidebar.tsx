@@ -6,18 +6,19 @@ import {
   Puzzle,
   MessageCircle,
   Send,
-  Shield,
+  ShieldAlert,
   Clock,
   Settings,
   Bot,
   Brain,
   Globe,
   ScrollText,
-  CalendarCheck,
   Plug,
-  Wrench,
   Terminal,
   Apple,
+  Lock,
+  CheckCircle,
+  Activity,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -35,16 +36,21 @@ import {
   SidebarFooter,
 } from "@/components/ui/sidebar";
 
-const mainItems = [
+const coreItems = [
   { title: "Dashboard", href: "/", icon: LayoutDashboard },
   { title: "Command Center", href: "/chat", icon: MessageSquare },
-  { title: "Approvals", href: "/approvals", icon: Shield },
-  { title: "Skills", href: "/skills", icon: Puzzle },
+  { title: "Vault", href: "/vault", icon: Lock },
+];
+
+const agentItems = [
   { title: "Personas", href: "/personas", icon: Brain },
-  { title: "Tools Health", href: "/tools", icon: Wrench },
-  { title: "Safety Rules", href: "/safety", icon: Shield },
+  { title: "Skills", href: "/skills", icon: Puzzle },
+];
+
+const automationItems = [
   { title: "Scheduler", href: "/scheduler", icon: Clock },
-  { title: "Logs", href: "/logs", icon: ScrollText },
+  { title: "Approvals", href: "/approvals", icon: CheckCircle },
+  { title: "Safety Rules", href: "/safety", icon: ShieldAlert },
 ];
 
 const channelItems = [
@@ -56,16 +62,18 @@ const channelItems = [
 const integrationItems = [
   { title: "Google Apps", href: "/google", icon: Globe },
   { title: "MCP Servers", href: "/mcp-servers", icon: Plug },
+  { title: "CLI", href: "/cli", icon: Terminal },
 ];
 
-const developerItems = [
-  { title: "CLI", href: "/cli", icon: Terminal },
+const monitorItems = [
+  { title: "Logs", href: "/logs", icon: ScrollText },
+  { title: "Tools Health", href: "/tools", icon: Activity },
 ];
 
 export function AppSidebar() {
   const pathname = usePathname();
 
-  const renderItem = (item: (typeof mainItems)[0]) => (
+  const renderItem = (item: (typeof coreItems)[0]) => (
     <SidebarMenuItem key={item.href}>
       <SidebarMenuButton
         asChild
@@ -108,10 +116,28 @@ export function AppSidebar() {
 
       <SidebarContent>
         <SidebarGroup>
-          <SidebarGroupLabel>Navigation</SidebarGroupLabel>
+          <SidebarGroupLabel>Core</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {mainItems.map(renderItem)}
+              {coreItems.map(renderItem)}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+
+        <SidebarGroup>
+          <SidebarGroupLabel>Agents</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {agentItems.map(renderItem)}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+
+        <SidebarGroup>
+          <SidebarGroupLabel>Automation</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {automationItems.map(renderItem)}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
@@ -135,10 +161,10 @@ export function AppSidebar() {
         </SidebarGroup>
 
         <SidebarGroup>
-          <SidebarGroupLabel>Developer</SidebarGroupLabel>
+          <SidebarGroupLabel>Monitor</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {developerItems.map(renderItem)}
+              {monitorItems.map(renderItem)}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>

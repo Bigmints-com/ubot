@@ -17,6 +17,9 @@ export class TelegramConnection {
   private _status: TelegramConnectionStatus = 'disconnected';
   private eventListeners = new Map<string, Set<Function>>();
   private botInfo: TelegramBot.User | null = null;
+  /** Store recent raw messages for media download */
+  private rawMessages = new Map<string, TelegramBot.Message>();
+  private readonly MAX_RAW_MESSAGES = 200;
 
   constructor(config: TelegramConfig) {
     this.config = config;
@@ -102,9 +105,57 @@ export class TelegramConnection {
     return this.bot.sendMessage(chatId, text, opts);
   }
 
-  private handleMessage(msg: TelegramBot.Message): void {
-    if (!msg.text && !msg.caption) return;
+  /** Download media from a received message */
+  async downloadMedia(messageId: string): Promise<{ buffer: Buffer; mimeType: string; filename: string } | null> {
+    if (!this.bot) return null;
+    const rawMsg = this.rawMessages.get(messageId);
+    if (!rawMsg) return null;
 
+    try {
+      let fileId: string | undefined;
+      let mimeType = 'application/octet-stream';
+      let filename = 'file';
+
+      if (rawMsg.photo && rawMsg.photo.length > 0) {
+        // Get the largest photo
+        const largest = rawMsg.photo[rawMsg.photo.length - 1];
+        fileId = largest.file_id;
+        mimeType = 'image/jpeg';
+        filename = `photo-${messageId}.jpg`;
+      } else if (rawMsg.document) {
+        fileId = rawMsg.document.file_id;
+        mimeType = rawMsg.document.mime_type || 'application/octet-stream';
+        filename = rawMsg.document.file_name || `document-${messageId}`;
+      } else if (rawMsg.video) {
+        fileId = rawMsg.video.file_id;
+        mimeType = rawMsg.video.mime_type || 'video/mp4';
+        filename = `video-${messageId}.mp4`;
+      } else if (rawMsg.audio) {
+        fileId = rawMsg.audio.file_id;
+        mimeType = rawMsg.audio.mime_type || 'audio/mpeg';
+        filename = (rawMsg.audio as any).file_name || rawMsg.audio.title || `audio-${messageId}.mp3`;
+      } else if (rawMsg.voice) {
+        fileId = rawMsg.voice.file_id;
+        mimeType = rawMsg.voice.mime_type || 'audio/ogg';
+        filename = `voice-${messageId}.ogg`;
+      }
+
+      if (!fileId) return null;
+
+      const fileLink = await this.bot.getFileLink(fileId);
+      const response = await fetch(fileLink);
+      if (!response.ok) return null;
+      const arrayBuffer = await response.arrayBuffer();
+      const buffer = Buffer.from(arrayBuffer);
+
+      return { buffer, mimeType, filename };
+    } catch (err: any) {
+      console.error(`[Telegram] Failed to download media for ${messageId}:`, err.message);
+      return null;
+    }
+  }
+
+  private handleMessage(msg: TelegramBot.Message): void {
     const body = msg.text || msg.caption || '';
     const from = msg.from
       ? `${msg.from.first_name}${msg.from.last_name ? ' ' + msg.from.last_name : ''}`
@@ -121,12 +172,25 @@ export class TelegramConnection {
     else if (msg.voice) { hasMedia = true; mediaType = 'voice'; }
     else if (msg.sticker) { hasMedia = true; mediaType = 'sticker'; }
 
+    // Skip messages with no text AND no media
+    if (!body && !hasMedia) return;
+
+    // Store raw message for media download
+    const msgId = msg.message_id.toString();
+    if (hasMedia) {
+      this.rawMessages.set(msgId, msg);
+      if (this.rawMessages.size > this.MAX_RAW_MESSAGES) {
+        const oldest = this.rawMessages.keys().next().value;
+        if (oldest) this.rawMessages.delete(oldest);
+      }
+    }
+
     const message: TelegramMessage = {
-      id: msg.message_id.toString(),
+      id: msgId,
       chatId: msg.chat.id,
       from,
       fromUsername: msg.from?.username,
-      body,
+      body: body || (hasMedia ? '[Media message]' : ''),
       timestamp: new Date(msg.date * 1000),
       isFromMe,
       hasMedia,
@@ -134,7 +198,7 @@ export class TelegramConnection {
       replyToMessageId: msg.reply_to_message?.message_id,
     };
 
-    console.log(`[Telegram] 📩 from=${from} chat=${msg.chat.id} body="${body.slice(0, 60)}"`);
+    console.log(`[Telegram] 📩 from=${from} chat=${msg.chat.id} hasMedia=${hasMedia} body="${body.slice(0, 60)}"`);
 
     if (!isFromMe) {
       this.emit('message.received', message);

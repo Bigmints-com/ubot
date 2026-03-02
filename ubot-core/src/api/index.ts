@@ -38,6 +38,7 @@ import { join } from 'path';
 import { handleChatRoutes } from './routes/chat.js';
 import { handleSkillRoutes } from './routes/skills.js';
 import { handleSafetyRoutes } from './routes/safety.js';
+import { handleVaultRoutes } from './routes/vault.js';
 import { handleMemoryRoutes } from './routes/memory.js';
 import { handleIntegrationRoutes } from './routes/integrations.js';
 import { handleToolsRoutes } from './routes/tools.js';
@@ -280,6 +281,61 @@ function setupWhatsAppHandlers(conn: WhatsAppConnection): void {
 
     const jid = msg.from || '';
     const replyJid = msg.rawJid || jid;
+
+    // Download media if present
+    let attachments: import('../engine/types.js').Attachment[] | undefined;
+    if (msg.hasMedia && msg.id && waConnection) {
+      try {
+        const media = await waConnection.downloadMedia(msg.id);
+        if (media) {
+          const { randomUUID } = await import('crypto');
+          const { join } = await import('path');
+          const { mkdirSync, writeFileSync, existsSync } = await import('fs');
+          
+          const uploadsDir = join(process.cwd(), 'workspace', 'uploads');
+          if (!existsSync(uploadsDir)) mkdirSync(uploadsDir, { recursive: true });
+
+          const id = randomUUID();
+          const ext = media.mimeType.startsWith('image/') ? '.jpg'
+            : media.mimeType.includes('pdf') ? '.pdf'
+            : media.mimeType.startsWith('video/') ? '.mp4'
+            : '';
+          const filePath = join(uploadsDir, `${id}${ext}`);
+          writeFileSync(filePath, media.buffer);
+
+          const attachment: import('../engine/types.js').Attachment = {
+            id,
+            filename: `whatsapp-media-${id}${ext}`,
+            mimeType: media.mimeType,
+            path: filePath,
+            size: media.buffer.length,
+          };
+
+          // For images: encode base64 for LLM vision
+          if (media.mimeType.startsWith('image/')) {
+            attachment.base64 = media.buffer.toString('base64');
+          }
+
+          // For PDFs: extract text
+          if (media.mimeType === 'application/pdf') {
+            try {
+              const { PDFParse } = await import('pdf-parse');
+              const parser = new PDFParse({ data: new Uint8Array(media.buffer) });
+              const text = String(await parser.getText() || '');
+              attachment.textContent = text;
+            } catch (err: any) {
+              log.error('WhatsApp', `PDF parse error: ${err.message}`);
+            }
+          }
+
+          attachments = [attachment];
+          log.info('WhatsApp', `Downloaded media: ${media.mimeType} (${media.buffer.length} bytes)`);
+        }
+      } catch (err: any) {
+        log.error('WhatsApp', `Media download failed: ${err.message}`);
+      }
+    }
+
     const unified: UnifiedMessage = {
       channel: 'whatsapp',
       senderId: jid,
@@ -299,6 +355,7 @@ function setupWhatsAppHandlers(conn: WhatsAppConnection): void {
         hasMedia: msg.hasMedia,
         quotedMessageId: msg.quotedMessageId,
       },
+      attachments,
     };
 
     const deps: UnifiedDeps = {
@@ -379,6 +436,57 @@ function setupTelegramHandlers(conn: TelegramConnection): void {
     if (!msg.body || msg.isFromMe || !agentOrchestrator) return;
 
     const senderChatId = String(msg.chatId);
+
+    // Download media if present
+    let attachments: import('../engine/types.js').Attachment[] | undefined;
+    if (msg.hasMedia && msg.id && tgConnection) {
+      try {
+        const media = await tgConnection.downloadMedia(msg.id);
+        if (media) {
+          const { randomUUID } = await import('crypto');
+          const { join } = await import('path');
+          const { mkdirSync, writeFileSync, existsSync } = await import('fs');
+
+          const uploadsDir = join(process.cwd(), 'workspace', 'uploads');
+          if (!existsSync(uploadsDir)) mkdirSync(uploadsDir, { recursive: true });
+
+          const id = randomUUID();
+          const ext = media.mimeType.startsWith('image/') ? '.jpg'
+            : media.mimeType.includes('pdf') ? '.pdf'
+            : '';
+          const filePath = join(uploadsDir, `${id}${ext}`);
+          writeFileSync(filePath, media.buffer);
+
+          const attachment: import('../engine/types.js').Attachment = {
+            id,
+            filename: media.filename,
+            mimeType: media.mimeType,
+            path: filePath,
+            size: media.buffer.length,
+          };
+
+          if (media.mimeType.startsWith('image/')) {
+            attachment.base64 = media.buffer.toString('base64');
+          }
+
+          if (media.mimeType === 'application/pdf') {
+            try {
+              const { PDFParse } = await import('pdf-parse');
+              const parser = new PDFParse({ data: new Uint8Array(media.buffer) });
+              attachment.textContent = String(await parser.getText() || '');
+            } catch (err: any) {
+              log.error('Telegram', `PDF parse error: ${err.message}`);
+            }
+          }
+
+          attachments = [attachment];
+          log.info('Telegram', `Downloaded media: ${media.mimeType} (${media.buffer.length} bytes)`);
+        }
+      } catch (err: any) {
+        log.error('Telegram', `Media download failed: ${err.message}`);
+      }
+    }
+
     const unified: UnifiedMessage = {
       channel: 'telegram',
       senderId: senderChatId,
@@ -393,6 +501,7 @@ function setupTelegramHandlers(conn: TelegramConnection): void {
         }
       },
       extra: { chatId: msg.chatId },
+      attachments,
     };
 
     const deps: UnifiedDeps = {
@@ -736,6 +845,7 @@ function getApiContext(): ApiContext {
     safetyConfig,
     safetyRules,
     mcpManager,
+    workspacePath,
     saveConfigValue,
     loadConfigValue,
   };
@@ -1056,15 +1166,12 @@ export async function handleApiRoute(
   // ── Rate limiting ──────────────────────────────────────
   // Skip rate limiting for dashboard requests (same-origin UI polling).
   // Rate limiting is for external API consumers, not the built-in dashboard.
-  const origin = req.headers['origin'] || req.headers['referer'] || '';
+  // The dashboard can be accessed via localhost or LAN IP, so we check
+  // known dashboard ports rather than requiring "localhost" in the origin.
+  const origin = String(req.headers['origin'] || req.headers['referer'] || '');
   const serverPort = process.env.PORT || '11490';
-  const isDashboard = origin.includes('localhost') && (
-    origin.includes(`:${serverPort}`) ||
-    origin.includes(':4080') ||
-    origin.includes(':4081') ||
-    origin.includes(':11490') ||
-    origin.includes(':3000')
-  );
+  const dashboardPorts = [serverPort, '4080', '4081', '11490', '3000'];
+  const isDashboard = dashboardPorts.some(port => origin.includes(`:${port}`));
   if (!isDashboard) {
     const rateLimitId = clientName || req.socket.remoteAddress || 'unknown';
     const rateLimitResult = rateLimiter.check(rateLimitId, url);
@@ -1090,6 +1197,7 @@ export async function handleApiRoute(
   if (await handleIntegrationRoutes(req, res, url, method, ctx)) return true;
   if (await handleToolsRoutes(req, res, url, method, ctx)) return true;
   if (await handleCliRoutes(req, res, url, method, ctx)) return true;
+  if (await handleVaultRoutes(req, res, url, method, ctx)) return true;
 
   return false;
 }
