@@ -42,7 +42,7 @@ export async function handleChatRoutes(
       attachments = [];
       
       // Ensure uploads directory exists
-      const uploadsDir = path.join(process.cwd(), 'workspace', 'uploads');
+      const uploadsDir = path.join(ctx.workspacePath || path.join(process.cwd(), 'workspace'), 'uploads');
       if (!fs.existsSync(uploadsDir)) {
         fs.mkdirSync(uploadsDir, { recursive: true });
       }
@@ -117,7 +117,7 @@ export async function handleChatRoutes(
   // ── Serve uploaded files ────────────────────────────────
   if (url.startsWith('/api/chat/uploads/') && method === 'GET') {
     const fileId = url.replace('/api/chat/uploads/', '').split('?')[0];
-    const uploadsDir = path.join(process.cwd(), 'workspace', 'uploads');
+    const uploadsDir = path.join(ctx.workspacePath || path.join(process.cwd(), 'workspace'), 'uploads');
     
     // Find the file by ID prefix
     try {
