@@ -11,7 +11,7 @@ import type { ChatMessage, ChatRole, ChatMessageMetadata, ConversationSession } 
 /** Migration for conversation tables */
 export const conversationMigrations: Migration[] = [
   {
-    id: '002',
+    id: '005',
     name: 'create_conversations',
     up: `
       CREATE TABLE IF NOT EXISTS chat_sessions (
