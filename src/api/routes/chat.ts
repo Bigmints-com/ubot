@@ -38,17 +38,23 @@ export async function handleChatRoutes(
 
     // Process attachments if present
     let attachments: Attachment[] | undefined;
+    console.log(`[Upload] body.attachments present: ${Array.isArray(body.attachments)}, count: ${body.attachments?.length || 0}`);
     if (Array.isArray(body.attachments) && body.attachments.length > 0) {
       attachments = [];
       
       // Ensure uploads directory exists
       const uploadsDir = path.join(ctx.workspacePath || path.join(process.cwd(), 'workspace'), 'uploads');
+      console.log(`[Upload] Uploads dir: ${uploadsDir}`);
       if (!fs.existsSync(uploadsDir)) {
         fs.mkdirSync(uploadsDir, { recursive: true });
       }
 
       for (const att of body.attachments) {
-        if (!att.filename || !att.base64 || !att.mimeType) continue;
+        console.log(`[Upload] Processing: ${att.filename}, type: ${att.mimeType}, base64 len: ${att.base64?.length || 0}`);
+        if (!att.filename || !att.base64 || !att.mimeType) {
+          console.log(`[Upload] Skipping — missing fields: filename=${!!att.filename}, base64=${!!att.base64}, mimeType=${!!att.mimeType}`);
+          continue;
+        }
 
         const id = crypto.randomUUID();
         const ext = path.extname(att.filename) || '';
@@ -58,6 +64,7 @@ export async function handleChatRoutes(
         // Decode and save the file
         const buffer = Buffer.from(att.base64, 'base64');
         fs.writeFileSync(filePath, buffer);
+        console.log(`[Upload] Saved ${safeName} (${buffer.length} bytes)`);
 
         const attachment: Attachment = {
           id,
@@ -75,9 +82,11 @@ export async function handleChatRoutes(
         // For PDFs: extract text
         if (att.mimeType === 'application/pdf') {
           try {
+            console.log(`[Upload] Parsing PDF: ${att.filename}`);
             const { PDFParse } = await import('pdf-parse');
             const parser = new PDFParse({ data: new Uint8Array(buffer) });
             let text = String(await parser.getText() || '');
+            console.log(`[Upload] PDF text extracted: ${text.length} chars`);
             if (text.length > 100000) {
               text = text.slice(0, 100000) + '\n\n... (truncated)';
             }
@@ -96,6 +105,7 @@ export async function handleChatRoutes(
           }
         }
 
+        console.log(`[Upload] Attachment ready: ${att.filename}, hasText: ${!!attachment.textContent}, textLen: ${attachment.textContent?.length || 0}`);
         attachments.push(attachment);
       }
 
