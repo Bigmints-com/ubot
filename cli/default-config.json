@@ -28,6 +28,12 @@
             "enabled": false,
             "token": "",
             "auto_reply": false
+        },
+        "imessage": {
+            "enabled": false,
+            "server_url": "",
+            "password": "",
+            "auto_reply": false
         }
     },
     "cli": {
