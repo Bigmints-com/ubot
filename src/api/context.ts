@@ -54,6 +54,9 @@ export interface ApiContext {
   // MCP
   mcpManager: McpServerManager | null;
 
+  // Workspace
+  workspacePath: string | null;
+
   // Helpers
   saveConfigValue: (key: string, value: string) => void;
   loadConfigValue: (key: string) => string | null;
@@ -70,10 +73,19 @@ export type RouteHandler = (
 
 // ─── Shared Utilities ────────────────────────────────────
 
-export async function parseBody(req: http.IncomingMessage): Promise<unknown> {
+export async function parseBody(req: http.IncomingMessage, maxBytes: number = 1024 * 1024): Promise<unknown> {
   return new Promise((resolve) => {
     let body = '';
-    req.on('data', (chunk: string) => { body += chunk; });
+    let size = 0;
+    req.on('data', (chunk: Buffer | string) => {
+      size += typeof chunk === 'string' ? chunk.length : chunk.byteLength;
+      if (size > maxBytes) {
+        req.destroy();
+        resolve({ _error: 'Payload too large' });
+        return;
+      }
+      body += chunk;
+    });
     req.on('end', () => {
       try {
         resolve(body ? JSON.parse(body) : {});
@@ -81,7 +93,13 @@ export async function parseBody(req: http.IncomingMessage): Promise<unknown> {
         resolve({});
       }
     });
+    req.on('error', () => resolve({}));
   });
+}
+
+/** Parse body with large payload limit (for file uploads) — 15MB */
+export async function parseLargeBody(req: http.IncomingMessage): Promise<unknown> {
+  return parseBody(req, 15 * 1024 * 1024);
 }
 
 export function json(res: http.ServerResponse, data: unknown, status = 200): void {

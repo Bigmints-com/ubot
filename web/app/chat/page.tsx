@@ -8,13 +8,23 @@ import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { Send, Trash2, Bot, User, Wrench, Sparkles, Loader2 } from "lucide-react";
+import {
+  Send, Trash2, Bot, User, Wrench, Sparkles, Loader2,
+  Paperclip, X, FileText, Image as ImageIcon, File as FileIcon,
+} from "lucide-react";
 import { api } from "@/lib/api";
+
+interface PendingAttachment {
+  file: File;
+  preview?: string; // data URL for image preview
+  base64: string;
+}
 
 interface ChatMessage {
   role: "user" | "assistant";
   content: string;
   timestamp?: string;
+  attachments?: Array<{ id: string; filename: string; mimeType: string }>;
   metadata?: {
     model?: string;
     toolCalls?: Array<{ name: string; args?: unknown }>;
@@ -30,13 +40,23 @@ const suggestions = [
   "Schedule a message for tomorrow",
 ];
 
+const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+const ACCEPTED_TYPES = [
+  "image/png", "image/jpeg", "image/gif", "image/webp",
+  "application/pdf",
+  "text/plain", "text/markdown", "text/csv", "text/html",
+  "application/json", "application/xml",
+];
+
 export default function ChatPage() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState({ wa: "unknown", model: "—" });
+  const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const messageCountRef = useRef(0);
 
   useEffect(() => {
@@ -51,7 +71,6 @@ export default function ChatPage() {
         "/api/chat/history?sessionId=web-console&limit=50"
       );
       if (data.messages?.length && data.messages.length > messageCountRef.current) {
-        // New messages appeared server-side — append only the new ones
         const newMsgs = data.messages.slice(messageCountRef.current).map(normalizeMessage);
         messageCountRef.current = data.messages.length;
         setMessages(prev => [...prev, ...newMsgs]);
@@ -60,7 +79,6 @@ export default function ChatPage() {
   }, []);
 
   useEffect(() => {
-    // Only poll when we're not actively sending (loading === false)
     if (loading) return;
     const interval = setInterval(pollForNewMessages, 3000);
     return () => clearInterval(interval);
@@ -85,7 +103,6 @@ export default function ChatPage() {
     let toolCalls = undefined;
 
     if (meta) {
-      // Backend returns usage.totalTokens; frontend expects tokenUsage.total
       const usage = meta.usage as Record<string, number> | undefined;
       if (usage) {
         tokenUsage = {
@@ -95,7 +112,6 @@ export default function ChatPage() {
         };
       }
 
-      // Backend returns toolCall (singular object); frontend expects toolCalls (array)
       const tc = meta.toolCall as Record<string, unknown> | undefined;
       if (tc?.toolName) {
         const names = String(tc.toolName).split(", ").filter(Boolean);
@@ -103,10 +119,14 @@ export default function ChatPage() {
       }
     }
 
+    // Extract attachments from metadata
+    const attachments = (meta?.attachments as Array<{ id: string; filename: string; mimeType: string }>) || undefined;
+
     return {
       role: msg.role as "user" | "assistant",
       content: (msg.content as string) ?? "",
       timestamp: msg.timestamp as string | undefined,
+      attachments,
       metadata: meta
         ? {
             model: meta.model as string | undefined,
@@ -146,31 +166,104 @@ export default function ChatPage() {
     }
   };
 
+  const handleFileSelect = async (files: FileList | null) => {
+    if (!files) return;
+    
+    const newAttachments: PendingAttachment[] = [];
+    
+    for (const file of Array.from(files)) {
+      if (file.size > MAX_FILE_SIZE) {
+        alert(`${file.name} exceeds 10MB limit`);
+        continue;
+      }
+      
+      if (!ACCEPTED_TYPES.includes(file.type) && !file.name.match(/\.(txt|md|csv|json|html|xml|log)$/i)) {
+        alert(`${file.name}: unsupported file type (${file.type || "unknown"})`);
+        continue;
+      }
+
+      const base64 = await fileToBase64(file);
+      const preview = file.type.startsWith("image/")
+        ? URL.createObjectURL(file)
+        : undefined;
+      
+      newAttachments.push({ file, preview, base64 });
+    }
+
+    if (newAttachments.length > 0) {
+      setPendingAttachments(prev => [...prev, ...newAttachments]);
+      textareaRef.current?.focus();
+    }
+  };
+
+  const fileToBase64 = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        // Extract base64 data from data URL
+        const result = reader.result as string;
+        const base64 = result.split(",")[1];
+        resolve(base64);
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const removeAttachment = (index: number) => {
+    setPendingAttachments(prev => {
+      const copy = [...prev];
+      if (copy[index]?.preview) URL.revokeObjectURL(copy[index].preview!);
+      copy.splice(index, 1);
+      return copy;
+    });
+  };
+
   const sendMessage = async () => {
     const trimmed = input.trim();
-    if (!trimmed || loading) return;
+    if ((!trimmed && pendingAttachments.length === 0) || loading) return;
 
-    // Bump the count so polling doesn't re-add messages we already have
     messageCountRef.current += 1;
     const userMsg: ChatMessage = {
       role: "user",
-      content: trimmed,
+      content: trimmed || (pendingAttachments.length > 0 ? "[Attachment]" : ""),
       timestamp: new Date().toISOString(),
+      attachments: pendingAttachments.map((att, i) => ({
+        id: `pending-${i}`,
+        filename: att.file.name,
+        mimeType: att.file.type,
+      })),
     };
     setMessages((prev) => [...prev, userMsg]);
     setInput("");
+    const attachmentsToSend = [...pendingAttachments];
+    setPendingAttachments([]);
     setLoading(true);
 
     try {
+      const body: Record<string, unknown> = {
+        message: trimmed || `Please analyze the attached file(s): ${attachmentsToSend.map(a => a.file.name).join(", ")}`,
+        sessionId: "web-console",
+      };
+
+      if (attachmentsToSend.length > 0) {
+        body.attachments = attachmentsToSend.map((att) => ({
+          filename: att.file.name,
+          mimeType: att.file.type,
+          base64: att.base64,
+        }));
+      }
+
       const res = await api<{
         content: string;
         toolCalls?: Array<{ toolName: string }>;
         usage?: { promptTokens: number; completionTokens: number; totalTokens: number };
         model?: string;
         duration?: number;
+        attachments?: Array<{ id: string; filename: string; mimeType: string }>;
       }>("/api/chat", {
         method: "POST",
-        body: { message: trimmed, sessionId: "web-console" },
+        body,
       });
 
       messageCountRef.current += 1;
@@ -206,6 +299,8 @@ export default function ChatPage() {
       ]);
     } finally {
       setLoading(false);
+      // Clean up preview URLs
+      attachmentsToSend.forEach(a => { if (a.preview) URL.revokeObjectURL(a.preview); });
     }
   };
 
@@ -234,6 +329,18 @@ export default function ChatPage() {
       .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
       .replace(/`(.+?)`/g, '<code class="bg-muted px-1 py-0.5 rounded text-xs">$1</code>')
       .replace(/\n/g, "<br />");
+  };
+
+  const getFileIcon = (mimeType: string) => {
+    if (mimeType.startsWith("image/")) return <ImageIcon className="size-3" />;
+    if (mimeType === "application/pdf") return <FileText className="size-3" />;
+    return <FileIcon className="size-3" />;
+  };
+
+  const formatFileSize = (size: number) => {
+    if (size < 1024) return `${size}B`;
+    if (size < 1024 * 1024) return `${(size / 1024).toFixed(0)}KB`;
+    return `${(size / (1024 * 1024)).toFixed(1)}MB`;
   };
 
   const waConnected = status.wa === "connected";
@@ -284,7 +391,7 @@ export default function ChatPage() {
               </h3>
               <p className="text-sm text-muted-foreground text-center max-w-sm">
                 I&apos;m your AI assistant. Ask me to send WhatsApp messages,
-                manage skills, or schedule tasks.
+                manage skills, schedule tasks, or <strong>attach images & documents</strong> for analysis.
               </p>
               <div className="flex flex-wrap gap-2 justify-center">
                 {suggestions.map((s) => (
@@ -316,6 +423,18 @@ export default function ChatPage() {
               <div
                 className={`max-w-[80%] space-y-1 ${msg.role === "user" ? "items-end" : "items-start"}`}
               >
+                {/* Attachment badges (for user messages) */}
+                {msg.attachments && msg.attachments.length > 0 && msg.role === "user" && (
+                  <div className="flex flex-wrap gap-1 justify-end mb-1">
+                    {msg.attachments.map((att, j) => (
+                      <Badge key={j} variant="outline" className="text-xs gap-1">
+                        {getFileIcon(att.mimeType)}
+                        {att.filename}
+                      </Badge>
+                    ))}
+                  </div>
+                )}
+
                 <Card
                   className={`px-3 py-2 ${
                     msg.role === "user"
@@ -394,21 +513,81 @@ export default function ChatPage() {
 
       <Separator />
 
+      {/* Pending Attachments Preview */}
+      {pendingAttachments.length > 0 && (
+        <div className="px-4 pt-2">
+          <div className="flex flex-wrap gap-2 max-w-3xl mx-auto">
+            {pendingAttachments.map((att, i) => (
+              <div
+                key={i}
+                className="relative group flex items-center gap-2 bg-muted rounded-lg px-2 py-1.5 text-xs border"
+              >
+                {att.preview ? (
+                  <img
+                    src={att.preview}
+                    alt={att.file.name}
+                    className="h-8 w-8 rounded object-cover"
+                  />
+                ) : (
+                  <div className="h-8 w-8 rounded bg-muted-foreground/10 flex items-center justify-center">
+                    {getFileIcon(att.file.type)}
+                  </div>
+                )}
+                <div className="flex flex-col max-w-[120px]">
+                  <span className="truncate font-medium">{att.file.name}</span>
+                  <span className="text-muted-foreground">{formatFileSize(att.file.size)}</span>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-5 w-5 opacity-0 group-hover:opacity-100 transition-opacity absolute -top-1 -right-1 bg-destructive text-destructive-foreground rounded-full"
+                  onClick={() => removeAttachment(i)}
+                >
+                  <X className="size-3" />
+                </Button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Input */}
       <div className="px-4 py-3">
         <div className="flex gap-2 max-w-3xl mx-auto">
+          {/* Hidden file input */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            className="hidden"
+            multiple
+            accept={ACCEPTED_TYPES.join(",")}
+            onChange={(e) => {
+              handleFileSelect(e.target.files);
+              e.target.value = ""; // Reset so same file can be selected again
+            }}
+          />
+          <Button
+            variant="ghost"
+            size="icon"
+            className="shrink-0"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={loading}
+            title="Attach files (images, PDFs, documents)"
+          >
+            <Paperclip className="size-4" />
+          </Button>
           <Textarea
             ref={textareaRef}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Type a message..."
+            placeholder={pendingAttachments.length > 0 ? "Add a message about the attachment(s)..." : "Type a message..."}
             className="min-h-[40px] max-h-[120px] resize-none"
             rows={1}
           />
           <Button
             onClick={sendMessage}
-            disabled={!input.trim() || loading}
+            disabled={(!input.trim() && pendingAttachments.length === 0) || loading}
             size="icon"
             className="shrink-0"
           >

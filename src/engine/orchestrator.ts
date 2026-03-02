@@ -10,7 +10,7 @@ import path from 'path';
 import OpenAI from 'openai';
 import type { 
   AgentConfig, AgentResponse, ChatMessageMetadata,
-  ToolExecutionResult, AgentDefinition
+  ToolExecutionResult, AgentDefinition, Attachment
 } from './types.js';
 import type { ConversationStore } from '../memory/conversation.js';
 import type { MemoryStore } from '../memory/memory-store.js';
@@ -23,7 +23,7 @@ import { logCapability } from '../capabilities/cli/capability-log.js';
 
 export interface AgentOrchestrator {
   /** Process a message and return the agent's response */
-  chat(sessionId: string, message: string, source?: 'web' | 'whatsapp' | 'telegram' | 'imessage', contactName?: string, isOwner?: boolean): Promise<AgentResponse>;
+  chat(sessionId: string, message: string, source?: 'web' | 'whatsapp' | 'telegram' | 'imessage', contactName?: string, isOwner?: boolean, attachments?: Attachment[]): Promise<AgentResponse>;
   /** Direct LLM text generation (no tools) — for skill generation, etc. */
   generate(systemPrompt: string, userMessage: string): Promise<string>;
   /** Get the current config */
@@ -122,7 +122,7 @@ export function createAgentOrchestrator(
 
   type ChatMsg = OpenAI.Chat.Completions.ChatCompletionMessageParam;
 
-  function buildMessages(sessionId: string, userMessage: string, isOwner: boolean = false): ChatMsg[] {
+  function buildMessages(sessionId: string, userMessage: string, isOwner: boolean = false, attachments?: Attachment[]): ChatMsg[] {
     const history = conversationStore.getHistory(sessionId, currentConfig.maxHistoryMessages);
     const activeAgentId = sessionAgents.get(sessionId);
     
@@ -137,24 +137,87 @@ export function createAgentOrchestrator(
       { role: 'system', content: systemPrompt },
     ];
 
-    // Add conversation history (skip system messages, only user/assistant)
+    // Inject session-level rolling summary as context preamble
+    // This provides long-term memory beyond the message history window
+    const sessionSummary = soul.getStore().getMemories(sessionId, 'summary')
+      .find(m => m.key === 'chat_digest');
+    if (sessionSummary && sessionSummary.value.trim()) {
+      messages.push({
+        role: 'user',
+        content: `[Previous conversation context — DO NOT reference this message directly, use it as background knowledge]\n${sessionSummary.value}`,
+      });
+      messages.push({
+        role: 'assistant',
+        content: 'Understood, I have context from our previous conversations.',
+      });
+    }
+
+    // Add conversation history with tool call context
     for (const msg of history) {
-      if (msg.role === 'user' || msg.role === 'assistant') {
-        messages.push({ role: msg.role, content: msg.content });
+      if (msg.role === 'user') {
+        messages.push({ role: 'user', content: msg.content });
+      } else if (msg.role === 'assistant') {
+        // If this message had tool calls, annotate them inline so LLM knows what it did
+        let content = msg.content || '';
+        if (msg.metadata?.toolCall) {
+          const toolNames = msg.metadata.toolCall.toolName;
+          if (toolNames && !content.includes('[Used tools:')) {
+            content += `\n[Used tools: ${toolNames}]`;
+          }
+        }
+        messages.push({ role: 'assistant', content });
       }
     }
 
-    // Add the new user message
-    messages.push({ role: 'user', content: userMessage });
+    // Build multimodal user message if attachments are present
+    if (attachments && attachments.length > 0) {
+      const contentParts: Array<{ type: string; text?: string; image_url?: { url: string; detail?: string } }> = [];
+
+      // Add document text content as context before the user message
+      const docTexts: string[] = [];
+      for (const att of attachments) {
+        if (att.textContent) {
+          docTexts.push(`[Content of ${att.filename}]:\n${att.textContent}`);
+        }
+      }
+      
+      // User message text (with document context prepended if any)
+      const fullText = docTexts.length > 0
+        ? `${docTexts.join('\n\n')}\n\n${userMessage}`
+        : userMessage;
+      contentParts.push({ type: 'text', text: fullText });
+
+      // Add image attachments as image_url content parts
+      for (const att of attachments) {
+        if (att.base64 && att.mimeType.startsWith('image/')) {
+          contentParts.push({
+            type: 'image_url',
+            image_url: { url: `data:${att.mimeType};base64,${att.base64}`, detail: 'auto' },
+          });
+        }
+      }
+
+      messages.push({ role: 'user', content: contentParts as any });
+    } else {
+      // Plain text message (no attachments)
+      messages.push({ role: 'user', content: userMessage });
+    }
 
     return messages;
   }
 
   /** Extract/update all three data layers from a conversation turn */
-  async function extractSoulData(sessionId: string, userMessage: string, assistantResponse: string, source?: 'web' | 'whatsapp' | 'telegram', contactName?: string, isOwner: boolean = false): Promise<void> {
+  async function extractSoulData(sessionId: string, userMessage: string, assistantResponse: string, source?: 'web' | 'whatsapp' | 'telegram', contactName?: string, isOwner: boolean = false, toolResults: ToolExecutionResult[] = []): Promise<void> {
     if (!userMessage || !assistantResponse) return;
 
-    const conversationText = `User: ${userMessage}\nAssistant: ${assistantResponse}`;
+    // Build action-aware conversation text for memory extraction
+    let conversationText = `User: ${userMessage}\nAssistant: ${assistantResponse}`;
+    if (toolResults.length > 0) {
+      const toolSummary = toolResults
+        .map(r => `  - ${r.toolName}: ${r.success ? (r.result?.slice(0, 150) || 'Success') : `Failed: ${r.error}`}`)
+        .join('\n');
+      conversationText += `\n[Actions taken:\n${toolSummary}]`;
+    }
 
     try {
       const client = createLLMClient();
@@ -462,6 +525,7 @@ export function createAgentOrchestrator(
       source: 'web' | 'whatsapp' | 'telegram' = 'web',
       contactName?: string,
       isOwner?: boolean,
+      attachments?: Attachment[],
     ): Promise<AgentResponse> {
       const startTime = Date.now();
       const toolResults: ToolExecutionResult[] = [];
@@ -481,6 +545,7 @@ export function createAgentOrchestrator(
         source,
         whatsappJid: source === 'whatsapp' ? sessionId : undefined,
         contactName,
+        attachments,
       };
       conversationStore.addMessage(sessionId, 'user', message, userMetadata);
 
@@ -489,7 +554,7 @@ export function createAgentOrchestrator(
       const ownerFlag = isOwner ?? (source === 'web');
 
       // Build the messages array with history (pass isOwner for soul prompt framing)
-      let messages = buildMessages(sessionId, message, ownerFlag);
+      let messages = buildMessages(sessionId, message, ownerFlag, attachments);
       let lastUsage: { promptTokens: number; completionTokens: number; totalTokens: number } | undefined;
 
       // Agent loop with tool calling
@@ -626,7 +691,7 @@ export function createAgentOrchestrator(
       metricsCollector.recordMessage(source || 'web', 'out');
 
       // Extract soul data in the background (don't block the response)
-      extractSoulData(sessionId, message, finalContent, source, contactName, ownerFlag).catch((err: any) => {
+      extractSoulData(sessionId, message, finalContent, source, contactName, ownerFlag, toolResults).catch((err: any) => {
         console.error('[Soul] Background extraction failed:', err.message);
       });
 
@@ -636,6 +701,7 @@ export function createAgentOrchestrator(
         usage: lastUsage,
         model: currentConfig.llmModel,
         duration: Date.now() - startTime,
+        attachments,
       };
     },
 

@@ -29,6 +29,8 @@ export interface ChatMessageMetadata {
   usage?: { promptTokens: number; completionTokens: number; totalTokens: number };
   /** LLM model used */
   model?: string;
+  /** File attachments (images, documents) */
+  attachments?: Attachment[];
 }
 
 export interface ConversationSession {
@@ -69,6 +71,24 @@ export interface ToolExecutionResult {
   result?: string;
   error?: string;
   duration: number;
+}
+
+/** File attachment (image, PDF, document) flowing through the message pipeline */
+export interface Attachment {
+  /** Unique ID for this attachment */
+  id: string;
+  /** Original filename */
+  filename: string;
+  /** MIME type (e.g. image/png, application/pdf) */
+  mimeType: string;
+  /** Absolute path on disk (workspace/uploads/) */
+  path: string;
+  /** Base64-encoded content (for images sent to LLM) */
+  base64?: string;
+  /** Extracted text content (for PDFs/documents) */
+  textContent?: string;
+  /** File size in bytes */
+  size?: number;
 }
 
 export interface LLMProviderConfig {
@@ -136,6 +156,8 @@ export interface AgentResponse {
   model: string;
   /** Processing duration in ms */
   duration: number;
+  /** Attachments that were part of this interaction */
+  attachments?: Attachment[];
 }
 
 export interface AgentDefinition {
@@ -235,7 +257,7 @@ You are the owner's personal secretary. Handle most conversations autonomously, 
 - Any request where getting it wrong could cause real harm
 
 **IMPORTANT**: When escalating, you MUST call the ask_owner tool function. Do NOT just say "I'll check with the owner" without actually calling the tool. The tool creates the approval request that the owner can respond to.`,
-  maxHistoryMessages: 20,
+  maxHistoryMessages: 50,
   maxToolIterations: 6,
   temperature: 0.7,
   maxTokens: 2048,

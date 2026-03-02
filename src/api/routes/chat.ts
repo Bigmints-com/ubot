@@ -1,12 +1,9 @@
-/**
- * Chat & LLM Provider Routes
- * /api/chat/*, /api/llm-providers/*
- */
-
 import http from 'http';
 import crypto from 'crypto';
-import type { LLMProviderConfig } from '../../engine/types.js';
-import { parseBody, json, notFound, error, type ApiContext } from '../context.js';
+import fs from 'fs';
+import path from 'path';
+import type { LLMProviderConfig, Attachment } from '../../engine/types.js';
+import { parseBody, parseLargeBody, json, notFound, error, type ApiContext } from '../context.js';
 
 export async function handleChatRoutes(
   req: http.IncomingMessage,
@@ -23,7 +20,14 @@ export async function handleChatRoutes(
       error(res, 'Agent not initialized', 503);
       return true;
     }
-    const body = await parseBody(req) as any;
+    // Use large body parser for file uploads
+    const body = await parseLargeBody(req) as any;
+    
+    if ((body as any)._error) {
+      error(res, 'Payload too large (max 15MB)', 413);
+      return true;
+    }
+    
     const message = body.message || body.content || '';
     const sessionId = body.sessionId || 'web-console';
     
@@ -32,12 +36,113 @@ export async function handleChatRoutes(
       return true;
     }
 
+    // Process attachments if present
+    let attachments: Attachment[] | undefined;
+    if (Array.isArray(body.attachments) && body.attachments.length > 0) {
+      attachments = [];
+      
+      // Ensure uploads directory exists
+      const uploadsDir = path.join(process.cwd(), 'workspace', 'uploads');
+      if (!fs.existsSync(uploadsDir)) {
+        fs.mkdirSync(uploadsDir, { recursive: true });
+      }
+
+      for (const att of body.attachments) {
+        if (!att.filename || !att.base64 || !att.mimeType) continue;
+
+        const id = crypto.randomUUID();
+        const ext = path.extname(att.filename) || '';
+        const safeName = `${id}${ext}`;
+        const filePath = path.join(uploadsDir, safeName);
+
+        // Decode and save the file
+        const buffer = Buffer.from(att.base64, 'base64');
+        fs.writeFileSync(filePath, buffer);
+
+        const attachment: Attachment = {
+          id,
+          filename: att.filename,
+          mimeType: att.mimeType,
+          path: filePath,
+          size: buffer.length,
+        };
+
+        // For images: keep base64 for LLM vision
+        if (att.mimeType.startsWith('image/')) {
+          attachment.base64 = att.base64;
+        }
+
+        // For PDFs: extract text
+        if (att.mimeType === 'application/pdf') {
+          try {
+            const { PDFParse } = await import('pdf-parse');
+            const parser = new PDFParse({ data: new Uint8Array(buffer) });
+            let text = String(await parser.getText() || '');
+            if (text.length > 100000) {
+              text = text.slice(0, 100000) + '\n\n... (truncated)';
+            }
+            attachment.textContent = text;
+          } catch (err: any) {
+            console.error('[Upload] PDF parse error:', err.message);
+            attachment.textContent = `[Failed to extract PDF text: ${err.message}]`;
+          }
+        }
+
+        // For text-based documents: read as text
+        if (/^text\/|application\/json|application\/xml/.test(att.mimeType)) {
+          attachment.textContent = buffer.toString('utf8');
+          if (attachment.textContent.length > 100000) {
+            attachment.textContent = attachment.textContent.slice(0, 100000) + '\n\n... (truncated)';
+          }
+        }
+
+        attachments.push(attachment);
+      }
+
+      if (attachments.length === 0) attachments = undefined;
+    }
+
     try {
-      const response = await ctx.agentOrchestrator.chat(sessionId, message, 'web');
+      const response = await ctx.agentOrchestrator.chat(
+        sessionId, message, 'web', undefined, undefined, attachments
+      );
       json(res, response);
     } catch (e: any) {
       console.error('[API] Chat error:', e);
       error(res, e.message, 500);
+    }
+    return true;
+  }
+
+  // ── Serve uploaded files ────────────────────────────────
+  if (url.startsWith('/api/chat/uploads/') && method === 'GET') {
+    const fileId = url.replace('/api/chat/uploads/', '').split('?')[0];
+    const uploadsDir = path.join(process.cwd(), 'workspace', 'uploads');
+    
+    // Find the file by ID prefix
+    try {
+      const files = fs.readdirSync(uploadsDir);
+      const match = files.find(f => f.startsWith(fileId));
+      if (match) {
+        const filePath = path.join(uploadsDir, match);
+        const stat = fs.statSync(filePath);
+        const ext = path.extname(match).toLowerCase();
+        const mimeMap: Record<string, string> = {
+          '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
+          '.gif': 'image/gif', '.webp': 'image/webp', '.pdf': 'application/pdf',
+          '.svg': 'image/svg+xml',
+        };
+        res.writeHead(200, {
+          'Content-Type': mimeMap[ext] || 'application/octet-stream',
+          'Content-Length': stat.size,
+          'Cache-Control': 'public, max-age=86400',
+        });
+        fs.createReadStream(filePath).pipe(res);
+      } else {
+        error(res, 'File not found', 404);
+      }
+    } catch {
+      error(res, 'File not found', 404);
     }
     return true;
   }

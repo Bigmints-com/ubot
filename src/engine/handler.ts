@@ -14,6 +14,7 @@
  */
 
 import type { AgentOrchestrator } from './orchestrator.js';
+import type { Attachment } from './types.js';
 import type { ApprovalStore } from '../memory/pending-approvals.js';
 import type { EventBus } from '../capabilities/skills/event-bus.js';
 import type { SkillEngine } from '../capabilities/skills/skill-engine.js';
@@ -41,6 +42,8 @@ export interface UnifiedMessage {
   replyFn: (text: string) => Promise<void>;
   /** Extra data for skill events (e.g., hasMedia, participant) */
   extra?: Record<string, unknown>;
+  /** File attachments (images, documents) */
+  attachments?: Attachment[];
 }
 
 export interface UnifiedDeps {
@@ -277,6 +280,8 @@ export async function handleIncomingMessage(
       msg.body,
       source,
       msg.senderName || undefined,
+      undefined,
+      msg.attachments,
     );
 
     // 10. Dispatch response back through the channel
