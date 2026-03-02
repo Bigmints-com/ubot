@@ -59,4 +59,4 @@ tailwind.config.js
 test-pair.js
 next.config.js
 postcss.config.js
-app/
+/app/
