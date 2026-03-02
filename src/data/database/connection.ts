@@ -65,7 +65,15 @@ export class SQLiteDatabase implements DatabaseConnection {
     const applied = this.getAppliedMigrations();
     const appliedIds = new Set(applied.map(m => m.id));
 
-    for (const migration of this.migrations) {
+    // Deduplicate migrations by ID (first occurrence wins)
+    const seen = new Set<string>();
+    const uniqueMigrations = this.migrations.filter(m => {
+      if (seen.has(m.id)) return false;
+      seen.add(m.id);
+      return true;
+    });
+
+    for (const migration of uniqueMigrations) {
       if (!appliedIds.has(migration.id)) {
         this.db.exec(migration.up);
         
