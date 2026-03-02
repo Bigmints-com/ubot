@@ -27,6 +27,12 @@ config.json
 runs/
 browser-profile/
 
+# Workspace runtime data (never track user/dev data)
+workspace/uploads/
+workspace/vault/
+workspace/cli-projects/
+workspace/skills/
+
 # Credentials
 creds/
 
