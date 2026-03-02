@@ -19,7 +19,7 @@ public/_not-found/
 config.json
 
 # Runtime data
-data/
+/data/
 *.db
 *.db-shm
 *.db-wal
