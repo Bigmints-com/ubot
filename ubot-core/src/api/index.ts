@@ -1009,7 +1009,24 @@ async function handleChannelRoutes(
   // ── Defaults GET ────────────────────────────────────────
   if (url === '/api/config/defaults' && method === 'GET') {
     const cfg = loadUbotConfig();
-    json(res, { defaults: cfg.defaults || {} });
+    const defaults = { ...(cfg.defaults || {}) };
+    const caps = cfg.capabilities || {};
+
+    // Auto-populate from capabilities sections if not explicitly set
+    const CATEGORY_TO_PURPOSE: Record<string, string> = {
+      models: 'chat', search: 'search', cli: 'cli',
+    };
+    for (const [cat, purpose] of Object.entries(CATEGORY_TO_PURPOSE)) {
+      const section = (caps as any)[cat] as { default?: string; providers?: Record<string, any> } | undefined;
+      if (section?.default && section.providers?.[section.default]) {
+        const expected = `${cat}.${section.default}`;
+        if (!defaults[purpose] || defaults[purpose] !== expected) {
+          defaults[purpose] = expected;
+        }
+      }
+    }
+
+    json(res, { defaults });
     return true;
   }
 
@@ -1018,6 +1035,28 @@ async function handleChannelRoutes(
     const body = await parseBody(req) as any;
     const cfg = loadUbotConfig();
     cfg.defaults = { ...(cfg.defaults || {}), ...body.defaults };
+
+    // Sync to capabilities sections so provider pages reflect the change
+    // Defaults use format "category.providerKey" (e.g. "models.ollama")
+    const PURPOSE_TO_CATEGORY: Record<string, string> = {
+      chat: 'models', search: 'search', cli: 'cli',
+    };
+    if (body.defaults) {
+      if (!cfg.capabilities) cfg.capabilities = {};
+      for (const [purpose, value] of Object.entries(body.defaults)) {
+        const strVal = String(value);
+        const dotIdx = strVal.indexOf('.');
+        if (dotIdx > 0) {
+          const catKey = strVal.slice(0, dotIdx);
+          const provKey = strVal.slice(dotIdx + 1);
+          const section = (cfg.capabilities as any)[catKey];
+          if (section && section.providers?.[provKey]) {
+            section.default = provKey;
+          }
+        }
+      }
+    }
+
     saveUbotConfig(cfg);
     json(res, { saved: true });
     return true;
