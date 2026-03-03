@@ -12,6 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Bot, User, Users, Save, RefreshCw, Brain, Trash2, Check, Plus, Database, Zap } from "lucide-react";
 import { api } from "@/lib/api";
+import { toast } from "sonner";
 
 const BOT_SOUL_ID = "__bot__";
 const OWNER_SOUL_ID = "__owner__";
@@ -90,8 +91,9 @@ function DocumentEditor({
       setSavedContent(content);
       setJustSaved(true);
       setTimeout(() => setJustSaved(false), 2000);
+      toast.success("Persona saved");
     } catch {
-      /* ignore */
+      toast.error("Failed to save persona");
     } finally {
       setSaving(false);
     }
@@ -206,8 +208,9 @@ function ProfileDetails({ contactId, title }: { contactId: string; title?: strin
       setNewKey("");
       setNewValue("");
       await load();
+      toast.success("Memory added");
     } catch {
-      /* ignore */
+      toast.error("Failed to add memory");
     } finally {
       setAdding(false);
     }
@@ -217,8 +220,9 @@ function ProfileDetails({ contactId, title }: { contactId: string; title?: strin
     try {
       await api(`/api/memories/${encodeURIComponent(id)}`, { method: "DELETE" });
       setMemories(prev => prev.filter(m => m.id !== id));
+      toast.success("Memory deleted");
     } catch {
-      /* ignore */
+      toast.error("Failed to delete memory");
     }
   };
 
@@ -398,8 +402,9 @@ function PersonasTable({
       });
       setPersonas((prev) => prev.filter((p) => p.id !== personaId));
       if (selected === personaId) setSelected(null);
+      toast.success("Persona deleted");
     } catch {
-      /* ignore */
+      toast.error("Failed to delete persona");
     }
   };
 

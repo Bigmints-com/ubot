@@ -27,6 +27,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Shield, Plus, RefreshCw } from "lucide-react";
 import { api } from "@/lib/api";
+import { toast } from "sonner";
 
 interface SafetyRule {
   id: string;
@@ -67,8 +68,9 @@ export default function SafetyPage() {
       setRules((prev) =>
         prev.map((r) => (r.id === id ? { ...r, enabled } : r))
       );
+      toast.success(enabled ? "Rule enabled" : "Rule disabled");
     } catch {
-      /* ignore */
+      toast.error("Failed to update rule");
     }
   };
 

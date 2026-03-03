@@ -48,6 +48,7 @@ import {
   X,
 } from "lucide-react";
 import { api } from "@/lib/api";
+import { toast } from "sonner";
 
 interface VaultItem {
   id: string;
@@ -171,8 +172,9 @@ export default function VaultPage() {
       setAddCategory("general");
       setAddNotes("");
       loadItems();
+      toast.success("Vault item added");
     } catch {
-      /* ignore */
+      toast.error("Failed to add vault item");
     } finally {
       setSaving(false);
     }
@@ -185,8 +187,9 @@ export default function VaultPage() {
         method: "DELETE",
       });
       loadItems();
+      toast.success("Vault item deleted");
     } catch {
-      /* ignore */
+      toast.error("Failed to delete vault item");
     }
   };
 
@@ -272,8 +275,9 @@ export default function VaultPage() {
       setUploadCategory("documents");
       setUploadNotes("");
       loadItems();
+      toast.success("Document uploaded");
     } catch {
-      /* ignore */
+      toast.error("Failed to upload document");
     } finally {
       setUploading(false);
     }

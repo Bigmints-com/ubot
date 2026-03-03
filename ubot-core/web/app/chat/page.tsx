@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { ThreadSidebar } from "@/components/thread-sidebar";
+import { toast } from "sonner";
 
 interface PendingAttachment {
   file: File;
@@ -231,12 +232,12 @@ export default function ChatPage() {
     
     for (const file of Array.from(files)) {
       if (file.size > MAX_FILE_SIZE) {
-        alert(`${file.name} exceeds 10MB limit`);
+        toast.warning(`${file.name} exceeds 10MB limit`);
         continue;
       }
       
       if (!ACCEPTED_TYPES.includes(file.type) && !file.name.match(/\.(txt|md|csv|json|html|xml|log)$/i)) {
-        alert(`${file.name}: unsupported file type (${file.type || "unknown"})`);
+        toast.warning(`${file.name}: unsupported file type (${file.type || "unknown"})`);
         continue;
       }
 
@@ -347,6 +348,7 @@ export default function ChatPage() {
       ]);
     } catch (err: unknown) {
       const errorMessage = err instanceof Error ? err.message : "Unknown error";
+      toast.error(`Send failed: ${errorMessage}`);
       setMessages((prev) => [
         ...prev,
         {
@@ -371,8 +373,9 @@ export default function ChatPage() {
       });
       setMessages([]);
       messageCountRef.current = 0;
+      toast.success("Chat history cleared");
     } catch {
-      /* ignore */
+      toast.error("Failed to clear history");
     }
   };
 

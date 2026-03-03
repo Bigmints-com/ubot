@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { ShieldCheck, Clock, CheckCircle2, Send, User, MessageSquare } from "lucide-react";
 import { api } from "@/lib/api";
+import { toast } from "sonner";
 
 interface Approval {
   id: string;
@@ -53,8 +54,9 @@ export default function ApprovalsPage() {
       });
       setResponses((r) => ({ ...r, [approvalId]: "" }));
       loadApprovals();
+      toast.success("Response sent");
     } catch {
-      /* ignore */
+      toast.error("Failed to send response");
     } finally {
       setSubmitting((s) => ({ ...s, [approvalId]: false }));
     }

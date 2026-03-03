@@ -17,6 +17,7 @@ import {
   Info,
 } from "lucide-react";
 import { api } from "@/lib/api";
+import { toast } from "sonner";
 
 export default function IMessagePage() {
   const [status, setStatus] = useState("disconnected");
@@ -79,6 +80,7 @@ export default function IMessagePage() {
       setStatus(data.status);
     } catch (err: any) {
       setError(err.message);
+      toast.error(err.message);
     } finally {
       setConnecting(false);
     }
@@ -88,8 +90,10 @@ export default function IMessagePage() {
     try {
       await api("/api/imessage/disconnect", { method: "POST" });
       setStatus("disconnected");
+      toast.success("iMessage disconnected");
     } catch (err: any) {
       setError(err.message);
+      toast.error(err.message);
     }
   };
 
