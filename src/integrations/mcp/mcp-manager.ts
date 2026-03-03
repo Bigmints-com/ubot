@@ -340,11 +340,14 @@ export class McpServerManager {
     const raw = this.configStore.get('mcp_servers');
     if (!raw) return;
     try {
-      const configs: McpServerConfig[] = JSON.parse(raw);
+      const parsed = JSON.parse(raw);
+      const configs: McpServerConfig[] = Array.isArray(parsed) ? parsed : [];
       for (const c of configs) {
-        this.servers.set(c.id, c);
+        if (c && c.id) this.servers.set(c.id, c);
       }
-      console.log(`[MCP] Loaded ${configs.length} server config(s) from DB`);
+      if (configs.length > 0) {
+        console.log(`[MCP] Loaded ${configs.length} server config(s) from DB`);
+      }
     } catch (err) {
       console.error('[MCP] Failed to load configs:', err);
     }
