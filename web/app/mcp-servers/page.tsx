@@ -31,6 +31,7 @@ import {
   Search,
 } from "lucide-react";
 import { api } from "@/lib/api";
+import { CapabilityTools } from "@/components/capability-tools";
 
 // ─── Types ───────────────────────────────────────────────
 
@@ -843,6 +844,8 @@ export default function McpServersPage() {
           </CardContent>
         </Card>
       ))}
+
+      <CapabilityTools capability="mcp" />
     </div>
   );
 }

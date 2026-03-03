@@ -24,6 +24,7 @@ import {
   AlertTriangle,
 } from "lucide-react";
 import { api } from "@/lib/api";
+import { CapabilityTools } from "@/components/capability-tools";
 
 interface AuthStatus {
   hasCredentials: boolean;
@@ -434,6 +435,8 @@ export default function GooglePage() {
           </div>
         </CardContent>
       </Card>
+
+      <CapabilityTools capability="google" />
     </div>
   );
 }

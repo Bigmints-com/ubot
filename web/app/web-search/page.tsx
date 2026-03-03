@@ -3,6 +3,7 @@
 import { Separator } from "@/components/ui/separator";
 import { Search } from "lucide-react";
 import { ProviderList } from "@/components/provider-list";
+import { CapabilityTools } from "@/components/capability-tools";
 
 const SEARCH_PRESETS = [
   { type: "serper", label: "Serper.dev (Google)", baseUrl: "https://google.serper.dev/search", requiresApiKey: true, supportsModelDiscovery: false },
@@ -32,6 +33,8 @@ export default function WebSearchPage() {
         showBaseUrl={false}
         emptyText="No search providers configured"
       />
+
+      <CapabilityTools capability="search" />
     </div>
   );
 }
