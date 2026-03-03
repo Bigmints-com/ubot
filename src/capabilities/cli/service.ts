@@ -14,7 +14,7 @@ import { log } from '../../logger/ring-buffer.js';
 
 const UBOT_ROOT = process.env.UBOT_HOME || process.cwd();
 import type { CliSession, CliServiceConfig } from './types.js';
-import { CLI_BINARIES, CLI_PACKAGES, CLI_AUTH_COMMANDS } from './types.js';
+import { resolveCliCommand, resolveCliPackage, resolveCliAuthArgs } from './types.js';
 
 const MAX_OUTPUT_LINES = 5000;
 const MAX_SESSIONS = 50;
@@ -45,8 +45,7 @@ export class CliService {
    * Check if the configured CLI provider binary is available on the system.
    */
   isProviderAvailable(provider?: string): boolean {
-    const binary = CLI_BINARIES[provider || this.config.provider];
-    if (!binary) return false;
+    const binary = resolveCliCommand(provider || this.config.provider);
     try {
       execSync(`which ${binary}`, { stdio: 'ignore' });
       return true;
@@ -91,7 +90,7 @@ export class CliService {
    */
   getProviderInfo(): { provider: string; binary: string; available: boolean; authenticated: boolean } {
     const provider = this.config.provider;
-    const binary = CLI_BINARIES[provider] || provider;
+    const binary = resolveCliCommand(provider);
     return {
       provider,
       binary,
@@ -106,10 +105,7 @@ export class CliService {
    */
   async installProvider(provider?: string): Promise<{ success: boolean; output: string }> {
     const p = provider || this.config.provider;
-    const pkg = CLI_PACKAGES[p];
-    if (!pkg) {
-      return { success: false, output: `Unknown provider: ${p}` };
-    }
+    const pkg = resolveCliPackage(p);
 
     log.info('CLI', `Installing ${p} CLI: npm install -g ${pkg}`);
 
@@ -147,10 +143,7 @@ export class CliService {
    */
   async authenticateProvider(provider?: string): Promise<{ success: boolean; output: string }> {
     const p = provider || this.config.provider;
-    const authCmd = CLI_AUTH_COMMANDS[p];
-    if (!authCmd) {
-      return { success: false, output: `Unknown provider: ${p}` };
-    }
+    const authCmd = resolveCliAuthArgs(p);
 
     if (p === 'codex') {
       return {
@@ -206,11 +199,7 @@ export class CliService {
    */
   async startSession(prompt: string, projectName?: string): Promise<CliSession> {
     const provider = this.config.provider;
-    const binary = CLI_BINARIES[provider];
-
-    if (!binary) {
-      throw new Error(`Unknown CLI provider: ${provider}`);
-    }
+    const binary = resolveCliCommand(provider);
 
     if (!this.isProviderAvailable()) {
       throw new Error(
