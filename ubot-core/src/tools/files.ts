@@ -4,7 +4,7 @@
  * Provides file operations (read, write, list, delete).
  * Operations are allowed in:
  *   1. The UBOT_HOME/workspace directory (always)
- *   2. Any path listed in config.filesystem.allowed_paths
+ *   2. Any path listed in config.capabilities.filesystem.allowed_paths
  *
  * Paths in allowed_paths support ~ expansion (e.g. ~/Documents).
  */
@@ -18,9 +18,7 @@ import { loadUbotConfig } from '../data/config.js';
 /** Build the descriptions with actual allowed paths listed */
 function getToolDescriptions(): ToolDefinition[] {
   const config = loadUbotConfig();
-  const paths = config.filesystem?.allowed_paths
-    || (config.capabilities as any)?.filesystem?.allowed_paths
-    || [];
+  const paths = config.capabilities?.filesystem?.allowed_paths || [];
   const pathList = paths.length > 0 
     ? `Allowed directories: workspace (always), ${paths.join(', ')}` 
     : 'Only the workspace directory is accessible.';
@@ -70,9 +68,7 @@ function getToolDescriptions(): ToolDefinition[] {
 /** Resolve allowed paths from config, expanding ~ */
 function getAllowedPaths(): string[] {
   const config = loadUbotConfig();
-  const paths = config.filesystem?.allowed_paths
-    || (config.capabilities as any)?.filesystem?.allowed_paths
-    || [];
+  const paths = config.capabilities?.filesystem?.allowed_paths || [];
   return paths.map((p: string) => 
     p.startsWith('~') ? path.join(process.env.HOME || '', p.slice(1)) : p
   );
