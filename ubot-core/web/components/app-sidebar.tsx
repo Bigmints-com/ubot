@@ -22,6 +22,7 @@ import {
   Activity,
   Search,
   Calendar,
+  Zap,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -48,6 +49,7 @@ const coreItems = [
 const agentItems = [
   { title: "Personas", href: "/personas", icon: Brain },
   { title: "Skills", href: "/skills", icon: Puzzle },
+  { title: "Agent Defaults", href: "/agent-defaults", icon: Zap },
   { title: "Safety Rules", href: "/safety", icon: ShieldAlert },
    { title: "Vault", href: "/vault", icon: Lock },
 ];

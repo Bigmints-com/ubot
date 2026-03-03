@@ -24,6 +24,7 @@ const routeNames: Record<string, string> = {
   "/logs": "Logs",
   "/vault": "Vault",
   "/personas": "Personas",
+  "/agent-defaults": "Agent Defaults",
   "/approvals": "Approvals",
 };
 
