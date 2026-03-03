@@ -14,9 +14,7 @@ import { loadUbotConfig } from '../data/config.js';
 /** Resolve allowed paths from config, expanding ~ */
 function getAllowedPaths(): string[] {
   const config = loadUbotConfig();
-  const paths = config.filesystem?.allowed_paths
-    || (config.capabilities as any)?.filesystem?.allowed_paths
-    || [];
+  const paths = config.capabilities?.filesystem?.allowed_paths || [];
   return paths.map((p: string) =>
     p.startsWith('~') ? path.join(process.env.HOME || '', p.slice(1)) : p
   );
@@ -54,9 +52,7 @@ function mimeFromExt(filePath: string): string {
 /** Build tool descriptions with allowed paths */
 function getToolDescriptions(): ToolDefinition[] {
   const config = loadUbotConfig();
-  const paths = config.filesystem?.allowed_paths
-    || (config.capabilities as any)?.filesystem?.allowed_paths
-    || [];
+  const paths = config.capabilities?.filesystem?.allowed_paths || [];
   const pathList = paths.length > 0
     ? `Allowed directories: workspace (always), ${paths.join(', ')}`
     : 'Only the workspace directory is accessible.';

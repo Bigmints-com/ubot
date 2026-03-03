@@ -16,9 +16,7 @@ const CATEGORIES = ['general', 'credentials', 'identity', 'finance', 'documents'
 
 function getAllowedPaths(): string[] {
   const config = loadUbotConfig();
-  const paths = config.filesystem?.allowed_paths
-    || (config.capabilities as any)?.filesystem?.allowed_paths
-    || [];
+  const paths = config.capabilities?.filesystem?.allowed_paths || [];
   return paths.map((p: string) =>
     p.startsWith('~') ? path.join(process.env.HOME || '', p.slice(1)) : p
   );
