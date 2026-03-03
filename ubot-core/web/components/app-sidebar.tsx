@@ -40,7 +40,6 @@ import {
 } from "@/components/ui/sidebar";
 
 const coreItems = [
-  { title: "Dashboard", href: "/", icon: LayoutDashboard },
   { title: "Command Center", href: "/chat", icon: MessageSquare },
   { title: "Vault", href: "/vault", icon: Lock },
 ];
@@ -48,12 +47,12 @@ const coreItems = [
 const agentItems = [
   { title: "Personas", href: "/personas", icon: Brain },
   { title: "Skills", href: "/skills", icon: Puzzle },
+  { title: "Safety Rules", href: "/safety", icon: ShieldAlert },
 ];
 
 const automationItems = [
   { title: "Scheduler", href: "/scheduler", icon: Clock },
   { title: "Approvals", href: "/approvals", icon: CheckCircle },
-  { title: "Safety Rules", href: "/safety", icon: ShieldAlert },
 ];
 
 const channelItems = [
@@ -72,6 +71,7 @@ const capabilityItems = [
 ];
 
 const monitorItems = [
+  { title: "Dashboard", href: "/", icon: LayoutDashboard },
   { title: "Logs", href: "/logs", icon: ScrollText },
   { title: "Tools Health", href: "/tools", icon: Activity },
 ];
