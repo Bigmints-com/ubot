@@ -58,6 +58,16 @@ const SCHEDULER_TOOLS: ToolDefinition[] = [
       { name: 'task_id', type: 'string', description: 'The ID of the scheduled task to trigger now', required: true },
     ],
   },
+  {
+    name: 'schedule_agent_task',
+    description: 'Schedule a recurring agent task that runs tools and sends dynamic results. Unlike create_reminder (static text), this spawns a full agent at the scheduled time that can search the web, read emails, check calendar, fetch data, and compose a dynamic message. Use this for daily briefs, reports, monitoring, or any task that needs live data.',
+    parameters: [
+      { name: 'task', type: 'string', description: 'The task prompt for the agent. Be specific: "Search for top Dubai news, get weather for Dubai, get AAPL stock price, compose a morning brief, and send it to me on telegram."', required: true },
+      { name: 'time', type: 'string', description: 'When to run: "every day at 9am", "weekdays at 8am", "tomorrow at 6pm"', required: true },
+      { name: 'recurrence', type: 'string', description: 'How often: "once", "daily", "weekly", "monthly". Default: "daily"', required: false },
+      { name: 'channel', type: 'string', description: 'Delivery channel for results: "telegram", "whatsapp", "imessage". Agent will send via this channel.', required: false },
+    ],
+  },
 ];
 
 const schedulerToolModule: ToolModule = {
@@ -197,6 +207,61 @@ const schedulerToolModule: ToolModule = {
         return { toolName: 'trigger_schedule', success: result.success, result: result.success ? `Task ${taskId} executed successfully.` : `Task ${taskId} failed: ${result.error}`, duration: result.duration };
       } catch (err: any) {
         return { toolName: 'trigger_schedule', success: false, error: err.message, duration: 0 };
+      }
+    });
+    // ── schedule_agent_task ────────────────────────────────
+    registry.register('schedule_agent_task', async (args) => {
+      const task = String(args.task || '').trim();
+      const time = String(args.time || '');
+      const recurrence = String(args.recurrence || 'daily') as 'once' | 'daily' | 'weekly' | 'monthly';
+      const channel = args.channel ? String(args.channel) : undefined;
+      if (!task || !time) return { toolName: 'schedule_agent_task', success: false, error: 'Missing required parameters (task, time)', duration: 0 };
+
+      const scheduledDate = chrono.parseDate(time, new Date()) || new Date(time);
+      if (!scheduledDate || isNaN(scheduledDate.getTime())) return { toolName: 'schedule_agent_task', success: false, error: `Could not parse time: "${time}".`, duration: 0 };
+
+      const sched = ctx.getScheduler();
+      if (!sched) return { toolName: 'schedule_agent_task', success: false, error: 'Scheduler service not initialized', duration: 0 };
+
+      const orchestrator = ctx.getAgent() as any;
+      if (!orchestrator?.chat) return { toolName: 'schedule_agent_task', success: false, error: 'Agent orchestrator not available', duration: 0 };
+
+      try {
+        // Build the agent prompt — append channel delivery instruction if specified
+        let agentPrompt = task;
+        if (channel) {
+          agentPrompt += `\n\nIMPORTANT: Send the final result to the owner via ${channel} using the send_message tool.`;
+        }
+
+        const scheduledTask = await sched.createTask({
+          name: `Agent Task: ${task.slice(0, 60)}`,
+          description: `Scheduled agent run: "${task}"`,
+          schedule: { recurrence, startDate: scheduledDate },
+          data: { prompt: agentPrompt, channel },
+          tags: ['agent_task'],
+          metadata: { createdBy: 'chat', task, channel },
+          handler: async (_ctx: any, data: { prompt: string; channel?: string }) => {
+            console.log(`[Scheduler] Running agent task: ${data.prompt.slice(0, 100)}`);
+            const sessionId = `sched-${Date.now()}`;
+            try {
+              const result = await orchestrator.chat(sessionId, data.prompt, 'web', 'scheduler', true);
+              console.log(`[Scheduler] Agent task completed: ${result.content?.slice(0, 100)}`);
+              return { success: true, content: result.content, tools: result.toolCalls?.length || 0 };
+            } catch (err: any) {
+              console.error(`[Scheduler] Agent task failed: ${err.message}`);
+              return { success: false, error: err.message };
+            }
+          },
+        });
+
+        return {
+          toolName: 'schedule_agent_task',
+          success: true,
+          result: `Scheduled agent task: "${task.slice(0, 80)}" at ${scheduledDate.toLocaleString()} (${recurrence})${channel ? ` → ${channel}` : ''}. Task ID: ${scheduledTask.id}. The agent will run tools and compose dynamic content at the scheduled time.`,
+          duration: 0,
+        };
+      } catch (err: any) {
+        return { toolName: 'schedule_agent_task', success: false, error: err.message, duration: 0 };
       }
     });
   },
