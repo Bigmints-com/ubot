@@ -201,6 +201,19 @@ export async function handleIntegrationProviderRoutes(
   if (url.endsWith('/default') && method === 'PUT') {
     section.default = providerKey;
     saveSection(category, section);
+
+    // Sync to config.defaults so Agent Defaults page reflects the change
+    const CATEGORY_TO_PURPOSE: Record<string, string> = {
+      models: 'chat', search: 'search', cli: 'cli',
+    };
+    const purpose = CATEGORY_TO_PURPOSE[category];
+    if (purpose) {
+      const cfg = loadUbotConfig();
+      if (!cfg.defaults) cfg.defaults = {};
+      cfg.defaults[purpose] = `${category}.${providerKey}`;
+      saveUbotConfig(cfg);
+    }
+
     if (category === 'models') syncModelsToAgent(ctx);
     json(res, { success: true, default: providerKey });
     return true;
