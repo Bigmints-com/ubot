@@ -20,7 +20,8 @@ import { TelegramMessagingProvider } from '../channels/telegram/messaging-provid
 import { BlueBubblesConnection } from '../channels/imessage/connection.js';
 import { IMessageMessagingProvider } from '../channels/imessage/messaging-provider.js';
 import { MessagingRegistry } from '../channels/registry.js';
-import { createSkillRepository, type SkillRepository } from '../capabilities/skills/skill-repository.js';
+import { createFileSkillRepository } from '../capabilities/skills/file-skill-repository.js';
+import type { SkillRepository } from '../capabilities/skills/skill-repository.js';
 import { createSkillEngine, type SkillEngine } from '../capabilities/skills/skill-engine.js';
 import { createEventBus, type EventBus } from '../capabilities/skills/event-bus.js';
 import { loadUbotConfig, saveUbotConfig } from '../data/config.js';
@@ -729,7 +730,11 @@ export function initializeApi(db?: DatabaseConnection, agent?: AgentOrchestrator
   workspacePath = wsPath || null;
   if (db) {
 
-    skillRepo = createSkillRepository(db as unknown as CoreDatabaseConnection);
+    // File-based skills: stored as SKILL.md files in $UBOT_HOME/skills/
+    const skillsDir = process.env.UBOT_HOME
+      ? require('path').join(process.env.UBOT_HOME, 'skills')
+      : './skills';
+    skillRepo = createFileSkillRepository(skillsDir);
     coreDb = db as unknown as CoreDatabaseConnection;
     eventBus = createEventBus();
     approvalStore = createApprovalStore(db as unknown as CoreDatabaseConnection);
@@ -804,11 +809,8 @@ export function initializeApi(db?: DatabaseConnection, agent?: AgentOrchestrator
         },
       );
 
-      import('../capabilities/skills/browsing-playbooks.js').then(({ seedBrowsingPlaybooks }) => {
-        seedBrowsingPlaybooks(skillEngine!);
-      }).catch((err: any) => {
-        console.error('[Skills] Failed to seed browsing playbooks:', err.message);
-      });
+      // Skills are now file-based (SKILL.md) — no DB seeding needed.
+      // Built-in skills ship as actual files in $UBOT_HOME/skills/
 
       eventBus.on(async (event) => {
         if (!skillEngine) return;

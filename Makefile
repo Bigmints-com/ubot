@@ -58,6 +58,18 @@ install: build
 	@mkdir -p $(UBOT_HOME)/workspace
 	@mkdir -p $(UBOT_HOME)/custom/modules
 	@mkdir -p $(UBOT_HOME)/custom/staging
+	@mkdir -p $(UBOT_HOME)/skills
+
+	@# Copy default skills (only if skill dir doesn't already exist — respects user deletions)
+	@if [ -d $(CORE_DIR)/default-skills ]; then \
+		for skill_dir in $(CORE_DIR)/default-skills/*/; do \
+			skill_name=$$(basename "$$skill_dir"); \
+			if [ ! -d "$(UBOT_HOME)/skills/$$skill_name" ]; then \
+				cp -r "$$skill_dir" "$(UBOT_HOME)/skills/$$skill_name"; \
+			fi; \
+		done; \
+		echo "   Synced default skills to $(UBOT_HOME)/skills/"; \
+	fi
 
 	@# ── Backup database before install ─────────────────────────────────
 	@if [ -f $(UBOT_HOME)/data/ubot.db ]; then \
