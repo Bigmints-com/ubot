@@ -61,6 +61,7 @@ const channelItems = [
 ];
 
 const integrationItems = [
+  { title: "LLMs", href: "/llms", icon: Bot },
   { title: "Web Search", href: "/web-search", icon: Search },
   { title: "Google Apps", href: "/google", icon: Globe },
   { title: "MCP Servers", href: "/mcp-servers", icon: Plug },

@@ -41,6 +41,7 @@ import { handleSafetyRoutes } from './routes/safety.js';
 import { handleVaultRoutes } from './routes/vault.js';
 import { handleMemoryRoutes } from './routes/memory.js';
 import { handleIntegrationRoutes } from './routes/integrations.js';
+import { handleIntegrationProviderRoutes } from './routes/integrations-providers.js';
 import { handleToolsRoutes } from './routes/tools.js';
 import { handleCliRoutes } from './routes/cli.js';
 import { json, parseBody, error as apiError, type ApiContext } from './context.js';
@@ -646,7 +647,73 @@ async function autoConnectIMessage(): Promise<void> {
 
 // ─── Initialization ──────────────────────────────────────
 
+/**
+ * Migrate old config format to new unified integrations format.
+ * - config.llm.providers → config.integrations.llm.chat
+ * - config.integrations.serper_api_key → config.integrations.search.providers
+ */
+function migrateIntegrations(): void {
+  const cfg = loadUbotConfig();
+  let changed = false;
+  if (!cfg.integrations) cfg.integrations = {};
+
+  // ── Migrate LLM providers ──
+  const oldProviders = cfg.llm?.providers;
+  if (Array.isArray(oldProviders) && oldProviders.length > 0 && !cfg.integrations.llm?.chat?.length) {
+    if (!cfg.integrations.llm) cfg.integrations.llm = {};
+    cfg.integrations.llm.chat = oldProviders.map((p: any) => ({
+      id: p.id || `prov_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      name: p.name || p.provider || 'Unknown',
+      type: p.provider || 'custom',
+      baseUrl: p.baseUrl || '',
+      apiKey: p.apiKey || '',
+      model: p.model || '',
+      enabled: true,
+      isDefault: p.isDefault || false,
+      config: {},
+    }));
+    log.info('Migration', `Migrated ${oldProviders.length} LLM providers to integrations.llm.chat`);
+    changed = true;
+  }
+
+  // ── Migrate Serper API key ──
+  const oldSerperKey = (cfg.integrations as any).serper_api_key;
+  if (oldSerperKey && !cfg.integrations.search?.providers?.length) {
+    if (!cfg.integrations.search) cfg.integrations.search = {};
+    cfg.integrations.search.providers = [
+      {
+        id: `prov_serper_${Date.now()}`,
+        name: 'Serper.dev (Google)',
+        type: 'serper',
+        baseUrl: 'https://google.serper.dev/search',
+        apiKey: oldSerperKey,
+        enabled: true,
+        isDefault: true,
+        config: {},
+      },
+      {
+        id: `prov_ddg_${Date.now()}`,
+        name: 'DuckDuckGo',
+        type: 'duckduckgo',
+        baseUrl: '',
+        apiKey: '',
+        enabled: true,
+        isDefault: false,
+        config: {},
+      },
+    ];
+    log.info('Migration', 'Migrated Serper API key to integrations.search.providers');
+    changed = true;
+  }
+
+  if (changed) {
+    saveUbotConfig(cfg);
+    log.info('Migration', 'Saved migrated integrations config');
+  }
+}
+
 export function initializeApi(db?: DatabaseConnection, agent?: AgentOrchestrator, wsPath?: string): void {
+  migrateIntegrations();
   workspacePath = wsPath || null;
   if (db) {
 
@@ -1232,6 +1299,7 @@ export async function handleApiRoute(
   if (await handleSkillRoutes(req, res, url, method, ctx)) return true;
   if (await handleSafetyRoutes(req, res, url, method, ctx)) return true;
   if (await handleMemoryRoutes(req, res, url, method, ctx)) return true;
+  if (await handleIntegrationProviderRoutes(req, res, url, method, ctx)) return true;
   if (await handleIntegrationRoutes(req, res, url, method, ctx)) return true;
   if (await handleToolsRoutes(req, res, url, method, ctx)) return true;
   if (await handleCliRoutes(req, res, url, method, ctx)) return true;
