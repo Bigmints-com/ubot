@@ -44,24 +44,18 @@ const VALID_CATEGORIES: Category[] = ['models', 'search', 'cli'];
 
 function getSection(category: Category): ProvidersSection {
   const cfg = loadUbotConfig();
-  switch (category) {
-    case 'models': return cfg.models || {};
-    case 'search': return cfg.search || {};
-    case 'cli':    return cfg.cli || {};
-  }
+  const caps = cfg.capabilities || {};
+  return (caps[category] as ProvidersSection) || {};
 }
 
 function saveSection(category: Category, section: ProvidersSection): void {
   const cfg = loadUbotConfig();
-  switch (category) {
-    case 'models': cfg.models = section; break;
-    case 'search': cfg.search = section; break;
-    case 'cli': {
-      // Preserve workDir when saving cli section
-      const existingWorkDir = (cfg.cli as any)?.workDir;
-      cfg.cli = { ...section, workDir: existingWorkDir };
-      break;
-    }
+  if (!cfg.capabilities) cfg.capabilities = {};
+  if (category === 'cli') {
+    const existingWorkDir = (cfg.capabilities.cli as any)?.workDir;
+    cfg.capabilities.cli = { ...section, workDir: existingWorkDir };
+  } else {
+    (cfg.capabilities as any)[category] = section;
   }
   saveUbotConfig(cfg);
 }
@@ -267,14 +261,13 @@ export async function handleIntegrationProviderRoutes(
 function syncModelsToAgent(ctx: ApiContext): void {
   if (!ctx.agentOrchestrator) return;
   const cfg = loadUbotConfig();
-  const section = cfg.models;
+  const section = cfg.capabilities?.models;
   if (!section?.providers) return;
 
   const defaultKey = section.default || Object.keys(section.providers)[0] || '';
   const defaultProvider = section.providers[defaultKey];
 
   if (defaultProvider) {
-    // Map keyed providers to old array format for agent orchestrator
     const oldProviders = Object.entries(section.providers)
       .filter(([_, p]) => p.enabled !== false)
       .map(([key, p]) => ({
@@ -299,7 +292,7 @@ function syncModelsToAgent(ctx: ApiContext): void {
 
 async function syncSearchToSerper(): Promise<void> {
   const cfg = loadUbotConfig();
-  const serper = cfg.search?.providers?.serper;
+  const serper = cfg.capabilities?.search?.providers?.serper;
   try {
     const { setSerperApiKey } = await import('../../capabilities/skills/web-search/adapters/serper.js');
     setSerperApiKey(serper?.enabled !== false ? (serper?.apiKey as string || null) : null);

@@ -632,130 +632,100 @@ async function autoConnectIMessage(): Promise<void> {
 
 /**
  * Migrate config to v2 keyed provider format.
- * Handles: llm.providers[], integrations.llm.chat[], integrations.serper_api_key
+ * Handles: v1 (llm.providers[], integrations.*), v2 (top-level models/search/cli)
  */
-function migrateConfigV2(): void {
+function migrateConfig(): void {
   const cfg = loadUbotConfig();
-  if (cfg.meta?.version === '2.0') return; // Already migrated
-  
+  const currentVersion = cfg.meta?.version;
+  if (currentVersion === '3.0') return; // Already at latest
+
   let changed = false;
+  if (!cfg.capabilities) cfg.capabilities = {};
 
-  // ── Migrate LLM providers to models.providers ──
-  // Source: old llm.providers[] OR integrations.llm.chat[]
-  if (!cfg.models?.providers) {
-    const oldProviders = cfg.llm?.providers || cfg.integrations?.llm?.chat || [];
-    if (Array.isArray(oldProviders) && oldProviders.length > 0) {
-      if (!cfg.models) cfg.models = {};
-      cfg.models.providers = {};
-      
-      for (const p of oldProviders) {
-        const key = (p.provider || p.type || p.name || 'custom').toLowerCase().replace(/[^a-z0-9_-]/g, '-');
-        // Deduplicate keys
-        let finalKey = key;
-        let suffix = 2;
-        while (cfg.models.providers[finalKey]) { finalKey = `${key}-${suffix++}`; }
-        
-        cfg.models.providers[finalKey] = {
-          enabled: p.enabled !== false,
-          baseUrl: p.baseUrl || undefined,
-          apiKey: p.apiKey || undefined,
-          model: p.model || undefined,
-        };
-        
-        if (p.isDefault || p.id === cfg.llm?.default_provider_id) {
-          cfg.models.default = finalKey;
-        }
-      }
-      
-      if (!cfg.models.default) {
-        cfg.models.default = Object.keys(cfg.models.providers)[0];
-      }
-      
-      log.info('Migration', `Migrated ${oldProviders.length} LLM providers → models.providers`);
-      changed = true;
+  // ── v1 → v2: Migrate old array-based formats to keyed ──
+  // LLM providers from llm.providers[] or integrations.llm.chat[]
+  const oldLlmProviders = cfg.llm?.providers || cfg.integrations?.llm?.chat || [];
+  if (Array.isArray(oldLlmProviders) && oldLlmProviders.length > 0 && !cfg.capabilities.models?.providers && !cfg.models?.providers) {
+    const modelsSection: any = { enabled: true, providers: {} };
+    for (const p of oldLlmProviders) {
+      const key = (p.provider || p.type || p.name || 'custom').toLowerCase().replace(/[^a-z0-9_-]/g, '-');
+      let finalKey = key;
+      let suffix = 2;
+      while (modelsSection.providers[finalKey]) { finalKey = `${key}-${suffix++}`; }
+      modelsSection.providers[finalKey] = { enabled: p.enabled !== false, baseUrl: p.baseUrl, apiKey: p.apiKey, model: p.model };
+      if (p.isDefault || p.id === cfg.llm?.default_provider_id) modelsSection.default = finalKey;
     }
+    if (!modelsSection.default) modelsSection.default = Object.keys(modelsSection.providers)[0];
+    cfg.capabilities.models = modelsSection;
+    log.info('Migration', `Migrated ${oldLlmProviders.length} LLM providers → capabilities.models`);
+    changed = true;
   }
 
-  // ── Migrate search providers ──
+  // Serper API key from integrations.serper_api_key
   const oldSerperKey = cfg.integrations?.serper_api_key;
-  const oldSearchProviders = cfg.integrations?.search?.providers;
-  
-  if (!cfg.search?.providers) {
-    if (!cfg.search) cfg.search = {};
-    cfg.search.providers = {};
-    
-    if (oldSerperKey) {
-      cfg.search.providers.serper = { enabled: true, apiKey: oldSerperKey };
-      cfg.search.default = 'serper';
-    } else if (Array.isArray(oldSearchProviders)) {
-      for (const p of oldSearchProviders) {
-        const key = (p.type || p.name || 'custom').toLowerCase().replace(/[^a-z0-9_-]/g, '-');
-        cfg.search.providers[key] = {
-          enabled: p.enabled !== false,
-          apiKey: p.apiKey || undefined,
-        };
-        if (p.isDefault) cfg.search.default = key;
-      }
-    }
-    
-    // Always add duckduckgo as fallback
-    if (!cfg.search.providers.duckduckgo) {
-      cfg.search.providers.duckduckgo = { enabled: true };
-    }
-    if (!cfg.search.default) {
-      cfg.search.default = Object.keys(cfg.search.providers)[0];
-    }
-    
-    if (oldSerperKey || oldSearchProviders?.length) {
-      log.info('Migration', 'Migrated search providers → search.providers');
-      changed = true;
-    }
-  }
-
-  // ── Migrate CLI to standard provider format ──
-  const oldCli = cfg.cli;
-  if (oldCli && !oldCli.providers) {
-    const cliProviders: Record<string, any> = {
-      gemini: { enabled: oldCli.default === 'gemini' || (oldCli as any).provider === 'gemini', timeout: (oldCli as any).timeout || 300000 },
-      claude: { enabled: (oldCli as any).provider === 'claude', timeout: 300000 },
-      codex: { enabled: (oldCli as any).provider === 'codex', timeout: 300000 },
+  if (oldSerperKey && !cfg.capabilities.search?.providers && !cfg.search?.providers) {
+    cfg.capabilities.search = {
+      enabled: true, default: 'serper',
+      providers: { serper: { enabled: true, apiKey: oldSerperKey }, duckduckgo: { enabled: true } },
     };
-    cfg.cli = {
-      default: (oldCli as any).provider || 'gemini',
-      providers: cliProviders,
-      workDir: (oldCli as any).workDir,
-    };
-    log.info('Migration', 'Migrated CLI → cli.providers');
+    log.info('Migration', 'Migrated serper_api_key → capabilities.search');
     changed = true;
   }
 
-  // ── Migrate agent settings ──
-  if (!cfg.agent) {
-    cfg.agent = { max_history_messages: 20 };
+  // ── v2 → v3: Move top-level sections into capabilities ──
+  if (cfg.models?.providers && !cfg.capabilities.models?.providers) {
+    cfg.capabilities.models = { enabled: true, ...cfg.models };
+    log.info('Migration', 'Moved models → capabilities.models');
+    changed = true;
+  }
+  if (cfg.search?.providers && !cfg.capabilities.search?.providers) {
+    cfg.capabilities.search = { enabled: true, ...cfg.search };
+    log.info('Migration', 'Moved search → capabilities.search');
+    changed = true;
+  }
+  if (cfg.cli?.providers && !cfg.capabilities.cli?.providers) {
+    cfg.capabilities.cli = { enabled: true, ...cfg.cli };
+    log.info('Migration', 'Moved cli → capabilities.cli');
+    changed = true;
+  }
+  if (cfg.filesystem?.allowed_paths && !cfg.capabilities.filesystem) {
+    cfg.capabilities.filesystem = { enabled: true, ...cfg.filesystem };
+    log.info('Migration', 'Moved filesystem → capabilities.filesystem');
+    changed = true;
+  }
+  if (cfg.mcp?.servers && !cfg.capabilities.mcp) {
+    cfg.capabilities.mcp = cfg.mcp;
+    log.info('Migration', 'Moved mcp → capabilities.mcp');
     changed = true;
   }
 
-  // ── Clean up legacy fields ──
-  if (cfg.integrations) {
-    delete cfg.integrations;
-    changed = true;
+  // ── Ensure defaults ──
+  if (!cfg.capabilities.models) cfg.capabilities.models = { enabled: true };
+  if (!cfg.capabilities.search) {
+    cfg.capabilities.search = { enabled: true, default: 'duckduckgo', providers: { duckduckgo: { enabled: true } } };
   }
-  if (cfg.llm) {
-    delete cfg.llm;
-    changed = true;
-  }
+  if (!cfg.capabilities.filesystem) cfg.capabilities.filesystem = { enabled: true, allowed_paths: [] };
+  if (!cfg.agent) cfg.agent = { max_history_messages: 20 };
+
+  // ── Clean up legacy top-level fields ──
+  delete cfg.llm;
+  delete cfg.integrations;
+  delete cfg.models;
+  delete cfg.search;
+  delete cfg.cli;
+  delete cfg.filesystem;
+  delete cfg.mcp;
 
   // ── Set version ──
-  cfg.meta = { version: '2.0' };
+  cfg.meta = { version: '3.0' };
+  changed = true;
 
-  if (changed) {
-    saveUbotConfig(cfg);
-    log.info('Migration', 'Config migrated to v2.0');
-  }
+  saveUbotConfig(cfg);
+  log.info('Migration', 'Config migrated to v3.0 (capabilities)');
 }
 
 export function initializeApi(db?: DatabaseConnection, agent?: AgentOrchestrator, wsPath?: string): void {
-  migrateConfigV2();
+  migrateConfig();
   workspacePath = wsPath || null;
   if (db) {
 
@@ -765,7 +735,6 @@ export function initializeApi(db?: DatabaseConnection, agent?: AgentOrchestrator
     approvalStore = createApprovalStore(db as unknown as CoreDatabaseConnection);
 
     if (agent) {
-      // Load config directly from config.json (single source of truth)
       const cfg = loadUbotConfig();
       const configUpdates: Record<string, unknown> = {};
 
@@ -781,10 +750,11 @@ export function initializeApi(db?: DatabaseConnection, agent?: AgentOrchestrator
       // Agent settings
       if (cfg.agent?.max_history_messages) configUpdates.maxHistoryMessages = cfg.agent.max_history_messages;
 
-      // LLM providers — map from v2 keyed format to agent's array format
-      if (cfg.models?.providers) {
-        const defaultKey = cfg.models.default || Object.keys(cfg.models.providers)[0] || '';
-        const llmProviders: LLMProviderConfig[] = Object.entries(cfg.models.providers)
+      // LLM providers from capabilities.models
+      const models = cfg.capabilities?.models;
+      if (models?.providers) {
+        const defaultKey = models.default || Object.keys(models.providers)[0] || '';
+        const llmProviders: LLMProviderConfig[] = Object.entries(models.providers)
           .filter(([_, p]) => p.enabled !== false)
           .map(([key, p]) => ({
             id: key,
@@ -799,13 +769,13 @@ export function initializeApi(db?: DatabaseConnection, agent?: AgentOrchestrator
         if (llmProviders.length > 0) {
           configUpdates.llmProviders = llmProviders;
           configUpdates.defaultLlmProviderId = defaultKey;
-          const dp = cfg.models.providers[defaultKey];
+          const dp = models.providers[defaultKey];
           if (dp) {
             configUpdates.llmBaseUrl = dp.baseUrl || '';
             configUpdates.llmModel = dp.model || '';
             configUpdates.llmApiKey = dp.apiKey || '';
           }
-          log.info('Config', `Loaded ${llmProviders.length} model providers from config.json`);
+          log.info('Config', `Loaded ${llmProviders.length} model providers from config`);
         }
       }
 
@@ -940,7 +910,7 @@ async function registerAgentTools(agent: AgentOrchestrator): Promise<void> {
   mcpManager.init(
     { get: (key: string) => {
       const c = loadUbotConfig();
-      if (key === 'mcp_servers') return JSON.stringify(c.mcp?.servers || {});
+      if (key === 'mcp_servers') return JSON.stringify(c.capabilities?.mcp?.servers || {});
       return (c as any)[key] ?? null;
     }, set: saveConfigValue },
     registry,
@@ -978,7 +948,7 @@ function getApiContext(): ApiContext {
     saveConfigValue,
     loadConfigValue: (key: string) => {
       const c = loadUbotConfig();
-      if (key === 'mcp_servers') return JSON.stringify(c.mcp?.servers || {});
+      if (key === 'mcp_servers') return JSON.stringify(c.capabilities?.mcp?.servers || {});
       if (key === 'telegram_bot_token') return c.channels?.telegram?.token || null;
       return (c as any)[key] ?? null;
     },
@@ -997,11 +967,13 @@ async function handleChannelRoutes(
   // ── Integrations Config ────────────────────────────────
   if (url === '/api/config/integrations' && method === 'GET') {
     const cfg = loadUbotConfig();
+    const caps = cfg.capabilities || {};
+    const serperKey = caps.search?.providers?.serper?.apiKey as string || '';
     json(res, {
-      serper_api_key: cfg.integrations?.serper_api_key ? '••••' + (cfg.integrations.serper_api_key).slice(-4) : '',
-      serper_configured: !!cfg.integrations?.serper_api_key,
-      cli: cfg.cli || { enabled: false, provider: 'gemini', workDir: 'workspace/cli-projects', timeout: 300000 },
-      filesystem: cfg.filesystem || { allowed_paths: [] },
+      serper_api_key: serperKey ? '••••' + serperKey.slice(-4) : '',
+      serper_configured: !!serperKey,
+      cli: caps.cli || { enabled: false, default: 'gemini' },
+      filesystem: caps.filesystem || { enabled: true, allowed_paths: [] },
     });
     return true;
   }
@@ -1009,11 +981,13 @@ async function handleChannelRoutes(
   if (url === '/api/config/integrations' && method === 'PUT') {
     const body = await parseBody(req) as any;
     const cfg = loadUbotConfig();
+    if (!cfg.capabilities) cfg.capabilities = {};
 
     if (body.serper_api_key !== undefined && !body.serper_api_key.includes('••••')) {
-      if (!cfg.integrations) cfg.integrations = {};
-      cfg.integrations.serper_api_key = body.serper_api_key;
-      // Update env and in-memory serper key for immediate use
+      if (!cfg.capabilities.search) cfg.capabilities.search = { enabled: true, providers: {} };
+      if (!cfg.capabilities.search.providers) cfg.capabilities.search.providers = {};
+      if (!cfg.capabilities.search.providers.serper) cfg.capabilities.search.providers.serper = { enabled: true };
+      cfg.capabilities.search.providers.serper.apiKey = body.serper_api_key;
       process.env.SERPER_API_KEY = body.serper_api_key;
       try {
         const { setSerperApiKey } = await import('../capabilities/skills/web-search/adapters/serper.js');
@@ -1021,10 +995,10 @@ async function handleChannelRoutes(
       } catch { /* ignore */ }
     }
     if (body.cli !== undefined) {
-      cfg.cli = { ...cfg.cli, ...body.cli };
+      cfg.capabilities.cli = { ...cfg.capabilities.cli, ...body.cli };
     }
     if (body.filesystem !== undefined) {
-      cfg.filesystem = { ...cfg.filesystem, ...body.filesystem };
+      cfg.capabilities.filesystem = { ...cfg.capabilities.filesystem, ...body.filesystem };
     }
 
     saveUbotConfig(cfg);
