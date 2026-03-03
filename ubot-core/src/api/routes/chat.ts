@@ -334,7 +334,7 @@ export async function handleChatRoutes(
   if (url === '/api/llm-providers' && method === 'GET') {
     const { loadUbotConfig } = await import('../../data/config.js');
     const cfg = loadUbotConfig();
-    const providers = Object.entries(cfg.models?.providers || {})
+    const providers = Object.entries(cfg.capabilities?.models?.providers || {})
       .filter(([_, p]) => p.enabled !== false)
       .map(([key, p]) => ({
         id: key,
@@ -343,9 +343,9 @@ export async function handleChatRoutes(
         baseUrl: p.baseUrl || '',
         apiKey: p.apiKey ? `${String(p.apiKey).slice(0, 4)}${'*'.repeat(8)}${String(p.apiKey).slice(-4)}` : '',
         model: p.model || '',
-        isDefault: key === cfg.models?.default,
+        isDefault: key === cfg.capabilities?.models?.default,
       }));
-    json(res, { providers, defaultId: cfg.models?.default || '' });
+    json(res, { providers, defaultId: cfg.capabilities?.models?.default || '' });
     return true;
   }
 

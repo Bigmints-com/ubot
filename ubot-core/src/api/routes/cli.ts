@@ -14,9 +14,9 @@ export const handleCliRoutes: RouteHandler = async (req, res, url, method, _ctx)
   // ── Feature status ────────────────────────────────────
   if (url === '/api/cli/status' && method === 'GET') {
     const config = loadUbotConfig();
-    const defaultProvider = config.cli?.default || 'gemini';
-    const providerCfg = config.cli?.providers?.[defaultProvider];
-    const enabled = providerCfg?.enabled !== false && !!config.cli?.providers;
+    const defaultProvider = config.capabilities?.cli?.default || 'gemini';
+    const providerCfg = config.capabilities?.cli?.providers?.[defaultProvider];
+    const enabled = providerCfg?.enabled !== false && !!config.capabilities?.cli?.providers;
     const timeout = (providerCfg?.timeout as number) || 300000;
 
     let providerAvailable = false;
@@ -25,7 +25,7 @@ export const handleCliRoutes: RouteHandler = async (req, res, url, method, _ctx)
       try {
         const service = getCliService({
           provider: defaultProvider,
-          workDir: config.cli?.workDir || 'custom/staging',
+          workDir: config.capabilities?.cli?.workDir || 'custom/staging',
           timeout,
         });
         providerAvailable = service.isProviderAvailable(defaultProvider);
@@ -38,7 +38,7 @@ export const handleCliRoutes: RouteHandler = async (req, res, url, method, _ctx)
       provider: defaultProvider,
       providerAvailable,
       providerAuthenticated,
-      workDir: config.cli?.workDir || 'custom/staging',
+      workDir: config.capabilities?.cli?.workDir || 'custom/staging',
       timeout,
     });
     return true;
@@ -48,26 +48,27 @@ export const handleCliRoutes: RouteHandler = async (req, res, url, method, _ctx)
   if (url === '/api/cli/toggle' && method === 'PUT') {
     const body = await parseBody(req) as any;
     const config = loadUbotConfig();
-    if (!config.cli) config.cli = {};
-    if (!config.cli.providers) config.cli.providers = {};
-    const provider = body?.provider || config.cli.default || 'gemini';
-    if (!config.cli.providers[provider]) config.cli.providers[provider] = {};
-    config.cli.providers[provider].enabled = !!body?.enabled;
-    if (body?.provider) config.cli.default = body.provider;
+    if (!config.capabilities) config.capabilities = {};
+    if (!config.capabilities.cli) config.capabilities.cli = {};
+    if (!config.capabilities.cli.providers) config.capabilities.cli.providers = {};
+    const provider = body?.provider || config.capabilities.cli.default || 'gemini';
+    if (!config.capabilities.cli.providers[provider]) config.capabilities.cli.providers[provider] = {};
+    config.capabilities.cli.providers[provider].enabled = !!body?.enabled;
+    if (body?.provider) config.capabilities.cli.default = body.provider;
     saveUbotConfig(config);
-    json(res, { enabled: config.cli.providers[provider].enabled, provider });
+    json(res, { enabled: config.capabilities.cli.providers[provider].enabled, provider });
     return true;
   }
 
   // ── Install CLI provider ─────────────────────────────
   if (url === '/api/cli/install' && method === 'POST') {
     const config = loadUbotConfig();
-    const provider = config.cli?.default || 'gemini';
-    const providerCfg = config.cli?.providers?.[provider];
+    const provider = config.capabilities?.cli?.default || 'gemini';
+    const providerCfg = config.capabilities?.cli?.providers?.[provider];
     try {
       const service = getCliService({
         provider,
-        workDir: config.cli?.workDir || 'custom/staging',
+        workDir: config.capabilities?.cli?.workDir || 'custom/staging',
         timeout: (providerCfg?.timeout as number) || 300000,
       });
       const result = await service.installProvider(provider);
@@ -81,12 +82,12 @@ export const handleCliRoutes: RouteHandler = async (req, res, url, method, _ctx)
   // ── Authenticate CLI provider ────────────────────────
   if (url === '/api/cli/authenticate' && method === 'POST') {
     const config = loadUbotConfig();
-    const provider = config.cli?.default || 'gemini';
-    const providerCfg = config.cli?.providers?.[provider];
+    const provider = config.capabilities?.cli?.default || 'gemini';
+    const providerCfg = config.capabilities?.cli?.providers?.[provider];
     try {
       const service = getCliService({
         provider,
-        workDir: config.cli?.workDir || 'custom/staging',
+        workDir: config.capabilities?.cli?.workDir || 'custom/staging',
         timeout: (providerCfg?.timeout as number) || 300000,
       });
       const result = await service.authenticateProvider(provider);
@@ -101,23 +102,24 @@ export const handleCliRoutes: RouteHandler = async (req, res, url, method, _ctx)
   if (url === '/api/cli/settings' && method === 'PUT') {
     const body = await parseBody(req) as any;
     const config = loadUbotConfig();
-    if (!config.cli) config.cli = {};
-    if (!config.cli.providers) config.cli.providers = {};
-    if (body?.provider) config.cli.default = body.provider;
-    if (body?.workDir) config.cli.workDir = body.workDir;
-    const provider = config.cli.default || 'gemini';
-    if (!config.cli.providers[provider]) config.cli.providers[provider] = {};
-    if (body?.timeout !== undefined) config.cli.providers[provider].timeout = Number(body.timeout);
+    if (!config.capabilities) config.capabilities = {};
+    if (!config.capabilities.cli) config.capabilities.cli = {};
+    if (!config.capabilities.cli.providers) config.capabilities.cli.providers = {};
+    if (body?.provider) config.capabilities.cli.default = body.provider;
+    if (body?.workDir) config.capabilities.cli.workDir = body.workDir;
+    const provider = config.capabilities.cli.default || 'gemini';
+    if (!config.capabilities.cli.providers[provider]) config.capabilities.cli.providers[provider] = {};
+    if (body?.timeout !== undefined) config.capabilities.cli.providers[provider].timeout = Number(body.timeout);
     saveUbotConfig(config);
-    json(res, { cli: config.cli });
+    json(res, { cli: config.capabilities.cli });
     return true;
   }
 
   // Gate remaining routes behind enabled check
   const config = loadUbotConfig();
-  const cliDefault = config.cli?.default || 'gemini';
-  const cliProviderCfg = config.cli?.providers?.[cliDefault];
-  const cliEnabled = cliProviderCfg?.enabled !== false && !!config.cli?.providers;
+  const cliDefault = config.capabilities?.cli?.default || 'gemini';
+  const cliProviderCfg = config.capabilities?.cli?.providers?.[cliDefault];
+  const cliEnabled = cliProviderCfg?.enabled !== false && !!config.capabilities?.cli?.providers;
   if (!cliEnabled && url.startsWith('/api/cli/sessions')) {
     apiError(res, 'CLI capability is disabled. Enable it from the CLI page.', 403);
     return true;
@@ -125,7 +127,7 @@ export const handleCliRoutes: RouteHandler = async (req, res, url, method, _ctx)
 
   const getService = () => getCliService({
     provider: cliDefault,
-    workDir: config.cli?.workDir || 'custom/staging',
+    workDir: config.capabilities?.cli?.workDir || 'custom/staging',
     timeout: (cliProviderCfg?.timeout as number) || 300000,
   });
 

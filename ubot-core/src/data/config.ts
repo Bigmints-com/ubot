@@ -2,8 +2,8 @@ import fs from 'fs';
 import path from 'path';
 
 // ─── Standard Provider Pattern ───────────────────────────
-// Every integration uses the same shape:
-//   { default: "key", providers: { key: { enabled, ...config } } }
+// Every multi-provider capability uses:
+//   { enabled, default: "key", providers: { key: { enabled, ...config } } }
 
 export interface ProviderConfig {
   enabled?: boolean;
@@ -15,11 +15,36 @@ export interface ProviderConfig {
 }
 
 export interface ProvidersSection {
+  enabled?: boolean;
   default?: string;
   providers?: Record<string, ProviderConfig>;
 }
 
-// ─── MCP Server Config ───────────────────────────────────
+// ─── Capability-specific types ───────────────────────────
+
+export interface GoogleServiceConfig {
+  enabled?: boolean;
+  credentials?: {
+    client_id?: string;
+    client_secret?: string;
+    redirect_uris?: string[];
+  };
+}
+
+export interface GoogleCapabilityConfig {
+  enabled?: boolean;
+  apiKey?: string;
+  services?: Record<string, GoogleServiceConfig>;
+}
+
+export interface FilesystemCapabilityConfig {
+  enabled?: boolean;
+  allowed_paths?: string[];
+}
+
+export interface CliCapabilityConfig extends ProvidersSection {
+  workDir?: string;
+}
 
 export interface McpServerConfig {
   enabled?: boolean;
@@ -29,6 +54,18 @@ export interface McpServerConfig {
   enabledTools?: string[];
 }
 
+// ─── Capabilities Container ──────────────────────────────
+
+export interface CapabilitiesConfig {
+  models?: ProvidersSection;
+  search?: ProvidersSection;
+  cli?: CliCapabilityConfig;
+  filesystem?: FilesystemCapabilityConfig;
+  google?: GoogleCapabilityConfig;
+  mcp?: { servers?: Record<string, McpServerConfig> };
+  [key: string]: unknown;  // extensible for future capabilities
+}
+
 // ─── Config Interface ────────────────────────────────────
 
 export interface UbotConfig {
@@ -36,56 +73,42 @@ export interface UbotConfig {
   server?: { port?: number };
   database?: { path?: string };
 
-  /** LLM model providers (chat) */
-  models?: ProvidersSection;
-
-  /** Web search providers */
-  search?: ProvidersSection;
-
-  /** CLI agent providers */
-  cli?: ProvidersSection & { workDir?: string };
-
-  /** MCP servers (keyed by name) */
-  mcp?: { servers?: Record<string, McpServerConfig> };
-
-  /** Owner identity */
   owner?: {
     phone?: string;
     telegram_id?: string;
     telegram_username?: string;
   };
 
-  /** Messaging channels */
   channels?: {
     whatsapp?: { enabled?: boolean; auto_reply?: boolean };
     telegram?: { enabled?: boolean; token?: string; auto_reply?: boolean };
     imessage?: { enabled?: boolean; server_url?: string; password?: string; auto_reply?: boolean };
   };
 
-  /** Agent behavior */
   agent?: {
     max_history_messages?: number;
     max_tool_iterations?: number;
     system_prompt?: string;
   };
 
-  /** Filesystem access */
-  filesystem?: {
-    allowed_paths?: string[];
-  };
+  /** All integrations live here */
+  capabilities?: CapabilitiesConfig;
 
   // ─── Legacy (kept for migration, will be removed) ──────
-  /** @deprecated use models instead */
-  llm?: {
-    base_url?: string;
-    model?: string;
-    api_key?: string;
-    google_api_key?: string;
-    providers?: any[];
-    default_provider_id?: string;
-  };
-  /** @deprecated migrated to models/search */
+  /** @deprecated use capabilities.models */
+  models?: ProvidersSection;
+  /** @deprecated use capabilities.search */
+  search?: ProvidersSection;
+  /** @deprecated use capabilities.cli */
+  cli?: any;
+  /** @deprecated use capabilities.filesystem */
+  filesystem?: any;
+  /** @deprecated */
+  llm?: any;
+  /** @deprecated */
   integrations?: any;
+  /** @deprecated */
+  mcp?: any;
 }
 
 // ─── Config File I/O ─────────────────────────────────────
@@ -132,7 +155,6 @@ export function getDefaultProvider(section?: ProvidersSection): { key: string; c
   if (defaultKey && section.providers[defaultKey]?.enabled !== false) {
     return { key: defaultKey, config: section.providers[defaultKey] };
   }
-  // Fallback to first enabled
   const entries = Object.entries(section.providers);
   for (const [key, config] of entries) {
     if (config.enabled !== false) return { key, config };
