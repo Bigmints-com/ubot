@@ -20,6 +20,8 @@ export class TelegramConnection {
   /** Store recent raw messages for media download */
   private rawMessages = new Map<string, TelegramBot.Message>();
   private readonly MAX_RAW_MESSAGES = 200;
+  private _reconnecting = false;
+  private _reconnectAttempts = 0;
 
   constructor(config: TelegramConfig) {
     this.config = config;
@@ -64,10 +66,35 @@ export class TelegramConnection {
       // Set up message handler
       this.bot.on('message', (msg) => this.handleMessage(msg));
 
-      // Handle polling errors
+      // Handle polling errors with auto-reconnect
       this.bot.on('polling_error', (err) => {
         console.error('[Telegram] Polling error:', err.message);
         this.emit('error', err);
+
+        // Auto-reconnect on fatal polling errors
+        if (err.message?.includes('EFATAL') && !this._reconnecting) {
+          this._reconnecting = true;
+          this._reconnectAttempts++;
+          if (this._reconnectAttempts <= 10) {
+            const delay = Math.min(5000 * this._reconnectAttempts, 60000);
+            console.log(`[Telegram] Attempting reconnect in ${delay / 1000}s (attempt ${this._reconnectAttempts}/10)...`);
+            setTimeout(async () => {
+              try {
+                await this.disconnect();
+                await this.connect();
+                console.log('[Telegram] ✅ Reconnected successfully');
+                this._reconnectAttempts = 0;
+              } catch (reconnectErr: any) {
+                console.error('[Telegram] Reconnect failed:', reconnectErr.message);
+              } finally {
+                this._reconnecting = false;
+              }
+            }, delay);
+          } else {
+            console.error('[Telegram] Max reconnect attempts reached. Manual restart needed.');
+            this._reconnecting = false;
+          }
+        }
       });
 
     } catch (err: any) {
