@@ -62,6 +62,13 @@ export interface ExecCapabilityConfig {
 
 // ─── Capabilities Container ──────────────────────────────
 
+export interface ToolRoutingConfig {
+  /** Preferred provider per capability group. E.g. { browser: 'playwright' } */
+  preferences?: Record<string, string>;
+  /** Deduplicate overlapping tools. Default: true */
+  deduplicate?: boolean;
+}
+
 export interface CapabilitiesConfig {
   models?: ProvidersSection;
   search?: ProvidersSection;
@@ -69,6 +76,7 @@ export interface CapabilitiesConfig {
   filesystem?: FilesystemCapabilityConfig;
   exec?: ExecCapabilityConfig;
   google?: GoogleCapabilityConfig;
+  tool_routing?: ToolRoutingConfig;
   mcp?: { servers?: Record<string, McpServerConfig> };
   [key: string]: unknown;  // extensible for future capabilities
 }
