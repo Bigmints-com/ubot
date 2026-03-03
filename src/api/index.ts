@@ -740,6 +740,10 @@ function migrateConfigV2(): void {
     delete cfg.integrations;
     changed = true;
   }
+  if (cfg.llm) {
+    delete cfg.llm;
+    changed = true;
+  }
 
   // ── Set version ──
   cfg.meta = { version: '2.0' };
