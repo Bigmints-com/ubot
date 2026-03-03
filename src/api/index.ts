@@ -139,13 +139,23 @@ let approvalStore: ApprovalStore | null = null;
 // Database reference for config persistence
 let coreDb: CoreDatabaseConnection | null = null;
 
-// ─── Config Persistence (Unified JSON) ──────────────────
+// ─── Config Persistence (Direct JSON — single source of truth) ──
 
+function saveConfigDirect(updates: Partial<import('../data/config.js').UbotConfig>): void {
+  try {
+    const config = loadUbotConfig();
+    Object.assign(config, updates);
+    saveUbotConfig(config);
+  } catch (err: any) {
+    console.error('[Config] Failed to save:', err.message);
+  }
+}
+
+// Legacy wrapper — still used by some routes, delegates to direct save
 function saveConfigValue(key: string, value: string): void {
   try {
     const config = loadUbotConfig();
-    
-    // Map existing DB keys to JSON structure
+
     if (key === 'ownerPhone') {
       if (!config.owner) config.owner = {};
       config.owner.phone = value;
@@ -163,46 +173,18 @@ function saveConfigValue(key: string, value: string): void {
       if (!config.channels) config.channels = {};
       if (!config.channels.telegram) config.channels.telegram = {};
       config.channels.telegram.auto_reply = value === 'true';
-    } else if (key === 'llm_providers') {
-      if (!config.llm) config.llm = {};
-      config.llm.providers = JSON.parse(value);
-    } else if (key === 'default_llm_provider_id') {
-      if (!config.llm) config.llm = {};
-      config.llm.default_provider_id = value;
     } else if (key === 'telegram_bot_token') {
       if (!config.channels) config.channels = {};
       if (!config.channels.telegram) config.channels.telegram = {};
       config.channels.telegram.token = value;
     } else {
-      // Fallback for unknown keys (e.g. MCP)
       (config as any)[key] = value;
     }
 
     saveUbotConfig(config);
     log.info('Config', `Saved ${key} to config.json`);
   } catch (err: any) {
-    console.error(`[Config] Failed to save ${key} to JSON:`, err.message);
-  }
-}
-
-function loadConfigValue(key: string): string | null {
-  try {
-    const config = loadUbotConfig();
-    let val: any = null;
-
-    if (key === 'ownerPhone') val = config.owner?.phone;
-    else if (key === 'ownerTelegramId') val = config.owner?.telegram_id;
-    else if (key === 'ownerTelegramUsername') val = config.owner?.telegram_username;
-    else if (key === 'autoReplyWhatsApp') val = config.channels?.whatsapp?.auto_reply === true ? 'true' : 'false';
-    else if (key === 'autoReplyTelegram') val = config.channels?.telegram?.auto_reply === true ? 'true' : 'false';
-    else if (key === 'llm_providers') val = config.llm?.providers ? JSON.stringify(config.llm.providers) : null;
-    else if (key === 'default_llm_provider_id') val = config.llm?.default_provider_id;
-    else if (key === 'telegram_bot_token') val = config.channels?.telegram?.token;
-    else val = (config as any)[key];
-
-    return val ? String(val) : null;
-  } catch {
-    return null;
+    console.error(`[Config] Failed to save ${key}:`, err.message);
   }
 }
 
@@ -524,7 +506,8 @@ function setupTelegramHandlers(conn: TelegramConnection): void {
 }
 
 async function autoConnectTelegram(): Promise<void> {
-  const savedToken = loadConfigValue('telegram_bot_token');
+  const cfg = loadUbotConfig();
+  const savedToken = cfg.channels?.telegram?.token;
   if (!savedToken) {
     console.log('[Telegram] No saved bot token — waiting for manual connect via UI');
     return;
@@ -648,72 +631,127 @@ async function autoConnectIMessage(): Promise<void> {
 // ─── Initialization ──────────────────────────────────────
 
 /**
- * Migrate old config format to new unified integrations format.
- * - config.llm.providers → config.integrations.llm.chat
- * - config.integrations.serper_api_key → config.integrations.search.providers
+ * Migrate config to v2 keyed provider format.
+ * Handles: llm.providers[], integrations.llm.chat[], integrations.serper_api_key
  */
-function migrateIntegrations(): void {
+function migrateConfigV2(): void {
   const cfg = loadUbotConfig();
+  if (cfg.meta?.version === '2.0') return; // Already migrated
+  
   let changed = false;
-  if (!cfg.integrations) cfg.integrations = {};
 
-  // ── Migrate LLM providers ──
-  const oldProviders = cfg.llm?.providers;
-  if (Array.isArray(oldProviders) && oldProviders.length > 0 && !cfg.integrations.llm?.chat?.length) {
-    if (!cfg.integrations.llm) cfg.integrations.llm = {};
-    cfg.integrations.llm.chat = oldProviders.map((p: any) => ({
-      id: p.id || `prov_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-      name: p.name || p.provider || 'Unknown',
-      type: p.provider || 'custom',
-      baseUrl: p.baseUrl || '',
-      apiKey: p.apiKey || '',
-      model: p.model || '',
-      enabled: true,
-      isDefault: p.isDefault || false,
-      config: {},
-    }));
-    log.info('Migration', `Migrated ${oldProviders.length} LLM providers to integrations.llm.chat`);
+  // ── Migrate LLM providers to models.providers ──
+  // Source: old llm.providers[] OR integrations.llm.chat[]
+  if (!cfg.models?.providers) {
+    const oldProviders = cfg.llm?.providers || cfg.integrations?.llm?.chat || [];
+    if (Array.isArray(oldProviders) && oldProviders.length > 0) {
+      if (!cfg.models) cfg.models = {};
+      cfg.models.providers = {};
+      
+      for (const p of oldProviders) {
+        const key = (p.provider || p.type || p.name || 'custom').toLowerCase().replace(/[^a-z0-9_-]/g, '-');
+        // Deduplicate keys
+        let finalKey = key;
+        let suffix = 2;
+        while (cfg.models.providers[finalKey]) { finalKey = `${key}-${suffix++}`; }
+        
+        cfg.models.providers[finalKey] = {
+          enabled: p.enabled !== false,
+          baseUrl: p.baseUrl || undefined,
+          apiKey: p.apiKey || undefined,
+          model: p.model || undefined,
+        };
+        
+        if (p.isDefault || p.id === cfg.llm?.default_provider_id) {
+          cfg.models.default = finalKey;
+        }
+      }
+      
+      if (!cfg.models.default) {
+        cfg.models.default = Object.keys(cfg.models.providers)[0];
+      }
+      
+      log.info('Migration', `Migrated ${oldProviders.length} LLM providers → models.providers`);
+      changed = true;
+    }
+  }
+
+  // ── Migrate search providers ──
+  const oldSerperKey = cfg.integrations?.serper_api_key;
+  const oldSearchProviders = cfg.integrations?.search?.providers;
+  
+  if (!cfg.search?.providers) {
+    if (!cfg.search) cfg.search = {};
+    cfg.search.providers = {};
+    
+    if (oldSerperKey) {
+      cfg.search.providers.serper = { enabled: true, apiKey: oldSerperKey };
+      cfg.search.default = 'serper';
+    } else if (Array.isArray(oldSearchProviders)) {
+      for (const p of oldSearchProviders) {
+        const key = (p.type || p.name || 'custom').toLowerCase().replace(/[^a-z0-9_-]/g, '-');
+        cfg.search.providers[key] = {
+          enabled: p.enabled !== false,
+          apiKey: p.apiKey || undefined,
+        };
+        if (p.isDefault) cfg.search.default = key;
+      }
+    }
+    
+    // Always add duckduckgo as fallback
+    if (!cfg.search.providers.duckduckgo) {
+      cfg.search.providers.duckduckgo = { enabled: true };
+    }
+    if (!cfg.search.default) {
+      cfg.search.default = Object.keys(cfg.search.providers)[0];
+    }
+    
+    if (oldSerperKey || oldSearchProviders?.length) {
+      log.info('Migration', 'Migrated search providers → search.providers');
+      changed = true;
+    }
+  }
+
+  // ── Migrate CLI to standard provider format ──
+  const oldCli = cfg.cli;
+  if (oldCli && !oldCli.providers) {
+    const cliProviders: Record<string, any> = {
+      gemini: { enabled: oldCli.default === 'gemini' || (oldCli as any).provider === 'gemini', timeout: (oldCli as any).timeout || 300000 },
+      claude: { enabled: (oldCli as any).provider === 'claude', timeout: 300000 },
+      codex: { enabled: (oldCli as any).provider === 'codex', timeout: 300000 },
+    };
+    cfg.cli = {
+      default: (oldCli as any).provider || 'gemini',
+      providers: cliProviders,
+      workDir: (oldCli as any).workDir,
+    };
+    log.info('Migration', 'Migrated CLI → cli.providers');
     changed = true;
   }
 
-  // ── Migrate Serper API key ──
-  const oldSerperKey = (cfg.integrations as any).serper_api_key;
-  if (oldSerperKey && !cfg.integrations.search?.providers?.length) {
-    if (!cfg.integrations.search) cfg.integrations.search = {};
-    cfg.integrations.search.providers = [
-      {
-        id: `prov_serper_${Date.now()}`,
-        name: 'Serper.dev (Google)',
-        type: 'serper',
-        baseUrl: 'https://google.serper.dev/search',
-        apiKey: oldSerperKey,
-        enabled: true,
-        isDefault: true,
-        config: {},
-      },
-      {
-        id: `prov_ddg_${Date.now()}`,
-        name: 'DuckDuckGo',
-        type: 'duckduckgo',
-        baseUrl: '',
-        apiKey: '',
-        enabled: true,
-        isDefault: false,
-        config: {},
-      },
-    ];
-    log.info('Migration', 'Migrated Serper API key to integrations.search.providers');
+  // ── Migrate agent settings ──
+  if (!cfg.agent) {
+    cfg.agent = { max_history_messages: 20 };
     changed = true;
   }
+
+  // ── Clean up legacy fields ──
+  if (cfg.integrations) {
+    delete cfg.integrations;
+    changed = true;
+  }
+
+  // ── Set version ──
+  cfg.meta = { version: '2.0' };
 
   if (changed) {
     saveUbotConfig(cfg);
-    log.info('Migration', 'Saved migrated integrations config');
+    log.info('Migration', 'Config migrated to v2.0');
   }
 }
 
 export function initializeApi(db?: DatabaseConnection, agent?: AgentOrchestrator, wsPath?: string): void {
-  migrateIntegrations();
+  migrateConfigV2();
   workspacePath = wsPath || null;
   if (db) {
 
@@ -723,37 +761,53 @@ export function initializeApi(db?: DatabaseConnection, agent?: AgentOrchestrator
     approvalStore = createApprovalStore(db as unknown as CoreDatabaseConnection);
 
     if (agent) {
-      const savedOwnerPhone = loadConfigValue('ownerPhone');
-      const savedOwnerTelegramId = loadConfigValue('ownerTelegramId');
-      const savedOwnerTelegramUsername = loadConfigValue('ownerTelegramUsername');
-      const savedAutoReplyWA = loadConfigValue('autoReplyWhatsApp');
-      const savedAutoReplyTG = loadConfigValue('autoReplyTelegram');
-
+      // Load config directly from config.json (single source of truth)
+      const cfg = loadUbotConfig();
       const configUpdates: Record<string, unknown> = {};
-      if (savedOwnerPhone) configUpdates.ownerPhone = savedOwnerPhone;
-      if (savedOwnerTelegramId) configUpdates.ownerTelegramId = savedOwnerTelegramId;
-      if (savedOwnerTelegramUsername) configUpdates.ownerTelegramUsername = savedOwnerTelegramUsername;
-      if (savedAutoReplyWA) configUpdates.autoReplyWhatsApp = savedAutoReplyWA === 'true';
-      if (savedAutoReplyTG) configUpdates.autoReplyTelegram = savedAutoReplyTG === 'true';
 
-      const savedProviders = loadConfigValue('llm_providers');
-      const savedDefaultId = loadConfigValue('default_llm_provider_id');
-      if (savedProviders) {
-        try {
-          const providers = JSON.parse(savedProviders) as LLMProviderConfig[];
-          if (Array.isArray(providers) && providers.length > 0) {
-            configUpdates.llmProviders = providers;
-            configUpdates.defaultLlmProviderId = savedDefaultId || providers.find(p => p.isDefault)?.id || providers[0].id;
-            log.info('Config', `Loaded ${providers.length} LLM providers from DB`);
+      // Owner identity
+      if (cfg.owner?.phone) configUpdates.ownerPhone = cfg.owner.phone;
+      if (cfg.owner?.telegram_id) configUpdates.ownerTelegramId = cfg.owner.telegram_id;
+      if (cfg.owner?.telegram_username) configUpdates.ownerTelegramUsername = cfg.owner.telegram_username;
+
+      // Auto-reply
+      if (cfg.channels?.whatsapp?.auto_reply !== undefined) configUpdates.autoReplyWhatsApp = cfg.channels.whatsapp.auto_reply;
+      if (cfg.channels?.telegram?.auto_reply !== undefined) configUpdates.autoReplyTelegram = cfg.channels.telegram.auto_reply;
+
+      // Agent settings
+      if (cfg.agent?.max_history_messages) configUpdates.maxHistoryMessages = cfg.agent.max_history_messages;
+
+      // LLM providers — map from v2 keyed format to agent's array format
+      if (cfg.models?.providers) {
+        const defaultKey = cfg.models.default || Object.keys(cfg.models.providers)[0] || '';
+        const llmProviders: LLMProviderConfig[] = Object.entries(cfg.models.providers)
+          .filter(([_, p]) => p.enabled !== false)
+          .map(([key, p]) => ({
+            id: key,
+            name: key,
+            provider: key as any,
+            baseUrl: (p.baseUrl || '') as string,
+            apiKey: (p.apiKey || '') as string,
+            model: (p.model || '') as string,
+            isDefault: key === defaultKey,
+          }));
+
+        if (llmProviders.length > 0) {
+          configUpdates.llmProviders = llmProviders;
+          configUpdates.defaultLlmProviderId = defaultKey;
+          const dp = cfg.models.providers[defaultKey];
+          if (dp) {
+            configUpdates.llmBaseUrl = dp.baseUrl || '';
+            configUpdates.llmModel = dp.model || '';
+            configUpdates.llmApiKey = dp.apiKey || '';
           }
-        } catch {
-          log.error('Config', 'Failed to parse saved LLM providers');
+          log.info('Config', `Loaded ${llmProviders.length} model providers from config.json`);
         }
       }
 
       if (Object.keys(configUpdates).length > 0) {
         agent.updateConfig(configUpdates);
-        log.info('Config', `Loaded saved settings: ${Object.keys(configUpdates).join(', ')}`);
+        log.info('Config', `Applied settings: ${Object.keys(configUpdates).join(', ')}`);
       }
     }
     if (agent) {
@@ -880,7 +934,11 @@ async function registerAgentTools(agent: AgentOrchestrator): Promise<void> {
   // Initialize MCP server manager and connect saved servers
   mcpManager = getMcpServerManager();
   mcpManager.init(
-    { get: loadConfigValue, set: saveConfigValue },
+    { get: (key: string) => {
+      const c = loadUbotConfig();
+      if (key === 'mcp_servers') return JSON.stringify(c.mcp?.servers || {});
+      return (c as any)[key] ?? null;
+    }, set: saveConfigValue },
     registry,
   );
   mcpManager.connectAll().catch(err => console.error('[MCP] connectAll failed:', err));
@@ -914,7 +972,12 @@ function getApiContext(): ApiContext {
     mcpManager,
     workspacePath,
     saveConfigValue,
-    loadConfigValue,
+    loadConfigValue: (key: string) => {
+      const c = loadUbotConfig();
+      if (key === 'mcp_servers') return JSON.stringify(c.mcp?.servers || {});
+      if (key === 'telegram_bot_token') return c.channels?.telegram?.token || null;
+      return (c as any)[key] ?? null;
+    },
   };
 }
 

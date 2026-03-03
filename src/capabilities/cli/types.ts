@@ -5,7 +5,7 @@
 export interface CliSession {
   id: string;
   prompt: string;
-  provider: 'gemini' | 'claude' | 'codex';
+  provider: string;
   status: 'running' | 'completed' | 'failed' | 'stopped';
   workDir: string;
   projectName: string;
@@ -16,7 +16,7 @@ export interface CliSession {
 }
 
 export interface CliServiceConfig {
-  provider: 'gemini' | 'claude' | 'codex';
+  provider: string;
   workDir: string;
   timeout: number;
 }
