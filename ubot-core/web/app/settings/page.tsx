@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
-import { Settings, Save, RefreshCw, FolderOpen, Plus, Trash2 } from "lucide-react";
+import { Settings, Save, RefreshCw } from "lucide-react";
 import { api } from "@/lib/api";
 
 interface AgentConfig {
@@ -29,12 +29,6 @@ export default function SettingsPage() {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
 
-  // Filesystem state
-  const [allowedPaths, setAllowedPaths] = useState<string[]>([]);
-  const [newPath, setNewPath] = useState("");
-  const [fsSaving, setFsSaving] = useState(false);
-  const [fsSaved, setFsSaved] = useState(false);
-
   const loadConfig = useCallback(async () => {
     try {
       const data = await api<AgentConfig>("/api/chat/config");
@@ -44,19 +38,9 @@ export default function SettingsPage() {
     }
   }, []);
 
-  const loadFilesystem = useCallback(async () => {
-    try {
-      const data = await api<{ filesystem: { allowed_paths: string[] } }>("/api/config/integrations");
-      setAllowedPaths(data.filesystem?.allowed_paths || []);
-    } catch {
-      /* ignore */
-    }
-  }, []);
-
   useEffect(() => {
     loadConfig();
-    loadFilesystem();
-  }, [loadConfig, loadFilesystem]);
+  }, [loadConfig]);
 
   const saveConfig = async () => {
     if (!config) return;
@@ -69,19 +53,6 @@ export default function SettingsPage() {
       /* ignore */
     } finally {
       setSaving(false);
-    }
-  };
-
-  const saveFilesystem = async () => {
-    setFsSaving(true);
-    try {
-      await api("/api/config/integrations", { method: "PUT", body: { filesystem: { allowed_paths: allowedPaths } } });
-      setFsSaved(true);
-      setTimeout(() => setFsSaved(false), 2000);
-    } catch {
-      /* ignore */
-    } finally {
-      setFsSaving(false);
     }
   };
 
@@ -224,75 +195,6 @@ export default function SettingsPage() {
             </Badge>
           )}
         </div>
-
-        <Separator className="my-6" />
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base">
-              <FolderOpen className="size-4" />
-              Filesystem Access
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <p className="text-xs text-muted-foreground">
-              Directories the agent is allowed to read/write. Leave empty to restrict to workspace only.
-            </p>
-            <div className="space-y-2">
-              {allowedPaths.map((p, i) => (
-                <div key={i} className="flex items-center gap-2">
-                  <Input value={p} readOnly className="font-mono text-sm" />
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="size-8 text-destructive"
-                    onClick={() => {
-                      const paths = [...allowedPaths];
-                      paths.splice(i, 1);
-                      setAllowedPaths(paths);
-                    }}
-                  >
-                    <Trash2 className="size-3.5" />
-                  </Button>
-                </div>
-              ))}
-              <div className="flex gap-2">
-                <Input
-                  value={newPath}
-                  onChange={(e) => setNewPath(e.target.value)}
-                  placeholder="/path/to/directory"
-                  className="font-mono text-sm"
-                />
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={!newPath.trim()}
-                  onClick={() => {
-                    setAllowedPaths([...allowedPaths, newPath.trim()]);
-                    setNewPath("");
-                  }}
-                >
-                  <Plus className="size-4 mr-1" /> Add
-                </Button>
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              <Button onClick={saveFilesystem} disabled={fsSaving} size="sm">
-                {fsSaving ? (
-                  <RefreshCw className="size-4 mr-2 animate-spin" />
-                ) : (
-                  <Save className="size-4 mr-2" />
-                )}
-                {fsSaving ? "Saving..." : "Save Paths"}
-              </Button>
-              {fsSaved && (
-                <Badge variant="default" className="bg-green-600">
-                  Saved
-                </Badge>
-              )}
-            </div>
-          </CardContent>
-        </Card>
       </div>
     </div>
   );

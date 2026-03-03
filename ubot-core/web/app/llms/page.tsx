@@ -57,7 +57,7 @@ export default function LlmsPage() {
 
         <TabsContent value="chat" className="mt-4">
           <ProviderList
-            category="llm-chat"
+            category="models"
             providerTypes={LLM_CHAT_PRESETS}
             showModel={true}
             showBaseUrl={true}

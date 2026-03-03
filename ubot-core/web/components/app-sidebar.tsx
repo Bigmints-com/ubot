@@ -12,6 +12,7 @@ import {
   Bot,
   Brain,
   Globe,
+  FolderOpen,
   ScrollText,
   Plug,
   Terminal,
@@ -61,12 +62,13 @@ const channelItems = [
   { title: "iMessage", href: "/imessage", icon: Apple },
 ];
 
-const integrationItems = [
-  { title: "LLMs", href: "/llms", icon: Bot },
+const capabilityItems = [
+  { title: "Models", href: "/llms", icon: Bot },
   { title: "Web Search", href: "/web-search", icon: Search },
-  { title: "Calendar", href: "/google", icon: Calendar },
+  { title: "CLI Agents", href: "/cli", icon: Terminal },
+  { title: "Filesystem", href: "/filesystem", icon: FolderOpen },
+  { title: "Google Apps", href: "/google", icon: Calendar },
   { title: "MCP Servers", href: "/mcp-servers", icon: Plug },
-  { title: "CLI", href: "/cli", icon: Terminal },
 ];
 
 const monitorItems = [
@@ -156,10 +158,10 @@ export function AppSidebar() {
         </SidebarGroup>
 
         <SidebarGroup>
-          <SidebarGroupLabel>Integrations</SidebarGroupLabel>
+          <SidebarGroupLabel>Capabilities</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {integrationItems.map(renderItem)}
+              {capabilityItems.map(renderItem)}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
