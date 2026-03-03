@@ -152,7 +152,7 @@ export function ThreadSidebar({
   }
 
   return (
-    <div className="flex flex-col w-56 border-r bg-sidebar shrink-0">
+    <div className="flex flex-col w-56 h-full border-r bg-sidebar shrink-0 overflow-hidden">
       {/* Header */}
       <div className="flex items-center justify-between px-3 py-2 border-b">
         <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
@@ -181,7 +181,7 @@ export function ThreadSidebar({
       </div>
 
       {/* Thread list */}
-      <ScrollArea className="flex-1">
+      <ScrollArea className="flex-1 min-h-0">
         <div className="py-1">
           {threads.map((thread) => (
             <div
