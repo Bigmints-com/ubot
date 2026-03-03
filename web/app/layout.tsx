@@ -43,7 +43,7 @@ export default function RootLayout({
                 <Separator orientation="vertical" className="mr-2 h-4" />
                 <PageBreadcrumb />
               </header>
-              <main className="flex-1 overflow-auto">{children}</main>
+              <main className="flex-1 min-h-0 overflow-auto">{children}</main>
             </SidebarInset>
           </SidebarProvider>
         </TooltipProvider>
