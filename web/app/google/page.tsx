@@ -205,7 +205,7 @@ export default function GooglePage() {
       : "Disconnected";
 
   return (
-    <div className="p-6 space-y-6 max-w-4xl mx-auto">
+    <div className="p-6 space-y-6">
       {/* Header */}
       <div className="flex items-center gap-3">
         <div className="flex items-center justify-center h-10 w-10 rounded-xl bg-gradient-to-br from-blue-500 to-green-500 shadow-lg shadow-blue-500/20">

@@ -52,7 +52,7 @@ export default function FilesystemPage() {
 
       <Separator />
 
-      <Card className="max-w-2xl">
+      <Card>
         <CardHeader>
           <CardTitle className="text-base">Allowed Paths</CardTitle>
         </CardHeader>
