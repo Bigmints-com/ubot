@@ -3,7 +3,6 @@
 import { usePathname } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Trash2 } from "lucide-react";
-import { api } from "@/lib/api";
 
 const routeNames: Record<string, string> = {
   "/": "Dashboard",
@@ -32,14 +31,9 @@ export function PageBreadcrumb() {
   const pathname = usePathname();
   const name = routeNames[pathname] || "Ubot";
 
-  const clearChatHistory = async () => {
-    try {
-      await api("/api/chat/clear", {
-        method: "POST",
-        body: { sessionId: "web-console" },
-      });
-      window.location.reload();
-    } catch { /* ignore */ }
+  const handleClearChat = () => {
+    // Dispatch a custom event that the chat page listens for
+    window.dispatchEvent(new CustomEvent("ubot:clear-chat"));
   };
 
   return (
@@ -50,7 +44,7 @@ export function PageBreadcrumb() {
           variant="ghost"
           size="icon"
           className="size-7"
-          onClick={clearChatHistory}
+          onClick={handleClearChat}
           title="Clear chat history"
         >
           <Trash2 className="size-3.5" />

@@ -14,6 +14,7 @@ import {
   ArrowDown,
 } from "lucide-react";
 import { api } from "@/lib/api";
+import { ThreadSidebar } from "@/components/thread-sidebar";
 
 interface PendingAttachment {
   file: File;
@@ -60,17 +61,53 @@ export default function ChatPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messageCountRef = useRef(0);
   const [showScrollDown, setShowScrollDown] = useState(false);
+  const [activeThreadId, setActiveThreadId] = useState<string>("");
+  const [threadReady, setThreadReady] = useState(false);
 
+  // Initialize: fetch threads and select or create one
   useEffect(() => {
-    loadHistory();
+    const init = async () => {
+      try {
+        const data = await api<{ sessions: Array<{ id: string }> }>("/api/chat/sessions");
+        if (data.sessions && data.sessions.length > 0) {
+          setActiveThreadId(data.sessions[0].id);
+        } else {
+          // Create first thread
+          const res = await api<{ session: { id: string } }>("/api/chat/sessions", {
+            method: "POST",
+            body: { name: "General" },
+          });
+          setActiveThreadId(res.session.id);
+        }
+      } catch {
+        // Fallback to legacy
+        setActiveThreadId("web-console");
+      }
+      setThreadReady(true);
+    };
+    init();
     loadStatus();
   }, []);
 
-  // Poll for server-injected messages (e.g. CLI completion notifications)
+  // Load history when thread changes
+  useEffect(() => {
+    if (!activeThreadId) return;
+    loadHistory();
+  }, [activeThreadId]);
+
+  // Listen for clear chat event from breadcrumb
+  useEffect(() => {
+    const handler = () => clearHistory();
+    window.addEventListener("ubot:clear-chat", handler);
+    return () => window.removeEventListener("ubot:clear-chat", handler);
+  }, [activeThreadId]);
+
+  // Poll for server-injected messages
   const pollForNewMessages = useCallback(async () => {
+    if (!activeThreadId) return;
     try {
       const data = await api<{ messages: Record<string, unknown>[] }>(
-        "/api/chat/history?sessionId=web-console&limit=50"
+        `/api/chat/history?sessionId=${encodeURIComponent(activeThreadId)}&limit=50`
       );
       if (data.messages?.length && data.messages.length > messageCountRef.current) {
         const newMsgs = data.messages.slice(messageCountRef.current).map(normalizeMessage);
@@ -78,7 +115,7 @@ export default function ChatPage() {
         setMessages(prev => [...prev, ...newMsgs]);
       }
     } catch { /* ignore */ }
-  }, []);
+  }, [activeThreadId]);
 
   useEffect(() => {
     if (loading) return;
@@ -157,18 +194,21 @@ export default function ChatPage() {
   };
 
   const loadHistory = async () => {
+    if (!activeThreadId) return;
     try {
       const data = await api<{ messages: Record<string, unknown>[] }>(
-        "/api/chat/history?sessionId=web-console&limit=50"
+        `/api/chat/history?sessionId=${encodeURIComponent(activeThreadId)}&limit=50`
       );
       if (data.messages?.length) {
         messageCountRef.current = data.messages.length;
         setMessages(data.messages.map(normalizeMessage));
       } else {
         messageCountRef.current = 0;
+        setMessages([]);
       }
     } catch {
-      /* empty history */
+      messageCountRef.current = 0;
+      setMessages([]);
     }
   };
 
@@ -261,7 +301,7 @@ export default function ChatPage() {
     try {
       const body: Record<string, unknown> = {
         message: trimmed || `Please analyze the attached file(s): ${attachmentsToSend.map(a => a.file.name).join(", ")}`,
-        sessionId: "web-console",
+        sessionId: activeThreadId,
       };
 
       if (attachmentsToSend.length > 0) {
@@ -323,15 +363,34 @@ export default function ChatPage() {
   };
 
   const clearHistory = async () => {
+    if (!activeThreadId) return;
     try {
       await api("/api/chat/clear", {
         method: "POST",
-        body: { sessionId: "web-console" },
+        body: { sessionId: activeThreadId },
       });
       setMessages([]);
+      messageCountRef.current = 0;
     } catch {
       /* ignore */
     }
+  };
+
+  const handleNewThread = async () => {
+    try {
+      const res = await api<{ session: { id: string } }>("/api/chat/sessions", {
+        method: "POST",
+        body: { name: `Thread ${Date.now().toString().slice(-4)}` },
+      });
+      setActiveThreadId(res.session.id);
+    } catch { /* ignore */ }
+  };
+
+  const handleSelectThread = (threadId: string) => {
+    if (threadId === activeThreadId) return;
+    setMessages([]);
+    messageCountRef.current = 0;
+    setActiveThreadId(threadId);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -363,8 +422,22 @@ export default function ChatPage() {
 
   const waConnected = status.wa === "connected";
 
+  if (!threadReady) {
+    return (
+      <div className="flex items-center justify-center h-[calc(100vh-3rem)]">
+        <Loader2 className="size-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
   return (
-    <div className="flex flex-col h-[calc(100vh-3rem)] overflow-hidden relative">
+    <div className="flex h-[calc(100vh-3rem)] overflow-hidden">
+      <ThreadSidebar
+        activeThreadId={activeThreadId}
+        onSelectThread={handleSelectThread}
+        onNewThread={handleNewThread}
+      />
+      <div className="flex flex-col flex-1 min-w-0 overflow-hidden relative">
       {/* Messages */}
       <ScrollArea className="flex-1 min-h-0 px-4" ref={scrollRef}>
         <div className="py-4 space-y-4 max-w-3xl mx-auto">
@@ -598,6 +671,7 @@ export default function ChatPage() {
             <Send className="size-4" />
           </Button>
         </div>
+      </div>
       </div>
     </div>
   );
