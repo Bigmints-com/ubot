@@ -15,7 +15,7 @@ import type {
 import type { ConversationStore } from '../memory/conversation.js';
 import type { MemoryStore } from '../memory/memory-store.js';
 import { type Soul, SOUL_REWRITE_PROMPT, OWNER_MERGE_PROMPT, FACT_EXTRACTION_PROMPT, SUMMARY_UPDATE_PROMPT, mergeIntoOwnerDoc, OWNER_SOUL_ID } from '../memory/soul.js';
-import { formatToolsForAPI, createToolRegistry, getToolsForSource, type ToolRegistry } from './tools.js';
+import { formatToolsForAPI, createToolRegistry, getToolsForSource, getToolAliases, type ToolRegistry } from './tools.js';
 import { loadAgentDefinitions } from './agent-loader.js';
 import { metricsCollector } from '../metrics/index.js';
 import { log } from '../logger/ring-buffer.js';
@@ -644,9 +644,17 @@ export function createAgentOrchestrator(
 
         // Execute tool calls and add results
         for (const toolCall of llmResult.toolCalls) {
-          log.info('Agent', `Executing: ${toolCall.toolName}(${JSON.stringify(toolCall.arguments)})`);
+          // Resolve tool aliases (e.g. browser_click → mcp_playwright_browser_click)
+          let resolvedToolName = toolCall.toolName;
+          const aliases = getToolAliases();
+          if (aliases.has(toolCall.toolName)) {
+            resolvedToolName = aliases.get(toolCall.toolName)!;
+            log.info('ToolRouter', `Alias: ${toolCall.toolName} → ${resolvedToolName}`);
+          }
+
+          log.info('Agent', `Executing: ${resolvedToolName}(${JSON.stringify(toolCall.arguments)})`);
           const result = await toolRegistry.execute({
-            toolName: toolCall.toolName,
+            toolName: resolvedToolName,
             arguments: toolCall.arguments,
             rawText: '',
           });

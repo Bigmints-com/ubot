@@ -7,6 +7,7 @@
 import type { ToolDefinition, ToolCallResult, ToolExecutionResult } from './types.js';
 
 import { getAllToolDefinitions } from '../tools/registry.js';
+import { routeTools, getConnectedMcpServers, type RouteResult } from './tool-router.js';
 
 /** Core orchestrator tools that are always available */
 export const CORE_ORCHESTRATOR_TOOLS: ToolDefinition[] = [
@@ -43,23 +44,66 @@ export const VISITOR_SAFE_TOOL_NAMES: ReadonlySet<string> = new Set([
   'ask_owner',
 ]);
 
+/** Current tool aliases from the last routing pass */
+let currentAliases: Map<string, string> = new Map();
+
+/** Get current tool name aliases (for executor redirect) */
+export function getToolAliases(): Map<string, string> {
+  return currentAliases;
+}
+
 /** Get the filtered tool list based on whether the caller is the owner */
 export function getToolsForSource(isOwner: boolean): ToolDefinition[] {
-  // Include dynamically registered MCP tools
-  let allTools = [...AGENT_TOOLS];
+  // Gather native tools
+  const nativeTools = [...AGENT_TOOLS];
+
+  // Gather MCP tools
+  let mcpTools: ToolDefinition[] = [];
   try {
     const { getMcpServerManager } = require('../integrations/mcp/mcp-manager.js');
     const mgr = getMcpServerManager();
-    const mcpDefs = mgr.getMcpToolDefinitions();
-    if (mcpDefs.length > 0) allTools = [...allTools, ...mcpDefs];
+    mcpTools = mgr.getMcpToolDefinitions();
   } catch {}
 
-  // Include dynamically loaded custom module tools
+  // Gather custom module tools
+  let customTools: ToolDefinition[] = [];
   try {
     const { getCustomToolDefinitions } = require('../capabilities/cli/custom-loader.js');
-    const customDefs = getCustomToolDefinitions();
-    if (customDefs.length > 0) allTools = [...allTools, ...customDefs];
+    customTools = getCustomToolDefinitions();
   } catch {}
+
+  // Route and deduplicate native vs MCP tools
+  let routingConfig = {};
+  try {
+    const { getConfig } = require('../data/config.js');
+    const cfg = getConfig();
+    routingConfig = cfg?.capabilities?.tool_routing || {};
+  } catch {}
+
+  const connectedServers = getConnectedMcpServers();
+  const result: RouteResult = routeTools(nativeTools, mcpTools, routingConfig, connectedServers);
+
+  // Store aliases for executor redirect
+  currentAliases = result.aliases;
+
+  // Combine routed tools with custom tools
+  const allTools = [...result.tools, ...customTools];
+
+  // Log routing stats (only when there's something interesting)
+  if (result.stats.overlapsFound > 0) {
+    try {
+      const { log } = require('../logger/ring-buffer.js');
+      log.info('ToolRouter',
+        `${result.stats.totalBefore}→${result.stats.totalAfter} tools ` +
+        `(${result.stats.overlapsFound} overlaps, ${result.stats.overlapsResolved} resolved, ` +
+        `${result.stats.mcpEnrichments} MCP enrichments, ` +
+        `${result.stats.totalBefore - result.stats.totalAfter} deduped)`
+      );
+      if (result.aliases.size > 0) {
+        log.info('ToolRouter', `Aliases: ${[...result.aliases.entries()].map(([k, v]) => `${k}→${v}`).join(', ')}`);
+      }
+    } catch {}
+  }
 
   if (isOwner) return allTools;
   return allTools.filter(t => VISITOR_SAFE_TOOL_NAMES.has(t.name));
