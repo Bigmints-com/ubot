@@ -16,11 +16,15 @@ import browserTools from './browser.js';
 import schedulerTools from './scheduler.js';
 import approvalsTools from './approvals.js';
 import webSearchTools from './web-search.js';
+import webFetchTools from './web-fetch.js';
 import memoryTools from './memory.js';
 import filesTools from './files.js';
 import cliTools from './cli.js';
 import mediaTools from './media.js';
 import vaultTools from './vault.js';
+import execTools from './exec.js';
+import patchTools from './patch.js';
+import sessionsTools from './sessions.js';
 /**
  * All available tool modules, in registration order.
  * Add new modules here.
@@ -29,6 +33,7 @@ const ALL_MODULES: ToolModule[] = [
   messagingTools,
   approvalsTools,
   webSearchTools,
+  webFetchTools,
   skillsTools,
   browserTools,
   schedulerTools,
@@ -38,6 +43,9 @@ const ALL_MODULES: ToolModule[] = [
   cliTools,
   mediaTools,
   vaultTools,
+  execTools,
+  patchTools,
+  sessionsTools,
 ];
 
 /**

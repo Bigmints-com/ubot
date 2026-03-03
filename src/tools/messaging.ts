@@ -77,6 +77,42 @@ const MESSAGING_TOOLS: ToolDefinition[] = [
       { name: 'channel', type: 'string', description: 'Messaging channel (whatsapp, telegram). Defaults to connected one.', required: false },
     ],
   },
+  {
+    name: 'react_to_message',
+    description: 'React to a message with an emoji. Supported on WhatsApp (emoji), Telegram (emoji), iMessage (tapback).',
+    parameters: [
+      { name: 'messageId', type: 'string', description: 'The ID of the message to react to', required: true },
+      { name: 'emoji', type: 'string', description: 'Emoji reaction (e.g. "👍", "❤️", "😂")', required: true },
+      { name: 'channel', type: 'string', description: 'Messaging channel', required: false },
+    ],
+  },
+  {
+    name: 'edit_message',
+    description: 'Edit a previously sent message. Supported on WhatsApp and Telegram.',
+    parameters: [
+      { name: 'messageId', type: 'string', description: 'The ID of the message to edit', required: true },
+      { name: 'body', type: 'string', description: 'New message text', required: true },
+      { name: 'channel', type: 'string', description: 'Messaging channel', required: false },
+    ],
+  },
+  {
+    name: 'pin_message',
+    description: 'Pin a message in a conversation. Supported on Telegram.',
+    parameters: [
+      { name: 'messageId', type: 'string', description: 'The ID of the message to pin', required: true },
+      { name: 'channel', type: 'string', description: 'Messaging channel', required: false },
+    ],
+  },
+  {
+    name: 'create_poll',
+    description: 'Create a poll in a conversation. Supported on WhatsApp and Telegram.',
+    parameters: [
+      { name: 'to', type: 'string', description: 'Chat/group ID to send the poll to', required: true },
+      { name: 'question', type: 'string', description: 'Poll question', required: true },
+      { name: 'options', type: 'string', description: 'Comma-separated poll options', required: true },
+      { name: 'channel', type: 'string', description: 'Messaging channel', required: false },
+    ],
+  },
 ];
 
 const messagingToolModule: ToolModule = {
@@ -189,6 +225,72 @@ const messagingToolModule: ToolModule = {
         return { toolName: 'forward_message', success: true, result: `Message forwarded to ${to}.`, duration: 0 };
       } catch (err: any) {
         return { toolName: 'forward_message', success: false, error: `Failed to forward message: ${err.message}`, duration: 0 };
+      }
+    });
+
+    registry.register('react_to_message', async (args) => {
+      const messageId = String(args.messageId || '');
+      const emoji = String(args.emoji || '');
+      if (!messageId || !emoji) return { toolName: 'react_to_message', success: false, error: 'Missing messageId or emoji', duration: 0 };
+      try {
+        const provider = mr.resolveProvider(args.channel as string | undefined);
+        if (typeof provider.reactToMessage !== 'function') {
+          return { toolName: 'react_to_message', success: false, error: `Reactions not supported on ${provider.channel}`, duration: 0 };
+        }
+        await provider.reactToMessage(messageId, emoji);
+        return { toolName: 'react_to_message', success: true, result: `Reacted ${emoji} to message ${messageId}`, duration: 0 };
+      } catch (err: any) {
+        return { toolName: 'react_to_message', success: false, error: err.message, duration: 0 };
+      }
+    });
+
+    registry.register('edit_message', async (args) => {
+      const messageId = String(args.messageId || '');
+      const body = String(args.body || '');
+      if (!messageId || !body) return { toolName: 'edit_message', success: false, error: 'Missing messageId or body', duration: 0 };
+      try {
+        const provider = mr.resolveProvider(args.channel as string | undefined);
+        if (typeof provider.editMessage !== 'function') {
+          return { toolName: 'edit_message', success: false, error: `Edit not supported on ${provider.channel}`, duration: 0 };
+        }
+        await provider.editMessage(messageId, body);
+        return { toolName: 'edit_message', success: true, result: `Message ${messageId} edited`, duration: 0 };
+      } catch (err: any) {
+        return { toolName: 'edit_message', success: false, error: err.message, duration: 0 };
+      }
+    });
+
+    registry.register('pin_message', async (args) => {
+      const messageId = String(args.messageId || '');
+      if (!messageId) return { toolName: 'pin_message', success: false, error: 'Missing messageId', duration: 0 };
+      try {
+        const provider = mr.resolveProvider(args.channel as string | undefined);
+        if (typeof provider.pinMessage !== 'function') {
+          return { toolName: 'pin_message', success: false, error: `Pin not supported on ${provider.channel}`, duration: 0 };
+        }
+        await provider.pinMessage(messageId);
+        return { toolName: 'pin_message', success: true, result: `Message ${messageId} pinned`, duration: 0 };
+      } catch (err: any) {
+        return { toolName: 'pin_message', success: false, error: err.message, duration: 0 };
+      }
+    });
+
+    registry.register('create_poll', async (args) => {
+      const to = String(args.to || '');
+      const question = String(args.question || '');
+      const optionsStr = String(args.options || '');
+      if (!to || !question || !optionsStr) return { toolName: 'create_poll', success: false, error: 'Missing to, question, or options', duration: 0 };
+      const options = optionsStr.split(',').map(o => o.trim()).filter(Boolean);
+      if (options.length < 2) return { toolName: 'create_poll', success: false, error: 'At least 2 options required', duration: 0 };
+      try {
+        const provider = mr.resolveProvider(args.channel as string | undefined);
+        if (typeof provider.createPoll !== 'function') {
+          return { toolName: 'create_poll', success: false, error: `Polls not supported on ${provider.channel}`, duration: 0 };
+        }
+        await provider.createPoll(to, question, options);
+        return { toolName: 'create_poll', success: true, result: `Poll created: "${question}" with ${options.length} options`, duration: 0 };
+      } catch (err: any) {
+        return { toolName: 'create_poll', success: false, error: err.message, duration: 0 };
       }
     });
   },

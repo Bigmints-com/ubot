@@ -504,6 +504,11 @@ export class BrowserService {
     }
   }
 
+  /** Get the active page (launches browser if needed) */
+  async getActivePage(): Promise<Page> {
+    return this.ensureBrowser();
+  }
+
   isRunning(): boolean {
     return this.browser !== null;
   }
