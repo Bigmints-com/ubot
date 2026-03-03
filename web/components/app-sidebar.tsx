@@ -20,6 +20,7 @@ import {
   CheckCircle,
   Activity,
   Search,
+  Calendar,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -63,7 +64,7 @@ const channelItems = [
 const integrationItems = [
   { title: "LLMs", href: "/llms", icon: Bot },
   { title: "Web Search", href: "/web-search", icon: Search },
-  { title: "Google Apps", href: "/google", icon: Globe },
+  { title: "Calendar", href: "/google", icon: Calendar },
   { title: "MCP Servers", href: "/mcp-servers", icon: Plug },
   { title: "CLI", href: "/cli", icon: Terminal },
 ];
