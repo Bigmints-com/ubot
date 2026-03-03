@@ -41,13 +41,15 @@ import {
 
 const coreItems = [
   { title: "Command Center", href: "/chat", icon: MessageSquare },
-  { title: "Vault", href: "/vault", icon: Lock },
+  { title: "Dashboard", href: "/", icon: LayoutDashboard },
+ 
 ];
 
 const agentItems = [
   { title: "Personas", href: "/personas", icon: Brain },
   { title: "Skills", href: "/skills", icon: Puzzle },
   { title: "Safety Rules", href: "/safety", icon: ShieldAlert },
+   { title: "Vault", href: "/vault", icon: Lock },
 ];
 
 const automationItems = [
@@ -71,7 +73,7 @@ const capabilityItems = [
 ];
 
 const monitorItems = [
-  { title: "Dashboard", href: "/", icon: LayoutDashboard },
+  
   { title: "Logs", href: "/logs", icon: ScrollText },
   { title: "Tools Health", href: "/tools", icon: Activity },
 ];
