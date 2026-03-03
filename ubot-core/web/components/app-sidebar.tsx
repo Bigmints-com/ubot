@@ -60,6 +60,7 @@ const channelItems = [
 ];
 
 const integrationItems = [
+  { title: "Config", href: "/integrations", icon: Settings },
   { title: "Google Apps", href: "/google", icon: Globe },
   { title: "MCP Servers", href: "/mcp-servers", icon: Plug },
   { title: "CLI", href: "/cli", icon: Terminal },
