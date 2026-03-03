@@ -860,6 +860,44 @@ async function handleChannelRoutes(
   method: string,
 ): Promise<boolean> {
 
+  // ── Integrations Config ────────────────────────────────
+  if (url === '/api/config/integrations' && method === 'GET') {
+    const cfg = loadUbotConfig();
+    json(res, {
+      serper_api_key: cfg.integrations?.serper_api_key ? '••••' + (cfg.integrations.serper_api_key).slice(-4) : '',
+      serper_configured: !!cfg.integrations?.serper_api_key,
+      cli: cfg.cli || { enabled: false, provider: 'gemini', workDir: 'workspace/cli-projects', timeout: 300000 },
+      filesystem: cfg.filesystem || { allowed_paths: [] },
+    });
+    return true;
+  }
+
+  if (url === '/api/config/integrations' && method === 'PUT') {
+    const body = await parseBody(req) as any;
+    const cfg = loadUbotConfig();
+
+    if (body.serper_api_key !== undefined && !body.serper_api_key.includes('••••')) {
+      if (!cfg.integrations) cfg.integrations = {};
+      cfg.integrations.serper_api_key = body.serper_api_key;
+      // Update env and in-memory serper key for immediate use
+      process.env.SERPER_API_KEY = body.serper_api_key;
+      try {
+        const { setSerperApiKey } = await import('../capabilities/skills/web-search/adapters/serper.js');
+        setSerperApiKey(body.serper_api_key);
+      } catch { /* ignore */ }
+    }
+    if (body.cli !== undefined) {
+      cfg.cli = { ...cfg.cli, ...body.cli };
+    }
+    if (body.filesystem !== undefined) {
+      cfg.filesystem = { ...cfg.filesystem, ...body.filesystem };
+    }
+
+    saveUbotConfig(cfg);
+    json(res, { saved: true });
+    return true;
+  }
+
   // ── WhatsApp Config ───────────────────────────────────
   if (url === '/api/whatsapp/config' && method === 'GET') {
     json(res, { config: whatsappConfig, status: waStatus });
