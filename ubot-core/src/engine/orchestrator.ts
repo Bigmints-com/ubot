@@ -20,6 +20,7 @@ import { loadAgentDefinitions } from './agent-loader.js';
 import { metricsCollector } from '../metrics/index.js';
 import { log } from '../logger/ring-buffer.js';
 import { logCapability } from '../capabilities/cli/capability-log.js';
+import { LoopDetector } from './loop-detector.js';
 
 export interface AgentOrchestrator {
   /** Process a message and return the agent's response */
@@ -560,6 +561,7 @@ export function createAgentOrchestrator(
       // Agent loop with tool calling
       let iteration = 0;
       let finalContent = '';
+      const loopDetector = new LoopDetector();
 
       while (iteration < currentConfig.maxToolIterations) {
         iteration++;
@@ -667,6 +669,26 @@ export function createAgentOrchestrator(
             tool_call_id: toolCall.id,
             content: toolResultContent,
           } as ChatMsg);
+
+          // Check for loop detection
+          const loopCheck = loopDetector.record(
+            toolCall.toolName,
+            toolCall.arguments,
+            toolResultContent,
+          );
+          if (loopCheck.shouldStop) {
+            log.warn('Agent', `Loop detected: ${loopCheck.reason}`);
+            messages.push({
+              role: 'system',
+              content: `⚠️ LOOP DETECTED: ${loopCheck.reason}\n\nStop repeating the same tool calls. Respond with what you have so far, or try a different approach.`,
+            } as ChatMsg);
+            // Don't break — let the LLM see the warning and self-correct.
+            // But if critical, force break.
+            if (loopCheck.severity === 'critical') {
+              finalContent = 'I was repeating the same action without making progress. Let me try a different approach.';
+              break;
+            }
+          }
         }
 
         // If this was the last iteration, use whatever text we have

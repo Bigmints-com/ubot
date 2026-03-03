@@ -54,6 +54,12 @@ export interface McpServerConfig {
   enabledTools?: string[];
 }
 
+export interface ExecCapabilityConfig {
+  enabled?: boolean;
+  security?: 'workspace' | 'allowed' | 'full';
+  max_timeout?: number;
+}
+
 // ─── Capabilities Container ──────────────────────────────
 
 export interface CapabilitiesConfig {
@@ -61,6 +67,7 @@ export interface CapabilitiesConfig {
   search?: ProvidersSection;
   cli?: CliCapabilityConfig;
   filesystem?: FilesystemCapabilityConfig;
+  exec?: ExecCapabilityConfig;
   google?: GoogleCapabilityConfig;
   mcp?: { servers?: Record<string, McpServerConfig> };
   [key: string]: unknown;  // extensible for future capabilities
