@@ -32,6 +32,7 @@ import {
   Users,
 } from "lucide-react";
 import { api } from "@/lib/api";
+import { toast } from "sonner";
 
 // ── Purpose metadata ──
 
@@ -119,9 +120,10 @@ export default function SettingsPage() {
     setSaving(true);
     try {
       await api("/api/chat/config", { method: "PUT", body: config });
-      setSaved(true);
-      setTimeout(() => setSaved(false), 2000);
-    } catch { /* ignore */ }
+      toast.success("Settings saved");
+    } catch {
+      toast.error("Failed to save settings");
+    }
     finally { setSaving(false); }
   };
 
@@ -134,9 +136,10 @@ export default function SettingsPage() {
         method: "PUT",
         body: { defaults: { [purpose]: value } },
       });
-      setDefaultsSaved(true);
-      setTimeout(() => setDefaultsSaved(false), 2000);
-    } catch { /* ignore */ }
+      toast.success("Default updated");
+    } catch {
+      toast.error("Failed to update default");
+    }
     finally { setDefaultsSaving(false); }
   };
 

@@ -34,6 +34,7 @@ import {
   EyeOff,
 } from "lucide-react";
 import { api } from "@/lib/api";
+import { toast } from "sonner";
 
 // ─── Types ───────────────────────────────────────────────
 
@@ -211,8 +212,9 @@ export function ProviderList({
       }
       setDialogOpen(false);
       await loadProviders();
+      toast.success(editingKey ? "Provider updated" : "Provider added");
     } catch {
-      /* ignore */
+      toast.error("Failed to save provider");
     } finally {
       setFormSaving(false);
     }
@@ -222,8 +224,9 @@ export function ProviderList({
     try {
       await api(`/api/integrations/${category}/${key}`, { method: "DELETE" });
       await loadProviders();
+      toast.success("Provider removed");
     } catch {
-      /* ignore */
+      toast.error("Failed to remove provider");
     }
   };
 
@@ -231,8 +234,9 @@ export function ProviderList({
     try {
       await api(`/api/integrations/${category}/${key}/default`, { method: "PUT" });
       await loadProviders();
+      toast.success("Default provider updated");
     } catch {
-      /* ignore */
+      toast.error("Failed to set default");
     }
   };
 
@@ -241,7 +245,7 @@ export function ProviderList({
       await api(`/api/integrations/${category}/${key}/toggle`, { method: "PUT" });
       await loadProviders();
     } catch {
-      /* ignore */
+      toast.error("Failed to toggle provider");
     }
   };
 

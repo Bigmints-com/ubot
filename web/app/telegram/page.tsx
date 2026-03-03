@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Send, Wifi, WifiOff, RefreshCw, Power, PowerOff, Bot } from "lucide-react";
 import { api } from "@/lib/api";
+import { toast } from "sonner";
 
 export default function TelegramPage() {
   const [status, setStatus] = useState("disconnected");
@@ -60,6 +61,7 @@ export default function TelegramPage() {
       setBotName(data.botName ?? null);
     } catch (err: any) {
       setError(err.message);
+      toast.error(err.message);
     } finally {
       setConnecting(false);
     }
@@ -71,8 +73,10 @@ export default function TelegramPage() {
       setStatus("disconnected");
       setBotUsername(null);
       setBotName(null);
+      toast.success("Telegram disconnected");
     } catch (err: any) {
       setError(err.message);
+      toast.error(err.message);
     }
   };
 

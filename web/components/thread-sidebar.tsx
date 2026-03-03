@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
 
 interface Thread {
   id: string;
@@ -99,8 +100,9 @@ export function ThreadSidebar({
           t.id === threadId ? { ...t, name: renameValue.trim() } : t
         )
       );
+      toast.success("Thread renamed");
     } catch {
-      /* ignore */
+      toast.error("Failed to rename thread");
     }
     setRenamingId(null);
   };
@@ -112,6 +114,7 @@ export function ThreadSidebar({
         body: { sessionId: threadId },
       });
       setThreads((prev) => prev.filter((t) => t.id !== threadId));
+      toast.success("Thread deleted");
       // If we deleted the active thread, select another or create new
       if (threadId === activeThreadId) {
         const remaining = threads.filter((t) => t.id !== threadId);
@@ -122,7 +125,7 @@ export function ThreadSidebar({
         }
       }
     } catch {
-      /* ignore */
+      toast.error("Failed to delete thread");
     }
   };
 

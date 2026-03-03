@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { api } from "@/lib/api";
 import QRCode from "qrcode";
+import { toast } from "sonner";
 
 export default function WhatsAppPage() {
   const [status, setStatus] = useState("disconnected");
@@ -84,6 +85,7 @@ export default function WhatsAppPage() {
       await fetchStatus();
     } catch (err: any) {
       setError(err.message);
+      toast.error(err.message);
     } finally {
       setConnecting(false);
     }
@@ -92,9 +94,11 @@ export default function WhatsAppPage() {
   const handleDisconnect = async () => {
     try {
       await api("/api/whatsapp/disconnect", { method: "POST" });
+      toast.success("WhatsApp disconnected");
       await fetchStatus();
     } catch (err: any) {
       setError(err.message);
+      toast.error(err.message);
     }
   };
 

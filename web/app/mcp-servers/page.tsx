@@ -32,6 +32,7 @@ import {
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { CapabilityTools } from "@/components/capability-tools";
+import { toast } from "sonner";
 
 // ─── Types ───────────────────────────────────────────────
 
@@ -288,11 +289,13 @@ export default function McpServersPage() {
         },
       });
       setSuccessMsg(`MCP server "${config.name}" added and connected!`);
+      toast.success(`MCP server "${config.name}" added`);
       resetAddDialog();
       setAddOpen(false);
       fetchServers();
     } catch (err: any) {
       setError(err.message);
+      toast.error(err.message);
     } finally {
       setAdding(false);
     }
@@ -320,9 +323,11 @@ export default function McpServersPage() {
     try {
       await api(`/api/mcp/servers/${id}`, { method: "DELETE" });
       setSuccessMsg(`Removed "${name}".`);
+      toast.success(`Removed "${name}"`);
       fetchServers();
     } catch (err: any) {
       setError(err.message);
+      toast.error(err.message);
     }
   };
 
@@ -332,9 +337,11 @@ export default function McpServersPage() {
     clearMessages();
     try {
       await api(`/api/mcp/servers/${id}/reconnect`, { method: "POST" });
+      toast.success("Reconnecting...");
       fetchServers();
     } catch (err: any) {
       setError(err.message);
+      toast.error(err.message);
     }
   };
 

@@ -26,6 +26,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Pencil, RefreshCw, Trash2 } from "lucide-react";
 import { api } from "@/lib/api";
+import { toast } from "sonner";
 
 interface Skill {
   id: string;
@@ -71,8 +72,9 @@ export default function SkillsPage() {
       setSkills((prev) =>
         prev.map((s) => (s.id === id ? { ...s, enabled } : s))
       );
+      toast.success(enabled ? "Skill enabled" : "Skill disabled");
     } catch {
-      /* ignore */
+      toast.error("Failed to update skill");
     }
   };
 
@@ -93,8 +95,9 @@ export default function SkillsPage() {
       });
       setEditSkill(null);
       loadSkills();
+      toast.success("Skill saved");
     } catch {
-      /* ignore */
+      toast.error("Failed to save skill");
     } finally {
       setSaving(false);
     }
@@ -105,8 +108,9 @@ export default function SkillsPage() {
     try {
       await api(`/api/skills/${id}`, { method: "DELETE" });
       loadSkills();
+      toast.success("Skill deleted");
     } catch {
-      /* ignore */
+      toast.error("Failed to delete skill");
     }
   };
 
