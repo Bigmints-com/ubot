@@ -80,7 +80,8 @@ const agent = createAgentOrchestrator(
 );
 
 // Initialize integrations from config.json
-setSerperApiKey(ubotConfig.integrations?.serper_api_key);
+const serperCfg = ubotConfig.capabilities?.search?.providers?.serper;
+setSerperApiKey(serperCfg?.enabled !== false ? (serperCfg?.apiKey as string || null) : null);
 
 // Initialize API with agent
 initializeApi(db as any, agent, WORKSPACE_PATH);
