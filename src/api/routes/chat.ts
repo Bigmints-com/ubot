@@ -204,7 +204,59 @@ export async function handleChatRoutes(
       return true;
     }
     const sessions = ctx.agentOrchestrator.getConversationStore().listSessions();
-    json(res, { sessions });
+    // Only return web sessions for the thread UI
+    const webSessions = sessions.filter(s => s.type === 'web');
+    json(res, { sessions: webSessions });
+    return true;
+  }
+
+  // Create a new thread
+  if (url === '/api/chat/sessions' && method === 'POST') {
+    if (!ctx.agentOrchestrator) {
+      error(res, 'Agent not initialized', 503);
+      return true;
+    }
+    const body = await parseBody(req) as any;
+    const store = ctx.agentOrchestrator.getConversationStore();
+    const id = `web-${Date.now()}`;
+    const name = body.name || 'New Thread';
+    const session = store.createSession(id, 'web', name);
+    json(res, { session });
+    return true;
+  }
+
+  // Rename a thread
+  if (url === '/api/chat/sessions' && method === 'PUT') {
+    if (!ctx.agentOrchestrator) {
+      error(res, 'Agent not initialized', 503);
+      return true;
+    }
+    const body = await parseBody(req) as any;
+    const { sessionId, name } = body;
+    if (!sessionId || !name) {
+      error(res, 'sessionId and name are required');
+      return true;
+    }
+    const store = ctx.agentOrchestrator.getConversationStore();
+    store.renameSession(sessionId, name);
+    json(res, { renamed: true, sessionId, name });
+    return true;
+  }
+
+  // Delete a thread
+  if (url === '/api/chat/sessions' && method === 'DELETE') {
+    if (!ctx.agentOrchestrator) {
+      error(res, 'Agent not initialized', 503);
+      return true;
+    }
+    const body = await parseBody(req) as any;
+    const { sessionId } = body;
+    if (!sessionId) {
+      error(res, 'sessionId is required');
+      return true;
+    }
+    ctx.agentOrchestrator.getConversationStore().deleteSession(sessionId);
+    json(res, { deleted: true, sessionId });
     return true;
   }
 

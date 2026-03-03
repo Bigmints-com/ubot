@@ -55,6 +55,7 @@ export interface ConversationStore {
   clearSession(sessionId: string): void;
   clearAll(): void;
   deleteSession(sessionId: string): void;
+  renameSession(sessionId: string, name: string): void;
 }
 
 export function createConversationStore(db: DatabaseConnection): ConversationStore {
@@ -175,6 +176,11 @@ export function createConversationStore(db: DatabaseConnection): ConversationSto
     deleteSession(sessionId: string): void {
       db.execute('DELETE FROM chat_messages WHERE session_id = ?', [sessionId]);
       db.execute('DELETE FROM chat_sessions WHERE id = ?', [sessionId]);
+    },
+
+    renameSession(sessionId: string, name: string): void {
+      db.execute('UPDATE chat_sessions SET name = ?, updated_at = ? WHERE id = ?',
+        [name, new Date().toISOString(), sessionId]);
     },
   };
 }
