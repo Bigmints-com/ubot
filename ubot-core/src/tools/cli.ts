@@ -92,16 +92,18 @@ const cliToolModule: ToolModule = {
     const lazyCliService = async () => {
       const { loadUbotConfig } = await import('../data/config.js');
       const config = loadUbotConfig();
+      const provider = config.cli?.default || 'gemini';
+      const providerCfg = config.cli?.providers?.[provider];
 
-      if (!config.cli?.enabled) {
-        throw new Error('CLI capability is disabled. Enable it from Settings → CLI in the dashboard.');
+      if (!providerCfg || providerCfg.enabled === false) {
+        throw new Error('CLI capability is disabled. Enable it from the CLI page in the dashboard.');
       }
 
       const { getCliService } = await import('../capabilities/cli/service.js');
       return getCliService({
-        provider: config.cli?.provider || 'gemini',
+        provider,
         workDir: config.cli?.workDir || 'custom/staging',
-        timeout: config.cli?.timeout || 300000,
+        timeout: (providerCfg?.timeout as number) || 300000,
       });
     };
 

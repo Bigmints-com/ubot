@@ -37,16 +37,13 @@ import { api } from "@/lib/api";
 
 // ─── Types ───────────────────────────────────────────────
 
-export interface IntegrationProvider {
-  id: string;
-  name: string;
-  type: string;
+export interface ProviderConfig {
+  enabled?: boolean;
   baseUrl?: string;
   apiKey?: string;
   model?: string;
-  enabled: boolean;
-  isDefault: boolean;
-  config?: Record<string, unknown>;
+  timeout?: number;
+  [key: string]: unknown;
 }
 
 export interface ProviderTypePreset {
@@ -58,15 +55,10 @@ export interface ProviderTypePreset {
 }
 
 interface ProviderListProps {
-  /** Integration category, e.g. 'llm-chat', 'search' */
   category: string;
-  /** Available provider types for the add dialog */
   providerTypes: ProviderTypePreset[];
-  /** Whether to show model selector (LLMs yes, search no) */
   showModel?: boolean;
-  /** Whether to show base URL (LLMs yes, some search no) */
   showBaseUrl?: boolean;
-  /** Empty state text */
   emptyText?: string;
 }
 
@@ -79,15 +71,15 @@ export function ProviderList({
   showBaseUrl = true,
   emptyText = "No providers configured",
 }: ProviderListProps) {
-  const [providers, setProviders] = useState<IntegrationProvider[]>([]);
-  const [defaultId, setDefaultId] = useState("");
+  const [providers, setProviders] = useState<Record<string, ProviderConfig>>({});
+  const [defaultKey, setDefaultKey] = useState("");
   const [loading, setLoading] = useState(true);
 
   // Dialog state
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [editingProvider, setEditingProvider] = useState<IntegrationProvider | null>(null);
+  const [editingKey, setEditingKey] = useState<string | null>(null);
   const [formData, setFormData] = useState({
-    name: "",
+    key: "",
     type: providerTypes[0]?.type || "",
     baseUrl: providerTypes[0]?.baseUrl || "",
     apiKey: "",
@@ -106,11 +98,11 @@ export function ProviderList({
   const loadProviders = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await api<{ providers: IntegrationProvider[]; defaultId: string }>(
+      const data = await api<{ providers: Record<string, ProviderConfig>; default: string }>(
         `/api/integrations/${category}`
       );
-      setProviders(data.providers || []);
-      setDefaultId(data.defaultId || "");
+      setProviders(data.providers || {});
+      setDefaultKey(data.default || "");
     } catch {
       /* ignore */
     } finally {
@@ -125,14 +117,14 @@ export function ProviderList({
   // ── Model Discovery ──
 
   const fetchModels = useCallback(
-    async (type: string, baseUrl: string, apiKey: string, providerId?: string) => {
+    async (type: string, baseUrl: string, apiKey: string, providerKey?: string) => {
       if (!baseUrl || !showModel) return;
       setModelsLoading(true);
       setModelsError(null);
       try {
         const params = new URLSearchParams({ baseUrl, provider: type });
         if (apiKey) params.set("apiKey", apiKey);
-        if (providerId) params.set("providerId", providerId);
+        if (providerKey) params.set("providerKey", providerKey);
         const data = await api<{ models: { id: string; name: string }[]; error?: string }>(
           `/api/integrations/${category}/models?${params}`
         );
@@ -156,9 +148,9 @@ export function ProviderList({
 
   const openAddDialog = () => {
     const preset = providerTypes[0];
-    setEditingProvider(null);
+    setEditingKey(null);
     setFormData({
-      name: "",
+      key: preset?.type || "",
       type: preset?.type || "",
       baseUrl: preset?.baseUrl || "",
       apiKey: "",
@@ -173,29 +165,31 @@ export function ProviderList({
     }
   };
 
-  const openEditDialog = (provider: IntegrationProvider) => {
-    setEditingProvider(provider);
+  const openEditDialog = (key: string) => {
+    const provider = providers[key];
+    if (!provider) return;
+    setEditingKey(key);
     setFormData({
-      name: provider.name,
-      type: provider.type,
-      baseUrl: provider.baseUrl || "",
-      apiKey: provider.apiKey || "",
-      model: provider.model || "",
+      key,
+      type: providerTypes.find((p) => p.type === key)?.type || key,
+      baseUrl: (provider.baseUrl || "") as string,
+      apiKey: (provider.apiKey || "") as string,
+      model: (provider.model || "") as string,
     });
     setAvailableModels([]);
     setModelsError(null);
     setShowApiKey(false);
     setDialogOpen(true);
-    const preset = providerTypes.find((p) => p.type === provider.type);
+    const preset = providerTypes.find((p) => p.type === key);
     if (preset?.supportsModelDiscovery && provider.baseUrl) {
-      fetchModels(provider.type, provider.baseUrl, provider.apiKey || "", provider.id);
+      fetchModels(key, provider.baseUrl as string, (provider.apiKey || "") as string, key);
     }
   };
 
   const handleTypeChange = (type: string) => {
     const preset = providerTypes.find((p) => p.type === type);
     const newBaseUrl = preset?.baseUrl || formData.baseUrl;
-    setFormData((prev) => ({ ...prev, type, baseUrl: newBaseUrl, model: "" }));
+    setFormData((prev) => ({ ...prev, key: type, type, baseUrl: newBaseUrl, model: "" }));
     if (preset?.supportsModelDiscovery && newBaseUrl) {
       fetchModels(type, newBaseUrl, formData.apiKey);
     }
@@ -204,15 +198,15 @@ export function ProviderList({
   const handleSave = async () => {
     setFormSaving(true);
     try {
-      if (editingProvider) {
-        await api(`/api/integrations/${category}/${editingProvider.id}`, {
+      if (editingKey) {
+        await api(`/api/integrations/${category}/${editingKey}`, {
           method: "PUT",
-          body: formData,
+          body: { baseUrl: formData.baseUrl, apiKey: formData.apiKey, model: formData.model },
         });
       } else {
         await api(`/api/integrations/${category}`, {
           method: "POST",
-          body: formData,
+          body: { key: formData.key, baseUrl: formData.baseUrl, apiKey: formData.apiKey, model: formData.model },
         });
       }
       setDialogOpen(false);
@@ -224,27 +218,27 @@ export function ProviderList({
     }
   };
 
-  const handleDelete = async (id: string) => {
+  const handleDelete = async (key: string) => {
     try {
-      await api(`/api/integrations/${category}/${id}`, { method: "DELETE" });
+      await api(`/api/integrations/${category}/${key}`, { method: "DELETE" });
       await loadProviders();
     } catch {
       /* ignore */
     }
   };
 
-  const handleSetDefault = async (id: string) => {
+  const handleSetDefault = async (key: string) => {
     try {
-      await api(`/api/integrations/${category}/${id}/default`, { method: "PUT" });
+      await api(`/api/integrations/${category}/${key}/default`, { method: "PUT" });
       await loadProviders();
     } catch {
       /* ignore */
     }
   };
 
-  const handleToggle = async (id: string) => {
+  const handleToggle = async (key: string) => {
     try {
-      await api(`/api/integrations/${category}/${id}/toggle`, { method: "PUT" });
+      await api(`/api/integrations/${category}/${key}/toggle`, { method: "PUT" });
       await loadProviders();
     } catch {
       /* ignore */
@@ -254,6 +248,7 @@ export function ProviderList({
   // ── Render ──
 
   const currentPreset = providerTypes.find((p) => p.type === formData.type);
+  const providerEntries = Object.entries(providers);
 
   if (loading) {
     return (
@@ -267,14 +262,14 @@ export function ProviderList({
     <>
       <div className="flex items-center justify-between mb-4">
         <p className="text-sm text-muted-foreground">
-          {providers.length} provider{providers.length !== 1 ? "s" : ""} configured
+          {providerEntries.length} provider{providerEntries.length !== 1 ? "s" : ""} configured
         </p>
         <Button onClick={openAddDialog} size="sm">
           <Plus className="size-4 mr-2" /> Add Provider
         </Button>
       </div>
 
-      {providers.length === 0 ? (
+      {providerEntries.length === 0 ? (
         <Card>
           <CardContent className="py-10 text-center text-muted-foreground">
             <Zap className="size-10 mx-auto mb-3 opacity-40" />
@@ -286,96 +281,73 @@ export function ProviderList({
         </Card>
       ) : (
         <div className="grid gap-3">
-          {providers.map((provider) => (
-            <Card
-              key={provider.id}
-              className={`${
-                provider.id === defaultId ? "border-primary/50 bg-primary/[0.03]" : ""
-              } ${!provider.enabled ? "opacity-60" : ""}`}
-            >
-              <CardContent className="py-4 px-5">
-                <div className="flex items-start justify-between">
-                  <div className="flex items-start gap-3 min-w-0 flex-1">
-                    <div
-                      className={`mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-lg ${
-                        provider.id === defaultId
-                          ? "bg-primary text-primary-foreground"
-                          : "bg-muted text-muted-foreground"
-                      }`}
-                    >
-                      <Zap className="size-4" />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
-                        <span className="font-medium truncate">{provider.name}</span>
-                        <Badge variant="outline" className="text-xs shrink-0">
-                          {(
-                            providerTypes.find((p) => p.type === provider.type)?.label ||
-                            provider.type
-                          ).toUpperCase()}
-                        </Badge>
-                        {provider.id === defaultId && (
-                          <Badge className="bg-primary/15 text-primary border-primary/25 text-xs shrink-0">
-                            <Star className="size-3 mr-1 fill-current" /> Default
+          {providerEntries.map(([key, provider]) => {
+            const isDefault = key === defaultKey;
+            const isEnabled = provider.enabled !== false;
+            return (
+              <Card
+                key={key}
+                className={`${isDefault ? "border-primary/50 bg-primary/[0.03]" : ""} ${!isEnabled ? "opacity-60" : ""}`}
+              >
+                <CardContent className="py-4 px-5">
+                  <div className="flex items-start justify-between">
+                    <div className="flex items-start gap-3 min-w-0 flex-1">
+                      <div
+                        className={`mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-lg ${
+                          isDefault ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"
+                        }`}
+                      >
+                        <Zap className="size-4" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium truncate capitalize">{key}</span>
+                          <Badge variant="outline" className="text-xs shrink-0">
+                            {(providerTypes.find((p) => p.type === key)?.label || key).toUpperCase()}
                           </Badge>
+                          {isDefault && (
+                            <Badge className="bg-primary/15 text-primary border-primary/25 text-xs shrink-0">
+                              <Star className="size-3 mr-1 fill-current" /> Default
+                            </Badge>
+                          )}
+                          {!isEnabled && (
+                            <Badge variant="secondary" className="text-xs shrink-0">Disabled</Badge>
+                          )}
+                        </div>
+                        {provider.model && (
+                          <p className="text-sm text-muted-foreground mt-0.5 truncate">{provider.model as string}</p>
                         )}
-                        {!provider.enabled && (
-                          <Badge variant="secondary" className="text-xs shrink-0">
-                            Disabled
-                          </Badge>
+                        {provider.baseUrl && (
+                          <p className="text-xs text-muted-foreground/70 mt-0.5 truncate">{provider.baseUrl as string}</p>
                         )}
                       </div>
-                      {provider.model && (
-                        <p className="text-sm text-muted-foreground mt-0.5 truncate">
-                          {provider.model}
-                        </p>
-                      )}
-                      {provider.baseUrl && (
-                        <p className="text-xs text-muted-foreground/70 mt-0.5 truncate">
-                          {provider.baseUrl}
-                        </p>
-                      )}
                     </div>
-                  </div>
 
-                  <div className="flex items-center gap-1 shrink-0 ml-3">
-                    <Switch
-                      checked={provider.enabled}
-                      onCheckedChange={() => handleToggle(provider.id)}
-                      className="mr-1"
-                    />
-                    {provider.id !== defaultId && provider.enabled && (
+                    <div className="flex items-center gap-1 shrink-0 ml-3">
+                      <Switch checked={isEnabled} onCheckedChange={() => handleToggle(key)} className="mr-1" />
+                      {!isDefault && isEnabled && (
+                        <Button variant="ghost" size="sm" className="h-8 px-2 text-xs" onClick={() => handleSetDefault(key)}>
+                          <Star className="size-3.5 mr-1" /> Default
+                        </Button>
+                      )}
+                      <Button variant="ghost" size="icon" className="size-8" onClick={() => openEditDialog(key)}>
+                        <Pencil className="size-3.5" />
+                      </Button>
                       <Button
                         variant="ghost"
-                        size="sm"
-                        className="h-8 px-2 text-xs"
-                        onClick={() => handleSetDefault(provider.id)}
+                        size="icon"
+                        className="size-8 text-destructive hover:text-destructive"
+                        onClick={() => handleDelete(key)}
+                        disabled={isDefault && providerEntries.length > 1}
                       >
-                        <Star className="size-3.5 mr-1" /> Default
+                        <Trash2 className="size-3.5" />
                       </Button>
-                    )}
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="size-8"
-                      onClick={() => openEditDialog(provider)}
-                    >
-                      <Pencil className="size-3.5" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="size-8 text-destructive hover:text-destructive"
-                      onClick={() => handleDelete(provider.id)}
-                      disabled={provider.id === defaultId && providers.length > 1}
-                    >
-                      <Trash2 className="size-3.5" />
-                    </Button>
+                    </div>
                   </div>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
+                </CardContent>
+              </Card>
+            );
+          })}
         </div>
       )}
 
@@ -383,42 +355,28 @@ export function ProviderList({
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="sm:max-w-[480px]">
           <DialogHeader>
-            <DialogTitle>
-              {editingProvider ? "Edit Provider" : "Add Provider"}
-            </DialogTitle>
+            <DialogTitle>{editingKey ? "Edit Provider" : "Add Provider"}</DialogTitle>
             <DialogDescription>
-              {editingProvider
-                ? "Update the provider configuration."
-                : "Configure a new provider."}
+              {editingKey ? "Update the provider configuration." : "Configure a new provider."}
             </DialogDescription>
           </DialogHeader>
 
           <div className="grid gap-4 py-2">
-            <div className="grid gap-2">
-              <Label htmlFor="providerName">Name</Label>
-              <Input
-                id="providerName"
-                placeholder="e.g. Gemini Flash"
-                value={formData.name}
-                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-              />
-            </div>
-
-            <div className="grid gap-2">
-              <Label>Provider Type</Label>
-              <Select value={formData.type} onValueChange={handleTypeChange}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select provider" />
-                </SelectTrigger>
-                <SelectContent>
-                  {providerTypes.map((p) => (
-                    <SelectItem key={p.type} value={p.type}>
-                      {p.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            {!editingKey && (
+              <div className="grid gap-2">
+                <Label>Provider Type</Label>
+                <Select value={formData.type} onValueChange={handleTypeChange}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select provider" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {providerTypes.map((p) => (
+                      <SelectItem key={p.type} value={p.type}>{p.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
 
             {showBaseUrl && (
               <div className="grid gap-2">
@@ -440,61 +398,43 @@ export function ProviderList({
             {showModel && (
               <div className="grid gap-2">
                 <div className="flex items-center justify-between">
-                  <Label htmlFor="providerModel">Model</Label>
+                  <Label>Model</Label>
                   {modelsLoading && (
                     <span className="flex items-center gap-1 text-xs text-muted-foreground">
                       <RefreshCw className="size-3 animate-spin" /> Loading...
                     </span>
                   )}
-                  {!modelsLoading && availableModels.length > 0 && (
-                    <span className="text-xs text-muted-foreground">
-                      {availableModels.length} models
-                    </span>
-                  )}
                 </div>
                 {availableModels.length > 0 ? (
-                  <Select
-                    value={formData.model}
-                    onValueChange={(v) => setFormData({ ...formData, model: v })}
-                  >
+                  <Select value={formData.model} onValueChange={(v) => setFormData({ ...formData, model: v })}>
                     <SelectTrigger>
-                      <SelectValue placeholder={modelsLoading ? "Loading..." : "Select a model"} />
+                      <SelectValue placeholder="Select a model" />
                     </SelectTrigger>
                     <SelectContent>
                       {availableModels.map((m) => (
-                        <SelectItem key={m.id} value={m.id}>
-                          {m.name}
-                        </SelectItem>
+                        <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
                 ) : (
                   <Input
-                    id="providerModel"
-                    placeholder={modelsLoading ? "Loading models..." : "Enter model name"}
+                    placeholder={modelsLoading ? "Loading..." : "Enter model name"}
                     value={formData.model}
                     onChange={(e) => setFormData({ ...formData, model: e.target.value })}
                     disabled={modelsLoading}
                   />
                 )}
-                {modelsError && (
-                  <p className="text-xs text-amber-500">
-                    Could not fetch models. You can type a model name manually.
-                  </p>
-                )}
+                {modelsError && <p className="text-xs text-amber-500">Could not fetch models. Type a model name manually.</p>}
               </div>
             )}
 
             {currentPreset?.requiresApiKey !== false && (
               <div className="grid gap-2">
-                <Label htmlFor="providerApiKey">API Key</Label>
+                <Label>API Key</Label>
                 <div className="relative">
                   <Input
-                    id="providerApiKey"
                     type={showApiKey ? "text" : "password"}
-                    placeholder={
-                      editingProvider ? "Leave blank to keep existing key" : "Enter API key"
-                    }
+                    placeholder={editingKey ? "Leave blank to keep existing" : "Enter API key"}
                     value={formData.apiKey}
                     onChange={(e) => setFormData({ ...formData, apiKey: e.target.value })}
                     onBlur={() => {
@@ -518,19 +458,10 @@ export function ProviderList({
           </div>
 
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDialogOpen(false)}>
-              Cancel
-            </Button>
-            <Button
-              onClick={handleSave}
-              disabled={formSaving || !formData.name || !formData.type}
-            >
-              {formSaving ? (
-                <RefreshCw className="size-4 mr-2 animate-spin" />
-              ) : (
-                <Save className="size-4 mr-2" />
-              )}
-              {editingProvider ? "Update" : "Add Provider"}
+            <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
+            <Button onClick={handleSave} disabled={formSaving || (!editingKey && !formData.key)}>
+              {formSaving ? <RefreshCw className="size-4 mr-2 animate-spin" /> : <Save className="size-4 mr-2" />}
+              {editingKey ? "Update" : "Add Provider"}
             </Button>
           </DialogFooter>
         </DialogContent>

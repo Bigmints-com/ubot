@@ -238,17 +238,23 @@ export async function handleChatRoutes(
     const body = await parseBody(req) as any;
     const updated = ctx.agentOrchestrator.updateConfig(body);
 
-    if (body.ownerPhone !== undefined) ctx.saveConfigValue('ownerPhone', updated.ownerPhone || '');
-    if (body.ownerTelegramId !== undefined) ctx.saveConfigValue('ownerTelegramId', updated.ownerTelegramId || '');
-    if (body.ownerTelegramUsername !== undefined) ctx.saveConfigValue('ownerTelegramUsername', updated.ownerTelegramUsername || '');
-    if (body.autoReplyWhatsApp !== undefined) ctx.saveConfigValue('autoReplyWhatsApp', String(updated.autoReplyWhatsApp));
-    if (body.autoReplyTelegram !== undefined) ctx.saveConfigValue('autoReplyTelegram', String(updated.autoReplyTelegram));
+    // Save directly to config.json (single source of truth)
+    const { loadUbotConfig, saveUbotConfig } = await import('../../data/config.js');
+    const cfg = loadUbotConfig();
+    if (body.ownerPhone !== undefined) { if (!cfg.owner) cfg.owner = {}; cfg.owner.phone = updated.ownerPhone || ''; }
+    if (body.ownerTelegramId !== undefined) { if (!cfg.owner) cfg.owner = {}; cfg.owner.telegram_id = updated.ownerTelegramId || ''; }
+    if (body.ownerTelegramUsername !== undefined) { if (!cfg.owner) cfg.owner = {}; cfg.owner.telegram_username = updated.ownerTelegramUsername || ''; }
+    if (body.autoReplyWhatsApp !== undefined) { if (!cfg.channels) cfg.channels = {}; if (!cfg.channels.whatsapp) cfg.channels.whatsapp = {}; cfg.channels.whatsapp.auto_reply = updated.autoReplyWhatsApp; }
+    if (body.autoReplyTelegram !== undefined) { if (!cfg.channels) cfg.channels = {}; if (!cfg.channels.telegram) cfg.channels.telegram = {}; cfg.channels.telegram.auto_reply = updated.autoReplyTelegram; }
+    if (body.maxHistoryMessages !== undefined) { if (!cfg.agent) cfg.agent = {}; cfg.agent.max_history_messages = updated.maxHistoryMessages; }
+    saveUbotConfig(cfg);
 
     json(res, {
       llmBaseUrl: updated.llmBaseUrl,
       llmModel: updated.llmModel,
       temperature: updated.temperature,
       maxTokens: updated.maxTokens,
+      maxHistoryMessages: updated.maxHistoryMessages,
       autoReplyWhatsApp: updated.autoReplyWhatsApp,
       autoReplyTelegram: updated.autoReplyTelegram,
       ownerPhone: updated.ownerPhone || '',
@@ -324,123 +330,22 @@ export async function handleChatRoutes(
     return true;
   }
 
+  // Legacy /api/llm-providers GET — reads from new keyed format
   if (url === '/api/llm-providers' && method === 'GET') {
-    if (!ctx.agentOrchestrator) {
-      json(res, { providers: [], defaultId: '' });
-      return true;
-    }
-    const config = ctx.agentOrchestrator.getConfig();
-    const providers = (config.llmProviders || []).map(p => ({
-      ...p,
-      apiKey: p.apiKey ? `${p.apiKey.slice(0, 4)}${'*'.repeat(Math.max(0, p.apiKey.length - 8))}${p.apiKey.slice(-4)}` : '',
-    }));
-    json(res, { providers, defaultId: config.defaultLlmProviderId });
-    return true;
-  }
-
-  if (url === '/api/llm-providers' && method === 'POST') {
-    if (!ctx.agentOrchestrator) {
-      error(res, 'Agent not initialized', 503);
-      return true;
-    }
-    const body = await parseBody(req) as any;
-    if (!body.name || !body.model || !body.baseUrl) {
-      error(res, 'name, model, and baseUrl are required');
-      return true;
-    }
-    const config = ctx.agentOrchestrator.getConfig();
-    const providers = [...(config.llmProviders || [])];
-    const newProvider: LLMProviderConfig = {
-      id: crypto.randomUUID(),
-      name: body.name,
-      provider: body.provider || 'custom',
-      baseUrl: body.baseUrl,
-      apiKey: body.apiKey || '',
-      model: body.model,
-      isDefault: providers.length === 0,
-    };
-    providers.push(newProvider);
-    const defaultId = newProvider.isDefault ? newProvider.id : config.defaultLlmProviderId;
-    ctx.agentOrchestrator.updateConfig({ llmProviders: providers, defaultLlmProviderId: defaultId });
-    ctx.saveConfigValue('llm_providers', JSON.stringify(providers));
-    ctx.saveConfigValue('default_llm_provider_id', defaultId);
-    json(res, { provider: { ...newProvider, apiKey: newProvider.apiKey ? '***' : '' }, saved: true }, 201);
-    return true;
-  }
-
-  if (url.match(/^\/api\/llm-providers\/[^/]+\/default$/) && method === 'PUT') {
-    if (!ctx.agentOrchestrator) {
-      error(res, 'Agent not initialized', 503);
-      return true;
-    }
-    const parts = url.split('/');
-    const id = parts[parts.length - 2];
-    const config = ctx.agentOrchestrator.getConfig();
-    const providers = (config.llmProviders || []).map(p => ({
-      ...p,
-      isDefault: p.id === id,
-    }));
-    if (!providers.find(p => p.id === id)) {
-      error(res, 'Provider not found', 404);
-      return true;
-    }
-    ctx.agentOrchestrator.updateConfig({ llmProviders: providers, defaultLlmProviderId: id });
-    ctx.saveConfigValue('llm_providers', JSON.stringify(providers));
-    ctx.saveConfigValue('default_llm_provider_id', id);
-    json(res, { defaultId: id, saved: true });
-    return true;
-  }
-
-  if (url.match(/^\/api\/llm-providers\/[^/]+$/) && method === 'PUT') {
-    if (!ctx.agentOrchestrator) {
-      error(res, 'Agent not initialized', 503);
-      return true;
-    }
-    const id = url.split('/').pop()!;
-    const body = await parseBody(req) as any;
-    const config = ctx.agentOrchestrator.getConfig();
-    const providers = [...(config.llmProviders || [])];
-    const idx = providers.findIndex(p => p.id === id);
-    if (idx === -1) {
-      error(res, 'Provider not found', 404);
-      return true;
-    }
-    const existing = providers[idx];
-    providers[idx] = {
-      ...existing,
-      name: body.name ?? existing.name,
-      provider: body.provider ?? existing.provider,
-      baseUrl: body.baseUrl ?? existing.baseUrl,
-      apiKey: (body.apiKey && !body.apiKey.includes('*')) ? body.apiKey : existing.apiKey,
-      model: body.model ?? existing.model,
-    };
-    ctx.agentOrchestrator.updateConfig({ llmProviders: providers });
-    ctx.saveConfigValue('llm_providers', JSON.stringify(providers));
-    json(res, { provider: { ...providers[idx], apiKey: '***' }, saved: true });
-    return true;
-  }
-
-  if (url.match(/^\/api\/llm-providers\/[^/]+$/) && method === 'DELETE') {
-    if (!ctx.agentOrchestrator) {
-      error(res, 'Agent not initialized', 503);
-      return true;
-    }
-    const id = url.split('/').pop()!;
-    const config = ctx.agentOrchestrator.getConfig();
-    const providers = (config.llmProviders || []).filter(p => p.id !== id);
-    if (providers.length === config.llmProviders?.length) {
-      error(res, 'Provider not found', 404);
-      return true;
-    }
-    let defaultId = config.defaultLlmProviderId;
-    if (defaultId === id && providers.length > 0) {
-      providers[0].isDefault = true;
-      defaultId = providers[0].id;
-    }
-    ctx.agentOrchestrator.updateConfig({ llmProviders: providers, defaultLlmProviderId: defaultId });
-    ctx.saveConfigValue('llm_providers', JSON.stringify(providers));
-    ctx.saveConfigValue('default_llm_provider_id', defaultId);
-    json(res, { deleted: true });
+    const { loadUbotConfig } = await import('../../data/config.js');
+    const cfg = loadUbotConfig();
+    const providers = Object.entries(cfg.models?.providers || {})
+      .filter(([_, p]) => p.enabled !== false)
+      .map(([key, p]) => ({
+        id: key,
+        name: key,
+        provider: key,
+        baseUrl: p.baseUrl || '',
+        apiKey: p.apiKey ? `${String(p.apiKey).slice(0, 4)}${'*'.repeat(8)}${String(p.apiKey).slice(-4)}` : '',
+        model: p.model || '',
+        isDefault: key === cfg.models?.default,
+      }));
+    json(res, { providers, defaultId: cfg.models?.default || '' });
     return true;
   }
 
