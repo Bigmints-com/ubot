@@ -75,7 +75,7 @@ export default function SettingsPage() {
 
       <Separator />
 
-      <div className="space-y-4 max-w-2xl">
+      <div className="space-y-4">
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Context</CardTitle>
