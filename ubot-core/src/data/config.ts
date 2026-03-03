@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import type { IntegrationsConfig } from './integration-types.js';
 
 export interface UbotConfig {
   server?: { port?: number };
@@ -12,7 +13,7 @@ export interface UbotConfig {
     providers?: any[]; 
     default_provider_id?: string;
   };
-  integrations?: { serper_api_key?: string };
+  integrations?: IntegrationsConfig;
   owner?: {
     phone?: string;
     telegram_id?: string;
