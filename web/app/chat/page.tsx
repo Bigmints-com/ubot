@@ -11,6 +11,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
   Send, Trash2, Bot, User, Wrench, Sparkles, Loader2,
   Paperclip, X, FileText, Image as ImageIcon, File as FileIcon,
+  ArrowDown,
 } from "lucide-react";
 import { api } from "@/lib/api";
 
@@ -58,6 +59,7 @@ export default function ChatPage() {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messageCountRef = useRef(0);
+  const [showScrollDown, setShowScrollDown] = useState(false);
 
   useEffect(() => {
     loadHistory();
@@ -95,6 +97,22 @@ export default function ChatPage() {
       }
     }, 50);
   };
+
+  // Track scroll position to show/hide the scroll-down button
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    // ScrollArea renders a viewport div inside — find it
+    const viewport = el.querySelector('[data-radix-scroll-area-viewport]') as HTMLElement;
+    if (!viewport) return;
+
+    const handleScroll = () => {
+      const distanceFromBottom = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight;
+      setShowScrollDown(distanceFromBottom > 100);
+    };
+    viewport.addEventListener('scroll', handleScroll);
+    return () => viewport.removeEventListener('scroll', handleScroll);
+  }, [messages]);
 
   /** Normalize history messages from backend shape to frontend shape */
   const normalizeMessage = (msg: Record<string, unknown>): ChatMessage => {
@@ -346,40 +364,9 @@ export default function ChatPage() {
   const waConnected = status.wa === "connected";
 
   return (
-    <div className="flex flex-col h-full overflow-hidden">
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b">
-        <div className="flex items-center gap-3">
-          <div className="bg-primary text-primary-foreground flex size-8 items-center justify-center rounded-lg">
-            <Sparkles className="size-4" />
-          </div>
-          <div>
-            <h2 className="font-semibold text-sm">Command Center</h2>
-            <p className="text-xs text-muted-foreground">
-              AI Agent — {status.model}
-            </p>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <Badge
-            variant={waConnected ? "default" : "secondary"}
-            className="text-xs"
-          >
-            WA: {status.wa}
-          </Badge>
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={clearHistory}
-            title="Clear history"
-          >
-            <Trash2 className="size-4" />
-          </Button>
-        </div>
-      </div>
-
+    <div className="flex flex-col h-[calc(100vh-3rem)] overflow-hidden relative">
       {/* Messages */}
-      <ScrollArea className="flex-1 px-4" ref={scrollRef}>
+      <ScrollArea className="flex-1 min-h-0 px-4" ref={scrollRef}>
         <div className="py-4 space-y-4 max-w-3xl mx-auto">
           {messages.length === 0 && !loading && (
             <div className="flex flex-col items-center justify-center py-20 space-y-4">
@@ -510,6 +497,23 @@ export default function ChatPage() {
           )}
         </div>
       </ScrollArea>
+
+      {/* Floating scroll-to-bottom button */}
+      {showScrollDown && (
+        <div className="absolute left-1/2 -translate-x-1/2 bottom-20 z-10">
+          <Button
+            variant="secondary"
+            size="icon"
+            className="rounded-full size-8 shadow-lg border"
+            onClick={() => {
+              const viewport = scrollRef.current?.querySelector('[data-radix-scroll-area-viewport]') as HTMLElement;
+              if (viewport) viewport.scrollTo({ top: viewport.scrollHeight, behavior: 'smooth' });
+            }}
+          >
+            <ArrowDown className="size-4" />
+          </Button>
+        </div>
+      )}
 
       <Separator />
 
