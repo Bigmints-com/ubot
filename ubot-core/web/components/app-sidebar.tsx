@@ -40,8 +40,8 @@ import {
 } from "@/components/ui/sidebar";
 
 const coreItems = [
-  { title: "Command Center", href: "/chat", icon: MessageSquare },
   { title: "Dashboard", href: "/", icon: LayoutDashboard },
+  { title: "Command Center", href: "/chat", icon: MessageSquare },
  
 ];
 

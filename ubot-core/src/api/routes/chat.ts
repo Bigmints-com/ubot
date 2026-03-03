@@ -244,7 +244,7 @@ export async function handleChatRoutes(
   }
 
   // Delete a thread
-  if (url === '/api/chat/sessions' && method === 'DELETE') {
+  if (url === '/api/chat/sessions/delete' && method === 'POST') {
     if (!ctx.agentOrchestrator) {
       error(res, 'Agent not initialized', 503);
       return true;

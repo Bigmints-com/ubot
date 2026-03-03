@@ -107,8 +107,8 @@ export function ThreadSidebar({
 
   const handleDelete = async (threadId: string) => {
     try {
-      await api("/api/chat/sessions", {
-        method: "DELETE",
+      await api("/api/chat/sessions/delete", {
+        method: "POST",
         body: { sessionId: threadId },
       });
       setThreads((prev) => prev.filter((t) => t.id !== threadId));
