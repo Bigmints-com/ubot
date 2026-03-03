@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { FolderOpen, Plus, Trash2, Save, RefreshCw } from "lucide-react";
 import { api } from "@/lib/api";
+import { CapabilityTools } from "@/components/capability-tools";
 
 export default function FilesystemPage() {
   const [allowedPaths, setAllowedPaths] = useState<string[]>([]);
@@ -120,6 +121,8 @@ export default function FilesystemPage() {
           </div>
         </CardContent>
       </Card>
+
+      <CapabilityTools capability="filesystem" />
     </div>
   );
 }

@@ -31,6 +31,7 @@ import {
   Download,
 } from "lucide-react";
 import { api } from "@/lib/api";
+import { CapabilityTools } from "@/components/capability-tools";
 
 interface CliStatus {
   enabled: boolean;
@@ -527,6 +528,8 @@ export default function CliPage() {
           </CardContent>
         </Card>
       )}
+
+      <CapabilityTools capability="cli" />
     </div>
   );
 }

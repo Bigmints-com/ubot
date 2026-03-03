@@ -4,6 +4,7 @@ import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Bot, Image, AudioLines } from "lucide-react";
 import { ProviderList } from "@/components/provider-list";
+import { CapabilityTools } from "@/components/capability-tools";
 
 const LLM_CHAT_PRESETS = [
   { type: "gemini", label: "Gemini", baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai/", requiresApiKey: true, supportsModelDiscovery: true },
@@ -30,7 +31,7 @@ export default function LlmsPage() {
       <div>
         <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
           <Bot className="size-6" />
-          LLM Providers
+          Models
         </h1>
         <p className="text-muted-foreground">
           Configure AI model providers for chat, image generation, and transcription
@@ -85,6 +86,8 @@ export default function LlmsPage() {
           />
         </TabsContent>
       </Tabs>
+
+      <CapabilityTools capability="models" />
     </div>
   );
 }
