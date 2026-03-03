@@ -2,59 +2,34 @@
  * Tool Router
  *
  * Intelligently selects between native and MCP tools by:
- * 1. Grouping tools by capability (browser, search, files, etc.)
- * 2. Detecting overlaps between native and MCP tools
- * 3. Applying user preferences per capability group
- * 4. Falling back when preferred provider is disconnected
- * 5. Registering transparent aliases so the LLM can use short names
+ * 1. Auto-detecting overlaps by name matching (no manual group registration)
+ * 2. Applying user preferences per MCP server name
+ * 3. Falling back when preferred provider is disconnected
+ * 4. Registering transparent aliases so the LLM can use short names
+ *
+ * When a new MCP server is added, its tools are automatically checked against
+ * native tools. If `mcp_foo_read_file` exists and native `read_file` exists,
+ * they're auto-detected as overlaps — no code changes needed.
  */
 
 import type { ToolDefinition
  } from './types.js';
 
-// ─── Capability Group Definitions ────────────────────────
-
-/**
- * Maps a capability group name to the native tool names that belong to it.
- * MCP tools are matched by stripping the `mcp_{server}_` prefix and checking
- * if the base name matches a native tool in the same group.
- */
-const CAPABILITY_GROUPS: Record<string, string[]> = {
-  browser: [
-    'browse_url',
-    'browser_click',
-    'browser_type',
-    'browser_read_page',
-    'browser_screenshot',
-    'browser_scroll',
-    'browser_snapshot',
-  ],
-  search: ['web_search'],
-  fetch: ['web_fetch'],
-  files: ['read_file', 'write_file', 'list_files', 'delete_file', 'search_files'],
-  exec: ['exec', 'process'],
-};
-
-/** Reverse index: tool name → group */
-const TOOL_TO_GROUP: Map<string, string> = new Map();
-for (const [group, tools] of Object.entries(CAPABILITY_GROUPS)) {
-  for (const t of tools) {
-    TOOL_TO_GROUP.set(t, group);
-  }
-}
-
 // ─── Overlap Detection ──────────────────────────────────
 
 interface ToolOverlap {
-  group: string;
-  nativeName: string;
-  mcpName: string;
+  /** The MCP server name (used as the preference key) */
   mcpServer: string;
+  /** The native tool name (e.g. 'browser_click') */
+  nativeName: string;
+  /** The full MCP tool name (e.g. 'mcp_playwright_browser_click') */
+  mcpName: string;
 }
 
 /**
- * Detect MCP tools that overlap with native tools in the same capability group.
- * Match by stripping the `mcp_{server}_` prefix and comparing the base name.
+ * Auto-detect MCP tools that overlap with native tools by name matching.
+ * Strips the `mcp_{server}_` prefix and checks if the base name matches
+ * any native tool name. No manual group registration needed.
  */
 function detectOverlaps(
   nativeTools: ToolDefinition[],
@@ -67,17 +42,13 @@ function detectOverlaps(
     const parsed = parseMcpToolName(mcpTool.name);
     if (!parsed) continue;
 
-    // Check if the base name matches any native tool in any group
+    // Auto-match: if the base name matches any native tool, it's an overlap
     if (nativeNames.has(parsed.baseName)) {
-      const group = TOOL_TO_GROUP.get(parsed.baseName);
-      if (group) {
-        overlaps.push({
-          group,
-          nativeName: parsed.baseName,
-          mcpName: mcpTool.name,
-          mcpServer: parsed.server,
-        });
-      }
+      overlaps.push({
+        mcpServer: parsed.server,
+        nativeName: parsed.baseName,
+        mcpName: mcpTool.name,
+      });
     }
   }
 
@@ -162,7 +133,8 @@ export function routeTools(
   let overlapsResolved = 0;
 
   for (const overlap of overlaps) {
-    const pref = preferences[overlap.group];
+    // Preference key is the MCP server name (e.g. "playwright", "filesystem")
+    const pref = preferences[overlap.mcpServer];
     const mcpServerConnected = mcpConnected.has(overlap.mcpServer);
 
     if (pref === overlap.mcpServer && mcpServerConnected) {
@@ -186,13 +158,14 @@ export function routeTools(
 
   // For MCP tools: hide overlapping ones that lost preference.
   // Keep MCP-unique tools (enrichments) regardless.
+  const nativeNameSet = new Set(nativeTools.map(t => t.name));
   let mcpEnrichments = 0;
   const filteredMcp = mcpTools.filter(t => {
     if (hiddenMcp.has(t.name)) return false;
 
     // If this MCP tool has no native overlap, it's an enrichment — always keep
     const parsed = parseMcpToolName(t.name);
-    if (parsed && !TOOL_TO_GROUP.has(parsed.baseName)) {
+    if (parsed && !nativeNameSet.has(parsed.baseName)) {
       mcpEnrichments++;
     }
     return true;
