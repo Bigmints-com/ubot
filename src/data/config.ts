@@ -91,6 +91,9 @@ export interface UbotConfig {
     system_prompt?: string;
   };
 
+  /** Purpose-based routing: which capability.provider to use for each purpose */
+  defaults?: Record<string, string>;
+
   /** All integrations live here */
   capabilities?: CapabilitiesConfig;
 

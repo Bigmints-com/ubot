@@ -1006,6 +1006,82 @@ async function handleChannelRoutes(
     return true;
   }
 
+  // ── Defaults GET ────────────────────────────────────────
+  if (url === '/api/config/defaults' && method === 'GET') {
+    const cfg = loadUbotConfig();
+    json(res, { defaults: cfg.defaults || {} });
+    return true;
+  }
+
+  // ── Defaults PUT ────────────────────────────────────────
+  if (url === '/api/config/defaults' && method === 'PUT') {
+    const body = await parseBody(req) as any;
+    const cfg = loadUbotConfig();
+    cfg.defaults = { ...(cfg.defaults || {}), ...body.defaults };
+    saveUbotConfig(cfg);
+    json(res, { saved: true });
+    return true;
+  }
+
+  // ── Defaults Options (available choices per purpose) ────
+  if (url === '/api/config/defaults/options' && method === 'GET') {
+    const cfg = loadUbotConfig();
+    const caps = cfg.capabilities || {};
+
+    // Build available options for each purpose from capabilities
+    const options: Record<string, Array<{ value: string; label: string }>> = {};
+
+    // Chat / LLM models
+    if (caps.models?.providers) {
+      options.chat = Object.entries(caps.models.providers)
+        .filter(([, p]: [string, any]) => p.enabled !== false)
+        .map(([key]) => ({ value: `models.${key}`, label: key.charAt(0).toUpperCase() + key.slice(1) }));
+    }
+
+    // Web search
+    if (caps.search?.providers) {
+      options.search = Object.entries(caps.search.providers)
+        .filter(([, p]: [string, any]) => p.enabled !== false)
+        .map(([key]) => ({ value: `search.${key}`, label: key.charAt(0).toUpperCase() + key.slice(1) }));
+    }
+
+    // CLI agents
+    if (caps.cli?.providers) {
+      options.cli = Object.entries(caps.cli.providers)
+        .filter(([, p]: [string, any]) => p.enabled !== false)
+        .map(([key]) => ({ value: `cli.${key}`, label: key.charAt(0).toUpperCase() + key.slice(1) + ' CLI' }));
+    }
+
+    // Google services — each service becomes a choice for its purpose
+    if (caps.google?.services) {
+      const svc = caps.google.services as Record<string, any>;
+      if (svc.gmail?.enabled !== false) {
+        options.email = [...(options.email || []), { value: 'google.gmail', label: 'Gmail' }];
+      }
+      if (svc.calendar?.enabled !== false) {
+        options.calendar = [...(options.calendar || []), { value: 'google.calendar', label: 'Google Calendar' }];
+      }
+      if (svc.drive?.enabled !== false) {
+        options.storage = [...(options.storage || []), { value: 'google.drive', label: 'Google Drive' }];
+      }
+      if (svc.docs?.enabled !== false) {
+        options.documents = [...(options.documents || []), { value: 'google.docs', label: 'Google Docs' }];
+      }
+      if (svc.sheets?.enabled !== false) {
+        options.spreadsheets = [...(options.spreadsheets || []), { value: 'google.sheets', label: 'Google Sheets' }];
+      }
+      if (svc.contacts?.enabled !== false) {
+        options.contacts = [...(options.contacts || []), { value: 'google.contacts', label: 'Google Contacts' }];
+      }
+      if (svc.places?.enabled !== false) {
+        options.maps = [...(options.maps || []), { value: 'google.places', label: 'Google Places' }];
+      }
+    }
+
+    json(res, { options });
+    return true;
+  }
+
   // ── WhatsApp Config ───────────────────────────────────
   if (url === '/api/whatsapp/config' && method === 'GET') {
     json(res, { config: whatsappConfig, status: waStatus });
