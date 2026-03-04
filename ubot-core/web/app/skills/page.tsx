@@ -326,28 +326,63 @@ export default function SkillsPage() {
               </div>
               <div className="space-y-2">
                 <Label>Contact Filters</Label>
-                <Input
-                  value={
-                    editSkill.trigger.filters?.contacts?.join(", ") || ""
-                  }
-                  onChange={(e) => {
-                    const contacts = e.target.value
-                      .split(",")
-                      .map((s) => s.trim())
-                      .filter(Boolean);
-                    setEditSkill({
-                      ...editSkill,
-                      trigger: {
-                        ...editSkill.trigger,
-                        filters: {
-                          ...editSkill.trigger.filters,
-                          contacts: contacts.length > 0 ? contacts : undefined,
-                        },
-                      },
-                    });
-                  }}
-                  placeholder="Leave empty for all contacts"
-                />
+                <div className="flex flex-wrap gap-1.5 p-2 border rounded-md bg-background min-h-[40px] items-center">
+                  {(editSkill.trigger.filters?.contacts || []).map((c, i) => (
+                    <Badge
+                      key={i}
+                      variant="secondary"
+                      className="pl-2 pr-1 py-0.5 gap-1 text-sm"
+                    >
+                      {c}
+                      <button
+                        type="button"
+                        className="ml-0.5 rounded-full hover:bg-muted-foreground/20 p-0.5"
+                        onClick={() => {
+                          const updated = (editSkill.trigger.filters?.contacts || []).filter((_, idx) => idx !== i);
+                          setEditSkill({
+                            ...editSkill,
+                            trigger: {
+                              ...editSkill.trigger,
+                              filters: {
+                                ...editSkill.trigger.filters,
+                                contacts: updated.length > 0 ? updated : undefined,
+                              },
+                            },
+                          });
+                        }}
+                      >
+                        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
+                          <path d="M4 4L10 10M10 4L4 10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                        </svg>
+                      </button>
+                    </Badge>
+                  ))}
+                  <input
+                    className="flex-1 min-w-[120px] bg-transparent outline-none text-sm placeholder:text-muted-foreground"
+                    placeholder={editSkill.trigger.filters?.contacts?.length ? "Add more..." : "Type a number, press Enter"}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === ",") {
+                        e.preventDefault();
+                        const val = e.currentTarget.value.trim().replace(/,$/, "");
+                        if (!val) return;
+                        const existing = editSkill.trigger.filters?.contacts || [];
+                        if (!existing.includes(val)) {
+                          setEditSkill({
+                            ...editSkill,
+                            trigger: {
+                              ...editSkill.trigger,
+                              filters: {
+                                ...editSkill.trigger.filters,
+                                contacts: [...existing, val],
+                              },
+                            },
+                          });
+                        }
+                        e.currentTarget.value = "";
+                      }
+                    }}
+                  />
+                </div>
               </div>
               <div className="flex items-center gap-4">
                 <div className="flex items-center gap-2">
