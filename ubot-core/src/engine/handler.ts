@@ -214,10 +214,12 @@ export async function handleIncomingMessage(
   //    If auto-reply is ON  → skills decide who gets a reply (contacts, groups, etc.)
   if (!isOwner) {
     const config = deps.orchestrator.getConfig();
+    // Default to ON — only explicit `false` disables auto-reply.
+    // Skills handle the fine-grained control (who, where, when).
     const autoReplyEnabled = msg.channel === 'whatsapp'
-      ? config.autoReplyWhatsApp
+      ? config.autoReplyWhatsApp !== false
       : msg.channel === 'telegram'
-        ? (config.autoReplyTelegram ?? false)
+        ? config.autoReplyTelegram !== false
         : false;
 
     if (!autoReplyEnabled) {
