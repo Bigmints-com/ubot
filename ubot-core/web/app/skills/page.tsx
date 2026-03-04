@@ -18,6 +18,7 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -36,7 +37,12 @@ interface Skill {
   trigger: {
     events: string[];
     condition?: string;
-    filters?: { contacts?: string[] };
+    filters?: {
+      contacts?: string[];
+      dmsOnly?: boolean;
+      groupsOnly?: boolean;
+      pattern?: string;
+    };
   };
   processor: { instructions: string };
   outcome: { action: string };
@@ -48,6 +54,8 @@ export default function SkillsPage() {
   const [skills, setSkills] = useState<Skill[]>([]);
   const [loading, setLoading] = useState(true);
   const [editSkill, setEditSkill] = useState<Skill | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Skill | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const loadSkills = async () => {
@@ -103,23 +111,30 @@ export default function SkillsPage() {
     }
   };
 
-  const deleteSkill = async (id: string) => {
-    if (!confirm("Delete this skill?")) return;
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
     try {
-      await api(`/api/skills/${id}`, { method: "DELETE" });
+      await api(`/api/skills/${deleteTarget.id}`, { method: "DELETE" });
+      setDeleteTarget(null);
       loadSkills();
       toast.success("Skill deleted");
     } catch {
       toast.error("Failed to delete skill");
+    } finally {
+      setDeleting(false);
     }
   };
 
   const triggerLabel = (t: Skill["trigger"]) => {
+    const parts: string[] = [];
     const events = t.events?.join(", ") || "";
-    const contacts = t.filters?.contacts?.join(", ") || "";
-    return contacts && contacts !== "all"
-      ? `${events} → ${contacts}`
-      : events;
+    if (events) parts.push(events);
+    if (t.filters?.dmsOnly) parts.push("DMs only");
+    if (t.filters?.groupsOnly) parts.push("groups only");
+    if (t.filters?.contacts?.length) parts.push(`${t.filters.contacts.length} contacts`);
+    if (t.filters?.pattern) parts.push(`pattern: ${t.filters.pattern}`);
+    return parts.join(" · ") || "manual";
   };
 
   return (
@@ -167,9 +182,19 @@ export default function SkillsPage() {
                       {skill.description}
                     </TableCell>
                     <TableCell>
-                      <Badge variant="secondary" className="text-xs font-mono">
-                        {triggerLabel(skill.trigger)}
-                      </Badge>
+                      <div className="flex flex-wrap gap-1">
+                        {skill.trigger.events?.map((e) => (
+                          <Badge key={e} variant="secondary" className="text-xs font-mono">
+                            {e}
+                          </Badge>
+                        ))}
+                        {skill.trigger.filters?.dmsOnly && (
+                          <Badge variant="outline" className="text-xs">DMs only</Badge>
+                        )}
+                        {skill.trigger.filters?.groupsOnly && (
+                          <Badge variant="outline" className="text-xs">Groups only</Badge>
+                        )}
+                      </div>
                     </TableCell>
                     <TableCell>
                       <Switch
@@ -191,7 +216,7 @@ export default function SkillsPage() {
                           variant="ghost"
                           size="icon"
                           className="size-8 text-destructive"
-                          onClick={() => deleteSkill(skill.id)}
+                          onClick={() => setDeleteTarget(skill)}
                         >
                           <Trash2 className="size-4" />
                         </Button>
@@ -204,6 +229,26 @@ export default function SkillsPage() {
           </Table>
         </CardContent>
       </Card>
+
+      {/* Delete Confirmation Modal */}
+      <Dialog open={!!deleteTarget} onOpenChange={(o) => !o && setDeleteTarget(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Delete Skill</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete <strong>{deleteTarget?.name}</strong>? This will remove the skill file permanently.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteTarget(null)} disabled={deleting}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={confirmDelete} disabled={deleting}>
+              {deleting ? "Deleting..." : "Delete"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Edit Skill Dialog */}
       <Dialog open={!!editSkill} onOpenChange={(o) => !o && setEditSkill(null)}>
@@ -276,31 +321,73 @@ export default function SkillsPage() {
                       },
                     })
                   }
-                  placeholder="Optional condition"
+                  placeholder="Optional: natural language condition"
                 />
               </div>
               <div className="space-y-2">
                 <Label>Contact Filters</Label>
                 <Input
                   value={
-                    editSkill.trigger.filters?.contacts?.join(", ") || "all"
+                    editSkill.trigger.filters?.contacts?.join(", ") || ""
                   }
-                  onChange={(e) =>
+                  onChange={(e) => {
+                    const contacts = e.target.value
+                      .split(",")
+                      .map((s) => s.trim())
+                      .filter(Boolean);
                     setEditSkill({
                       ...editSkill,
                       trigger: {
                         ...editSkill.trigger,
                         filters: {
-                          contacts: e.target.value
-                            .split(",")
-                            .map((s) => s.trim())
-                            .filter(Boolean),
+                          ...editSkill.trigger.filters,
+                          contacts: contacts.length > 0 ? contacts : undefined,
                         },
                       },
-                    })
-                  }
-                  placeholder="all, or comma-separated numbers"
+                    });
+                  }}
+                  placeholder="Leave empty for all contacts"
                 />
+              </div>
+              <div className="flex items-center gap-4">
+                <div className="flex items-center gap-2">
+                  <Switch
+                    checked={editSkill.trigger.filters?.dmsOnly || false}
+                    onCheckedChange={(v) =>
+                      setEditSkill({
+                        ...editSkill,
+                        trigger: {
+                          ...editSkill.trigger,
+                          filters: {
+                            ...editSkill.trigger.filters,
+                            dmsOnly: v || undefined,
+                            groupsOnly: v ? undefined : editSkill.trigger.filters?.groupsOnly,
+                          },
+                        },
+                      })
+                    }
+                  />
+                  <Label className="text-sm">DMs only</Label>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Switch
+                    checked={editSkill.trigger.filters?.groupsOnly || false}
+                    onCheckedChange={(v) =>
+                      setEditSkill({
+                        ...editSkill,
+                        trigger: {
+                          ...editSkill.trigger,
+                          filters: {
+                            ...editSkill.trigger.filters,
+                            groupsOnly: v || undefined,
+                            dmsOnly: v ? undefined : editSkill.trigger.filters?.dmsOnly,
+                          },
+                        },
+                      })
+                    }
+                  />
+                  <Label className="text-sm">Groups only</Label>
+                </div>
               </div>
               <div className="flex items-center gap-2">
                 <Switch
