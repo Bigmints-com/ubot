@@ -252,7 +252,7 @@ export default function SkillsPage() {
 
       {/* Edit Skill Dialog */}
       <Dialog open={!!editSkill} onOpenChange={(o) => !o && setEditSkill(null)}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Edit Skill</DialogTitle>
           </DialogHeader>
