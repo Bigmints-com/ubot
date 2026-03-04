@@ -404,7 +404,7 @@ Answer:`;
   return {
     async processEvent(event: SkillEvent): Promise<SkillRunResult[]> {
       const eventKey = `${event.source}:${event.type}`;
-      console.log(`[SkillEngine] Processing event: ${eventKey}`);
+      console.log(`[SkillEngine] Processing event: ${eventKey} from=${event.from} participant=${(event.data?.participant as string) || 'none'}`);
 
       // Phase 1: Fast filter
       const candidates = this.getMatchingSkills(event);
