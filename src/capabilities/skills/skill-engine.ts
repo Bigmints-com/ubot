@@ -93,11 +93,13 @@ export function createSkillEngine(
     }
 
     // Contact filter
+    // For group messages, check participant (actual sender) not the group JID
     if (filters.contacts && filters.contacts.length > 0) {
       const from = event.from || '';
+      const participant = (event.data?.participant as string) || '';
       const matched = filters.contacts.some(c => {
         const normalized = c.replace(/\D/g, '');
-        return from.includes(normalized);
+        return from.includes(normalized) || participant.includes(normalized);
       });
       if (!matched) return false;
     }
