@@ -280,6 +280,9 @@ export class WhatsAppConnection {
 
     this.socket.ev.on('messages.upsert', ({ messages, type }) => {
       for (const msg of messages) {
+        // Skip status@broadcast — these are WhatsApp Status/Story updates, not real chats
+        if (msg.key.remoteJid === 'status@broadcast') continue;
+
         const body = this.extractBody(msg);
         const hasMedia = !!(msg.message?.imageMessage || msg.message?.videoMessage || msg.message?.audioMessage || msg.message?.documentMessage);
         console.log(`[WhatsApp] 📩 type=${type} fromMe=${msg.key.fromMe} jid=${msg.key.remoteJid} hasMedia=${hasMedia} body="${body.slice(0, 60)}"`);
