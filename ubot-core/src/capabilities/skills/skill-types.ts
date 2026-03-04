@@ -32,6 +32,8 @@ export interface TriggerFilters {
   groups?: string[];
   /** Only from groups (ignore DMs) */
   groupsOnly?: boolean;
+  /** Only from DMs (ignore groups) */
+  dmsOnly?: boolean;
   /** Only from this source ('whatsapp', 'email', etc.) */
   source?: string;
   /** Regex pattern for fast pre-match on body */
