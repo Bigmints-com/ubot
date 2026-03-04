@@ -337,7 +337,7 @@ export class WhatsAppConnection {
       }
     }
 
-    console.log(`[WhatsApp] ✅ Parsed: from=${from} rawJid=${rawJid} body="${body.slice(0, 60)}"`);
+    console.log(`[WhatsApp] ✅ Parsed: from=${from} rawJid=${rawJid} participant=${msg.key.participant || 'none'} body="${body.slice(0, 60)}"`);
     return {
       id: msg.key.id,
       from,
