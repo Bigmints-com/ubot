@@ -259,7 +259,38 @@ export async function handleIncomingMessage(
       return { isOwner, sessionId, response: '', handled: false };
     }
 
-    // WhatsApp contact filter
+    // WhatsApp group filter — don't reply in groups unless mentioned
+    if (msg.channel === 'whatsapp') {
+      const rawJid = (msg.extra?.rawJid as string) || msg.senderId;
+      const isGroup = rawJid.includes('@g.us');
+
+      if (isGroup) {
+        // Check group policy: false = never, 'mentions_only' = only when @mentioned, true = always
+        const groupPolicy = config.autoReplyGroups ?? false;
+
+        if (groupPolicy === false) {
+          console.log(`[Unified] ⏭ Skipping group message (groups disabled): ${rawJid}`);
+          return { isOwner, sessionId, response: '', handled: false };
+        }
+
+        if (groupPolicy === 'mentions_only' || groupPolicy === true) {
+          // Check if the bot/owner is mentioned in the message
+          const ownerPhone = (config.ownerPhone || '').replace(/\D/g, '');
+          const botName = (config.botName || 'ubot').toLowerCase();
+          const body = msg.body.toLowerCase();
+          const isMentioned = body.includes(`@${ownerPhone}`) ||
+            body.includes(`@${botName}`) ||
+            body.includes(botName);
+
+          if (groupPolicy === 'mentions_only' && !isMentioned) {
+            return { isOwner, sessionId, response: '', handled: false };
+          }
+          // groupPolicy === true: reply to all group messages (original behavior)
+        }
+      }
+    }
+
+    // Contact whitelist (for DMs — allow only certain numbers)
     if (msg.channel === 'whatsapp' && config.autoReplyContacts?.length > 0) {
       const jid = msg.senderId;
       const allowed = config.autoReplyContacts.some(
