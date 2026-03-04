@@ -8,7 +8,7 @@
  */
 
 import http from 'http';
-import { getVaultService } from '../../data/vault.js';
+import { getVaultService } from '../../agents/vault/service.js';
 import { parseBody, json, notFound, error, type ApiContext } from '../context.js';
 import { authenticate } from '../middleware/auth.js';
 

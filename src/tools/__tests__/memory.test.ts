@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import memoryModule from '../memory.js';
+import memoryModule from '../../memory/tools.js';
 import { registerModule, createMockContext, createMockAgent } from './test-helpers.js';
 
 describe('Memory Tool Module', () => {

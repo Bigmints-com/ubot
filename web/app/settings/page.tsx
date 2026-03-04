@@ -108,40 +108,6 @@ export default function SettingsPage() {
           </CardContent>
         </Card>
 
-        {/* ── Auto-Reply ── */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Auto-Reply</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5">
-                <Label>WhatsApp Auto-Reply</Label>
-                <p className="text-xs text-muted-foreground">
-                  Automatically respond to incoming WhatsApp messages
-                </p>
-              </div>
-              <Switch
-                checked={config?.autoReplyWhatsApp || false}
-                onCheckedChange={(v) => updateField("autoReplyWhatsApp", v)}
-              />
-            </div>
-            <Separator />
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5">
-                <Label>Telegram Auto-Reply</Label>
-                <p className="text-xs text-muted-foreground">
-                  Automatically respond to incoming Telegram messages from visitors
-                </p>
-              </div>
-              <Switch
-                checked={config?.autoReplyTelegram || false}
-                onCheckedChange={(v) => updateField("autoReplyTelegram", v)}
-              />
-            </div>
-          </CardContent>
-        </Card>
-
         {/* ── Owner Identity ── */}
         <Card>
           <CardHeader>

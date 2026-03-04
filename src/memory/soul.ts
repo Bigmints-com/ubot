@@ -218,17 +218,7 @@ export function createSoul(memoryStore: MemoryStore, workspacePath?: string): So
         sections.push(ownerDoc.content.trim());
       }
 
-      // 2b. Owner's structured profile data (blog, email, website, etc.)
-      const ownerMemories = memoryStore.getMemories(OWNER_SOUL_ID);
-      const ownerDetails = ownerMemories.filter(m => m.category !== 'summary');
-      if (ownerDetails.length > 0) {
-        sections.push('\n### Owner Profile Details');
-        for (const m of ownerDetails) {
-          sections.push(`- ${m.key}: ${m.value}`);
-        }
-      }
-
-      // 2c. Owner's rolling chat summary — long-term conversational memory
+      // 2b. Owner's rolling chat summary — long-term conversational memory
       if (isOwner) {
         const ownerSummaries = memoryStore.getMemories(OWNER_SOUL_ID, 'summary');
         const ownerDigest = ownerSummaries.find(m => m.key === 'chat_digest');

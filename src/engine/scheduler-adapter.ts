@@ -7,8 +7,8 @@
  * Example skill trigger: { events: ['scheduler:task.completed'] }
  */
 
-import type { EventBus } from '../capabilities/skills/event-bus.js';
-import type { TaskSchedulerService } from '../capabilities/scheduler/service.js';
+import type { EventBus } from '../agents/skills/event-bus.js';
+import type { TaskSchedulerService } from '../automation/scheduler/service.js';
 import { log } from '../logger/ring-buffer.js';
 
 /**

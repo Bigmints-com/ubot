@@ -7,6 +7,11 @@ const nextConfig: NextConfig = {
   // In development, use Next.js dev server with API proxying
   ...(isProd ? { output: "export" } : {}),
 
+  // Increase proxy timeout for long-running browser automation tasks (default is ~30s)
+  experimental: {
+    proxyTimeout: 5 * 60 * 1000, // 5 minutes
+  },
+
   // Rewrites only work in dev mode (not with static export)
   ...(!isProd
     ? {

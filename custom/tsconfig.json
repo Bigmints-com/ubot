@@ -1,10 +1,10 @@
 {
   "extends": "../tsconfig.json",
   "compilerOptions": {
-    "rootDir": ".",
+    "rootDir": "..",
     "outDir": "../dist/custom",
     "noEmit": true
   },
-  "include": ["staging/**/*", "modules/**/*"],
+  "include": ["staging/**/*", "modules/**/*", "../src/tools/types.ts"],
   "exclude": ["node_modules"]
 }

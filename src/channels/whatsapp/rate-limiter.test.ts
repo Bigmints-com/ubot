@@ -166,8 +166,9 @@ describe('WhatsAppRateLimiter', () => {
       limiter = fastLimiter();
 
       const stats = limiter.getStats();
-      expect(stats.windowCount).toBe(0);
-      expect(stats.maxPerWindow).toBe(100);
+      expect(stats.windows.length).toBeGreaterThanOrEqual(1);
+      expect(stats.windows[0].count).toBe(0);
+      expect(stats.windows[0].max).toBe(100);
       expect(stats.contactCooldowns).toBe(0);
     });
 
@@ -178,7 +179,7 @@ describe('WhatsAppRateLimiter', () => {
       await p;
 
       const stats = limiter.getStats();
-      expect(stats.windowCount).toBe(1);
+      expect(stats.windows[0].count).toBe(1);
       expect(stats.contactCooldowns).toBe(1);
     });
   });
@@ -189,7 +190,7 @@ describe('WhatsAppRateLimiter', () => {
       limiter.updateConfig({ minDelayMs: 500, maxDelayMs: 1000 });
 
       const stats = limiter.getStats();
-      expect(stats.maxPerWindow).toBe(100); // unchanged
+      expect(stats.windows[0].max).toBe(100); // unchanged
     });
   });
 

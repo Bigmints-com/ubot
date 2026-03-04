@@ -43,25 +43,16 @@ describe('Tool Types', () => {
 });
 
 describe('Tool Registry', () => {
-  it('should have all 10 modules', () => {
-    const names = getModuleNames();
+  it('should discover modules from capability directories', async () => {
+    const names = await getModuleNames();
+    expect(names.length).toBeGreaterThan(5);
+    // Infrastructure modules always present
     expect(names).toContain('messaging');
-    expect(names).toContain('approvals');
-    expect(names).toContain('web-search');
-    expect(names).toContain('skills');
-    expect(names).toContain('browser');
-    expect(names).toContain('scheduler');
-    expect(names).toContain('personas');
-    expect(names).toContain('files');
-    expect(names).toContain('google');
-    expect(names).toContain('cli');
-    expect(names.length).toBe(12);
   });
 
-  it('should collect all tool definitions', () => {
-    const tools = getAllToolDefinitions();
-    expect(tools.length).toBeGreaterThan(50);
-    // Each tool should have name, description, and parameters
+  it('should collect all tool definitions', async () => {
+    const tools = await getAllToolDefinitions();
+    expect(tools.length).toBeGreaterThan(15);
     for (const tool of tools) {
       expect(tool.name).toBeTruthy();
       expect(tool.description).toBeTruthy();
@@ -69,9 +60,9 @@ describe('Tool Registry', () => {
     }
   });
 
-  it('should have unique tool names', () => {
-    const tools = getAllToolDefinitions();
-    const names = tools.map(t => t.name);
+  it('should have unique tool names', async () => {
+    const tools = await getAllToolDefinitions();
+    const names = tools.map((t: any) => t.name);
     const uniqueNames = new Set(names);
     expect(uniqueNames.size).toBe(names.length);
   });

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import cliModule from '../cli.js';
+import cliModule from '../../capabilities/cli/tools.js';
 import { registerModule, createMockContext } from './test-helpers.js';
 
 describe('CLI Tool Module', () => {

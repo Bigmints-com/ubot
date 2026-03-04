@@ -71,6 +71,7 @@ const capabilityItems = [
   { title: "CLI Agents", href: "/cli", icon: Terminal },
   { title: "Filesystem", href: "/filesystem", icon: FolderOpen },
   { title: "Google Apps", href: "/google", icon: Calendar },
+  { title: "Apple Services", href: "/apple", icon: Apple },
   { title: "MCP Servers", href: "/mcp-servers", icon: Plug },
 ];
 

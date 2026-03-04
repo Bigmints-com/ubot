@@ -26,11 +26,21 @@ export const CORE_ORCHESTRATOR_TOOLS: ToolDefinition[] = [
   },
 ];
 
-/** All available tool definitions for prompt injection — dynamically loaded from tool modules */
-export const AGENT_TOOLS: ToolDefinition[] = [
-  ...CORE_ORCHESTRATOR_TOOLS,
-  ...getAllToolDefinitions(),
-];
+/** All available tool definitions — dynamically loaded from auto-discovered modules */
+let _cachedTools: ToolDefinition[] | null = null;
+
+export async function getAgentTools(): Promise<ToolDefinition[]> {
+  if (!_cachedTools) {
+    _cachedTools = [
+      ...CORE_ORCHESTRATOR_TOOLS,
+      ...await getAllToolDefinitions(),
+    ];
+  }
+  return _cachedTools;
+}
+
+/** @deprecated Use getAgentTools() — kept for sync callers during migration */
+export const AGENT_TOOLS: ToolDefinition[] = CORE_ORCHESTRATOR_TOOLS;
 
 /**
  * Tools safe for visitor (non-owner) sessions.
@@ -53,14 +63,14 @@ export function getToolAliases(): Map<string, string> {
 }
 
 /** Get the filtered tool list based on whether the caller is the owner */
-export function getToolsForSource(isOwner: boolean): ToolDefinition[] {
+export async function getToolsForSource(isOwner: boolean): Promise<ToolDefinition[]> {
   // Gather native tools
-  const nativeTools = [...AGENT_TOOLS];
+  const nativeTools = [...await getAgentTools()];
 
   // Gather MCP tools
   let mcpTools: ToolDefinition[] = [];
   try {
-    const { getMcpServerManager } = require('../integrations/mcp/mcp-manager.js');
+    const { getMcpServerManager } = require('../capabilities/mcp/mcp-manager.js');
     const mgr = getMcpServerManager();
     mcpTools = mgr.getMcpToolDefinitions();
   } catch {}

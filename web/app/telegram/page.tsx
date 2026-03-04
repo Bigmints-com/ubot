@@ -6,6 +6,9 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Send, Wifi, WifiOff, RefreshCw, Power, PowerOff, Bot } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
+import { Separator } from "@/components/ui/separator";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
 
@@ -16,17 +19,19 @@ export default function TelegramPage() {
   const [botUsername, setBotUsername] = useState<string | null>(null);
   const [botName, setBotName] = useState<string | null>(null);
   const [connecting, setConnecting] = useState(false);
+  const [autoReply, setAutoReply] = useState(false);
   const [messages, setMessages] = useState<
     Array<{ from: string; body: string; timestamp: string; isFromMe: boolean }>
   >([]);
 
   const fetchStatus = useCallback(async () => {
     try {
-      const data = await api<{ status: string; error: string | null; botUsername: string | null; botName: string | null }>("/api/telegram/status");
+      const data = await api<{ status: string; error: string | null; botUsername: string | null; botName: string | null; autoReply: boolean }>("/api/telegram/status");
       setStatus(data.status);
       setError(data.error);
       setBotUsername(data.botUsername);
       setBotName(data.botName);
+      setAutoReply(data.autoReply);
     } catch {}
   }, []);
 
@@ -185,6 +190,42 @@ export default function TelegramPage() {
               Disconnect
             </Button>
           )}
+        </CardContent>
+      </Card>
+
+      {/* Auto-Reply */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Bot className="h-5 w-5" />
+            Auto-Reply
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center justify-between">
+            <div className="space-y-0.5">
+              <Label htmlFor="tg-auto-reply">Telegram Auto-Reply</Label>
+              <p className="text-xs text-muted-foreground">
+                Automatically respond to incoming Telegram messages using skills
+              </p>
+            </div>
+            <Switch
+              id="tg-auto-reply"
+              checked={autoReply}
+              onCheckedChange={async (v) => {
+                setAutoReply(v);
+                try {
+                  await api("/api/telegram/auto-reply", {
+                    method: "POST",
+                    body: { enabled: v },
+                  });
+                } catch {
+                  setAutoReply(!v);
+                  toast.error("Failed to toggle auto-reply");
+                }
+              }}
+            />
+          </div>
         </CardContent>
       </Card>
 

@@ -30,6 +30,8 @@ export interface ConnectionState {
   qrCode: string | null;
   lastConnected: Date | null;
   reconnectAttempts: number;
+  /** How many full QR cycles (connect→timeout→close) without a successful scan */
+  qrAttempts: number;
 }
 
 export class WhatsAppConnection {
@@ -45,13 +47,25 @@ export class WhatsAppConnection {
   private rawMessages: Map<string, any> = new Map();
   private readonly MAX_RAW_MESSAGES = 200;
 
+  /** Maximum QR code cycles before giving up (0 = unlimited). Default 3. */
+  private maxQrRetries: number;
+  /** Maximum reconnection attempts for non-QR disconnects. Default 10. */
+  private maxReconnectAttempts: number;
+  /** Whether we have ever connected in this session */
+  private hasConnectedBefore = false;
+  /** Whether the user manually disconnected (to prevent auto-reconnect) */
+  private isManualDisconnect = false;
+
   constructor(config: Partial<WhatsAppConnectionConfig> = {}) {
     this.config = { ...DEFAULT_WHATSAPP_CONFIG, ...config };
+    this.maxQrRetries = config.maxQrRetries ?? 3;
+    this.maxReconnectAttempts = config.maxReconnectAttempts ?? 10;
     this.state = {
       status: 'disconnected',
       qrCode: null,
       lastConnected: null,
-      reconnectAttempts: 0
+      reconnectAttempts: 0,
+      qrAttempts: 0,
     };
     this.logger = pino({
       level: 'silent'
@@ -69,6 +83,19 @@ export class WhatsAppConnection {
 
   getSocket(): WASocket | null {
     return this.socket;
+  }
+
+  /** Get the connected user's info (phone number + name), or null if not connected */
+  getUser(): { id: string; name: string | undefined; phone: string } | null {
+    if (!this.socket?.user) return null;
+    const user = this.socket.user;
+    // Baileys user.id is in format "919947793728:34@s.whatsapp.net"
+    const phone = user.id.split(':')[0].split('@')[0];
+    return {
+      id: user.id,
+      name: user.name,
+      phone: `+${phone}`,
+    };
   }
 
   /** Send a message through the rate limiter (preferred over raw socket.sendMessage) */
@@ -108,6 +135,7 @@ export class WhatsAppConnection {
   }
 
   async connect(): Promise<WASocket> {
+    this.isManualDisconnect = false;
     this.updateStatus('connecting');
     
     try {
@@ -180,6 +208,7 @@ export class WhatsAppConnection {
 
   async disconnect(): Promise<void> {
     if (this.socket) {
+      this.isManualDisconnect = true;
       await this.socket.end(undefined);
       this.socket = null;
       this.updateStatus('disconnected');
@@ -240,31 +269,62 @@ export class WhatsAppConnection {
       
       if (qr) {
         this.state.qrCode = qr;
-        console.log('[WhatsApp] 📱 QR code generated — scan with your phone');
+        this.state.qrAttempts++;
+
+        // Check if we've exceeded max QR retries (only if we never connected before)
+        if (this.maxQrRetries > 0 && !this.hasConnectedBefore && this.state.qrAttempts > this.maxQrRetries * 6) {
+          // Each QR cycle generates ~6 QR codes before the connection times out
+          console.log(`[WhatsApp] ⏹️  Giving up after ${this.state.qrAttempts} QR codes — scan the QR from the dashboard and restart, or run 'ubot restart'.`);
+          this.updateStatus('disconnected');
+          this.socket?.end(undefined);
+          return;
+        }
+
+        console.log(`[WhatsApp] 📱 QR code generated — scan with your phone (attempt ${this.state.qrAttempts})`);
         this.emit('connection.update', 'connecting', qr);
       }
       
       if (connection === 'close') {
         const statusCode = (lastDisconnect?.error as any)?.output?.statusCode;
         const isLoggedOut = statusCode === DisconnectReason.loggedOut;
+
+        if (this.isManualDisconnect) {
+          console.log('[WhatsApp] ⏹️  Manual disconnect — stopping auto-reconnect.');
+          this.updateStatus('disconnected');
+          return;
+        }
         
-        if (!isLoggedOut) {
-          this.updateStatus('reconnecting');
-          this.state.reconnectAttempts++;
-          await this.connect();
-        } else {
+        if (isLoggedOut) {
           // Session is invalid — clear stale creds and reconnect for fresh QR
           console.log('[WhatsApp] 🔄 Session expired — clearing creds and reconnecting for new QR...');
           this.updateStatus('connecting');
           this.state.reconnectAttempts = 0;
           await this.clearSession();
           await this.connect();
+        } else if (!this.hasConnectedBefore && this.maxQrRetries > 0 && this.state.qrAttempts >= this.maxQrRetries * 6) {
+          // Never connected + QR retries exhausted → stop
+          console.log('[WhatsApp] ⏹️  Not reconnecting — QR retry limit reached. Restart when ready to scan.');
+          this.updateStatus('disconnected');
+        } else if (this.state.reconnectAttempts >= this.maxReconnectAttempts) {
+          // Too many reconnects
+          console.log(`[WhatsApp] ⏹️  Max reconnect attempts (${this.maxReconnectAttempts}) reached. Giving up.`);
+          this.updateStatus('disconnected');
+        } else {
+          this.state.reconnectAttempts++;
+          const delay = Math.min(1000 * Math.pow(2, this.state.reconnectAttempts - 1), 30000);
+          console.log(`[WhatsApp] 🔄 Reconnecting in ${(delay / 1000).toFixed(0)}s (attempt ${this.state.reconnectAttempts}/${this.maxReconnectAttempts})...`);
+          this.updateStatus('reconnecting');
+          await new Promise(resolve => setTimeout(resolve, delay));
+          await this.connect();
         }
       } else if (connection === 'open') {
+        this.hasConnectedBefore = true;
         this.updateStatus('connected');
         this.state.lastConnected = new Date();
         this.state.reconnectAttempts = 0;
+        this.state.qrAttempts = 0;
         this.state.qrCode = null;
+        console.log('[WhatsApp] ✅ Connected successfully');
         // Load LID→phone mappings from session files
         this.loadLIDMappings().catch(err => 
           console.error('[WhatsApp] Failed to load LID mappings:', err.message)

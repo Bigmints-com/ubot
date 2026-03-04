@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import webSearchModule from '../web-search.js';
+import webSearchModule from '../../capabilities/web-search/tools.js';
 import { registerModule, createMockContext } from './test-helpers.js';
 
 describe('Web Search Tool Module', () => {
@@ -40,7 +40,7 @@ describe('Web Search Tool Module', () => {
 
 describe('Serper Adapter', () => {
   it('should export expected functions', async () => {
-    const serper = await import('../../capabilities/skills/web-search/adapters/serper.js');
+    const serper = await import('../../capabilities/web-search/adapters/serper.js');
     expect(typeof serper.isSerperAvailable).toBe('function');
     expect(typeof serper.serperSearch).toBe('function');
     expect(typeof serper.formatSerperResults).toBe('function');
@@ -48,13 +48,13 @@ describe('Serper Adapter', () => {
   });
 
   it('isSerperAvailable should return false without API key', async () => {
-    const { isSerperAvailable, setSerperApiKey } = await import('../../capabilities/skills/web-search/adapters/serper.js');
+    const { isSerperAvailable, setSerperApiKey } = await import('../../capabilities/web-search/adapters/serper.js');
     setSerperApiKey(null);
     expect(isSerperAvailable()).toBe(false);
   });
 
   it('formatSerperResults should format results correctly', async () => {
-    const { formatSerperResults } = await import('../../capabilities/skills/web-search/adapters/serper.js');
+    const { formatSerperResults } = await import('../../capabilities/web-search/adapters/serper.js');
 
     const formatted = formatSerperResults('test query', [
       { title: 'Result 1', link: 'https://example.com/1', snippet: 'First result' },
@@ -69,7 +69,7 @@ describe('Serper Adapter', () => {
   });
 
   it('formatSerperResults should include answer box', async () => {
-    const { formatSerperResults } = await import('../../capabilities/skills/web-search/adapters/serper.js');
+    const { formatSerperResults } = await import('../../capabilities/web-search/adapters/serper.js');
 
     const formatted = formatSerperResults('what is pi', [], {
       answer: '3.14159',
@@ -82,7 +82,7 @@ describe('Serper Adapter', () => {
   });
 
   it('formatSerperResults should handle empty results', async () => {
-    const { formatSerperResults } = await import('../../capabilities/skills/web-search/adapters/serper.js');
+    const { formatSerperResults } = await import('../../capabilities/web-search/adapters/serper.js');
     const formatted = formatSerperResults('nothing', []);
     expect(formatted).toContain('No results');
   });

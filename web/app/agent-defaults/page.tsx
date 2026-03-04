@@ -23,6 +23,8 @@ import {
   Sheet,
   HardDrive,
   Users,
+  StickyNote,
+  Globe,
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
@@ -32,6 +34,7 @@ import { toast } from "sonner";
 const PURPOSE_META: Record<string, { label: string; description: string; icon: any }> = {
   chat:         { label: "Chat Model",    description: "LLM used for conversations",      icon: Bot },
   search:       { label: "Web Search",    description: "Search engine for web queries",    icon: Search },
+  browser:      { label: "Browser",       description: "Web browsing and page interaction", icon: Globe },
   cli:          { label: "CLI Agent",     description: "Coding CLI for project tasks",     icon: Terminal },
   email:        { label: "Email",         description: "Send and read emails",             icon: Mail },
   calendar:     { label: "Calendar",      description: "Manage events and schedules",       icon: Calendar },
@@ -40,10 +43,11 @@ const PURPOSE_META: Record<string, { label: string; description: string; icon: a
   spreadsheets: { label: "Spreadsheets",  description: "Read and write spreadsheet data",   icon: Sheet },
   storage:      { label: "Cloud Storage", description: "File storage and sharing",          icon: HardDrive },
   contacts:     { label: "Contacts",      description: "Manage contact information",        icon: Users },
+  notes:        { label: "Notes",         description: "Create and read notes",              icon: StickyNote },
 };
 
 const PURPOSE_ORDER = [
-  "chat", "search", "cli", "email", "calendar", "maps",
+  "chat", "search", "browser", "cli", "email", "calendar", "notes", "maps",
   "documents", "spreadsheets", "storage", "contacts",
 ];
 

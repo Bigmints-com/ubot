@@ -12,7 +12,7 @@ import { createMemoryStore, memoryMigrations } from './memory/memory-store.js';
 import { createSoul } from './memory/soul.js';
 import { createAgentOrchestrator } from './engine/orchestrator.js';
 import { DEFAULT_AGENT_CONFIG } from './engine/types.js';
-import { setSerperApiKey } from './capabilities/skills/web-search/adapters/serper.js';
+import { setSerperApiKey } from './capabilities/web-search/adapters/serper.js';
 import { loadUbotConfig, type UbotConfig } from './data/config.js';
 
 // ─── UBOT_HOME resolution ──────────────────────────────────────────────────────

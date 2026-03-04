@@ -129,29 +129,24 @@ export default function CliPage() {
   }, [status?.enabled, sessions, loadSessions]);
 
   // Poll running sessions for output
+  const lastLineRef = useRef(0);
+
   useEffect(() => {
     if (!expandedSession || !status?.enabled) return;
 
-    const session = sessions.find(s => s.id === expandedSession);
-    if (!session) return;
-
-    let lastLine = 0;
+    lastLineRef.current = 0;
 
     const poll = async () => {
       try {
         const data = await api<SessionDetail>(
-          `/api/cli/sessions/${expandedSession}?fromLine=${lastLine}`
+          `/api/cli/sessions/${expandedSession}?fromLine=${lastLineRef.current}`
         );
         if (data.output && data.output.length > 0) {
           setSessionOutputs(prev => ({
             ...prev,
             [expandedSession]: [...(prev[expandedSession] || []), ...data.output],
           }));
-          lastLine = data.totalLines;
-        }
-        // Update session status in list
-        if (data.status !== session.status) {
-          loadSessions();
+          lastLineRef.current = data.totalLines;
         }
         if (data.status !== "running") {
           if (pollRef.current) clearInterval(pollRef.current);
@@ -161,14 +156,13 @@ export default function CliPage() {
 
     // Reset output for this session
     setSessionOutputs(prev => ({ ...prev, [expandedSession]: [] }));
-    lastLine = 0;
     poll();
-    pollRef.current = window.setInterval(poll, 1500);
+    pollRef.current = window.setInterval(poll, 2000);
 
     return () => {
       if (pollRef.current) clearInterval(pollRef.current);
     };
-  }, [expandedSession, status?.enabled, sessions, loadSessions]);
+  }, [expandedSession, status?.enabled]);
 
   // Auto-scroll log
   useEffect(() => {
@@ -459,7 +453,7 @@ export default function CliPage() {
                                 {session.provider}
                               </Badge>
                             </div>
-                            <p className="text-xs text-muted-foreground truncate">
+                          <p className="text-xs text-muted-foreground line-clamp-2 break-all">
                               {session.prompt}
                             </p>
                           </div>

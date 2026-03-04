@@ -4,7 +4,7 @@
  */
 
 import http from 'http';
-import type { SafetyRule } from '../../safety/types.js';
+import type { SafetyRule } from '../../agents/safety/types.js';
 import { parseBody, json, notFound, error, type ApiContext } from '../context.js';
 
 export async function handleSafetyRoutes(
