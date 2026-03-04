@@ -34,6 +34,26 @@ let db: DatabaseConnection | null = null;
  */
 export function initCapabilityLog(connection: DatabaseConnection): void {
   db = connection;
+  // Ensure table exists even if migration 002 wasn't applied
+  try {
+    db.execute(`
+      CREATE TABLE IF NOT EXISTS capability_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        action TEXT NOT NULL,
+        module_name TEXT,
+        triage_verdict TEXT,
+        triage_reason TEXT,
+        test_passed INTEGER,
+        test_details TEXT,
+        request TEXT,
+        session_id TEXT,
+        source TEXT DEFAULT 'web',
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      )
+    `, []);
+  } catch (err: any) {
+    log.warn('CapabilityLog', `Failed to ensure table: ${err.message}`);
+  }
 }
 
 /**

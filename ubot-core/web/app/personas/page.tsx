@@ -1,18 +1,24 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import dynamic from "next/dynamic";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Bot, User, Users, Save, RefreshCw, Brain, Trash2, Check, Plus, Database, Zap } from "lucide-react";
+import { Bot, User, Users, Save, RefreshCw, Brain, Trash2, Check, Plus, Database, Zap, Eye, Pencil } from "lucide-react";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
+
+const CodeMirror = dynamic(() => import("@uiw/react-codemirror"), { ssr: false });
+import { markdown } from "@codemirror/lang-markdown";
+import { languages } from "@codemirror/language-data";
+import { oneDark } from "@codemirror/theme-one-dark";
+import { EditorView } from "@codemirror/view";
 
 const BOT_SOUL_ID = "__bot__";
 const OWNER_SOUL_ID = "__owner__";
@@ -139,13 +145,24 @@ function DocumentEditor({
         {loading ? (
           <div className="text-center text-muted-foreground py-8">Loading...</div>
         ) : (
-          <Textarea
-            value={content}
-            onChange={(e) => setContent(e.target.value)}
-            readOnly={readOnly}
-            className="font-mono text-sm min-h-[300px] resize-y leading-relaxed"
-            placeholder={readOnly ? "No data yet." : "Write your persona document here using Markdown format..."}
-          />
+          <div className="w-full overflow-hidden rounded-md">
+            <CodeMirror
+              value={content}
+              onChange={(val) => !readOnly && setContent(val)}
+              extensions={[markdown({ codeLanguages: languages }), EditorView.lineWrapping]}
+              theme={oneDark}
+              readOnly={readOnly}
+              minHeight="300px"
+              maxHeight="600px"
+              basicSetup={{
+                lineNumbers: true,
+                foldGutter: true,
+                highlightActiveLine: true,
+                bracketMatching: true,
+              }}
+              style={{ width: "100%" }}
+            />
+          </div>
         )}
       </CardContent>
     </Card>
@@ -345,6 +362,262 @@ function ProfileDetails({ contactId, title }: { contactId: string; title?: strin
                 size="sm"
                 onClick={handleAdd}
                 disabled={adding || !newKey.trim() || !newValue.trim()}
+                className="h-9"
+              >
+                <Plus className="size-4 mr-1" />
+                Add
+              </Button>
+            </div>
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Owner Profile Fields (parsed from SOUL.md YAML headers)            */
+/* ------------------------------------------------------------------ */
+
+const OWNER_FIELD_ORDER = [
+  "name", "title", "location", "phone", "email",
+  "linkedin", "website", "blog", "appointments", "company",
+];
+
+function OwnerProfileFields() {
+  const [fields, setFields] = useState<Record<string, string>>({});
+  const [savedFields, setSavedFields] = useState<Record<string, string>>({});
+  const [rawDoc, setRawDoc] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [justSaved, setJustSaved] = useState(false);
+  const [newKey, setNewKey] = useState("");
+  const [newValue, setNewValue] = useState("");
+
+  /** Parse key: value lines from the # Owner Profile section */
+  const parseFields = (content: string): Record<string, string> => {
+    const result: Record<string, string> = {};
+    const lines = content.split("\n");
+    let inOwnerSection = false;
+
+    for (const line of lines) {
+      if (line.startsWith("# Owner Profile")) {
+        inOwnerSection = true;
+        continue;
+      }
+      if (inOwnerSection && line.startsWith("# ")) break; // next section
+      if (!inOwnerSection) continue;
+
+      const match = line.match(/^([a-zA-Z_]+)\s*:\s*(.+)$/);
+      if (match) {
+        result[match[1].trim()] = match[2].trim();
+      }
+    }
+    return result;
+  };
+
+  /** Rebuild the Owner Profile YAML section in the document */
+  const rebuildDoc = (doc: string, updatedFields: Record<string, string>): string => {
+    const lines = doc.split("\n");
+    const newLines: string[] = [];
+    let inOwnerSection = false;
+    let pastOwnerFields = false;
+
+    for (const line of lines) {
+      if (line.startsWith("# Owner Profile")) {
+        inOwnerSection = true;
+        newLines.push(line);
+        // Insert all fields after the header
+        const orderedKeys = [
+          ...OWNER_FIELD_ORDER.filter(k => k in updatedFields),
+          ...Object.keys(updatedFields).filter(k => !OWNER_FIELD_ORDER.includes(k)),
+        ];
+        for (const key of orderedKeys) {
+          newLines.push(`${key}: ${updatedFields[key]}`);
+        }
+        continue;
+      }
+      if (inOwnerSection && !pastOwnerFields) {
+        if (line.startsWith("# ") || line.trim() === "") {
+          pastOwnerFields = true;
+          if (line.trim() === "") {
+            newLines.push(line);
+            continue;
+          }
+        } else {
+          // Skip old key: value lines — we already wrote the new ones
+          const isKV = line.match(/^[a-zA-Z_]+\s*:\s*.+$/);
+          if (isKV) continue;
+          pastOwnerFields = true;
+        }
+      }
+      newLines.push(line);
+    }
+    return newLines.join("\n");
+  };
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const data = await api<{ content: string }>(
+        `/api/personas/${encodeURIComponent(OWNER_SOUL_ID)}`
+      );
+      const content = data.content || "";
+      setRawDoc(content);
+      const parsed = parseFields(content);
+      setFields(parsed);
+      setSavedFields(parsed);
+    } catch {
+      /* ignore */
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const hasChanges = JSON.stringify(fields) !== JSON.stringify(savedFields);
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      const updatedDoc = rebuildDoc(rawDoc, fields);
+      await api(`/api/personas/${encodeURIComponent(OWNER_SOUL_ID)}`, {
+        method: "PUT",
+        body: { content: updatedDoc },
+      });
+      setRawDoc(updatedDoc);
+      setSavedFields({ ...fields });
+      setJustSaved(true);
+      setTimeout(() => setJustSaved(false), 2000);
+      toast.success("Profile fields saved to SOUL.md");
+    } catch {
+      toast.error("Failed to save profile fields");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleAdd = () => {
+    if (!newKey.trim() || !newValue.trim()) return;
+    setFields(prev => ({ ...prev, [newKey.trim()]: newValue.trim() }));
+    setNewKey("");
+    setNewValue("");
+  };
+
+  const handleRemove = (key: string) => {
+    setFields(prev => {
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+  };
+
+  const orderedKeys = [
+    ...OWNER_FIELD_ORDER.filter(k => k in fields),
+    ...Object.keys(fields).filter(k => !OWNER_FIELD_ORDER.includes(k)),
+  ];
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center justify-between">
+          <div>
+            <CardTitle className="text-lg flex items-center gap-2">
+              <Database className="size-4" />
+              Profile Fields
+            </CardTitle>
+            <CardDescription className="mt-1">
+              Structured fields stored as YAML headers in SOUL.md. Editable below.
+            </CardDescription>
+          </div>
+          <div className="flex gap-2 items-center">
+            {hasChanges && (
+              <Badge variant="outline" className="text-yellow-500 border-yellow-500/50">
+                Unsaved
+              </Badge>
+            )}
+            <Button variant="outline" size="sm" onClick={load} disabled={loading}>
+              <RefreshCw className={`size-4 mr-1 ${loading ? "animate-spin" : ""}`} />
+              Refresh
+            </Button>
+            <Button
+              size="sm"
+              onClick={handleSave}
+              disabled={saving || !hasChanges}
+            >
+              {justSaved ? (
+                <><Check className="size-4 mr-1" /> Saved</>
+              ) : (
+                <><Save className="size-4 mr-1" /> Save</>
+              )}
+            </Button>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {loading ? (
+          <div className="text-center text-muted-foreground py-6">Loading...</div>
+        ) : (
+          <>
+            {orderedKeys.length === 0 && (
+              <div className="text-center text-muted-foreground py-6">
+                <Database className="size-8 mx-auto mb-2 opacity-40" />
+                <p className="text-sm">No profile fields yet. Add fields below — they&apos;ll be saved as YAML headers in SOUL.md.</p>
+              </div>
+            )}
+
+            {orderedKeys.map((key) => (
+              <div key={key} className="flex items-center gap-3 group">
+                <span className="text-sm font-medium text-muted-foreground w-28 shrink-0 truncate">
+                  {key}
+                </span>
+                <Input
+                  value={fields[key]}
+                  onChange={(e) =>
+                    setFields(prev => ({ ...prev, [key]: e.target.value }))
+                  }
+                  className="h-9 flex-1"
+                />
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="size-7 opacity-0 group-hover:opacity-100 text-destructive hover:text-destructive shrink-0"
+                  onClick={() => handleRemove(key)}
+                >
+                  <Trash2 className="size-3.5" />
+                </Button>
+              </div>
+            ))}
+
+            <Separator />
+            <div className="flex items-end gap-2">
+              <div className="flex-1">
+                <label className="text-xs text-muted-foreground mb-1 block">Key</label>
+                <Input
+                  value={newKey}
+                  onChange={(e) => setNewKey(e.target.value)}
+                  placeholder="e.g. twitter, timezone"
+                  className="h-9"
+                />
+              </div>
+              <div className="flex-[2]">
+                <label className="text-xs text-muted-foreground mb-1 block">Value</label>
+                <Input
+                  value={newValue}
+                  onChange={(e) => setNewValue(e.target.value)}
+                  placeholder="e.g. @pretheeshmt"
+                  className="h-9"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") handleAdd();
+                  }}
+                />
+              </div>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={handleAdd}
+                disabled={!newKey.trim() || !newValue.trim()}
                 className="h-9"
               >
                 <Plus className="size-4 mr-1" />
@@ -595,10 +868,7 @@ export default function PersonasPage() {
             label="Owner Profile (SOUL.md)"
             description="Your personality and preferences. Auto-enriched and stored as Markdown."
           />
-          <ProfileDetails
-            contactId={OWNER_SOUL_ID}
-            title="Owner Profile Details"
-          />
+
         </TabsContent>
 
         <TabsContent value="agents" className="mt-6">

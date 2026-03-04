@@ -4,7 +4,9 @@ import { useEffect, useState, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
+import { Separator } from "@/components/ui/separator";
 import {
   MessageCircle,
   Wifi,
@@ -14,10 +16,19 @@ import {
   Power,
   PowerOff,
   Smartphone,
+  Phone,
+  User,
+  BotMessageSquare,
 } from "lucide-react";
 import { api } from "@/lib/api";
 import QRCode from "qrcode";
 import { toast } from "sonner";
+
+interface WhatsAppUser {
+  id: string;
+  name: string | undefined;
+  phone: string;
+}
 
 export default function WhatsAppPage() {
   const [status, setStatus] = useState("disconnected");
@@ -25,6 +36,9 @@ export default function WhatsAppPage() {
   const [qrImage, setQrImage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [connecting, setConnecting] = useState(false);
+  const [user, setUser] = useState<WhatsAppUser | null>(null);
+  const [autoReply, setAutoReply] = useState(false);
+  const [togglingAutoReply, setTogglingAutoReply] = useState(false);
   const [messages, setMessages] = useState<
     Array<{ from: string; body: string; timestamp: string; isFromMe: boolean }>
   >([]);
@@ -46,10 +60,14 @@ export default function WhatsAppPage() {
         status: string;
         qr: string | null;
         error: string | null;
+        user: WhatsAppUser | null;
+        autoReply: boolean;
       }>("/api/whatsapp/status");
       setStatus(data.status);
       setQrCode(data.qr);
       setError(data.error);
+      setUser(data.user);
+      setAutoReply(data.autoReply);
     } catch {}
   }, []);
 
@@ -95,10 +113,27 @@ export default function WhatsAppPage() {
     try {
       await api("/api/whatsapp/disconnect", { method: "POST" });
       toast.success("WhatsApp disconnected");
+      setUser(null);
       await fetchStatus();
     } catch (err: any) {
       setError(err.message);
       toast.error(err.message);
+    }
+  };
+
+  const handleToggleAutoReply = async (enabled: boolean) => {
+    setTogglingAutoReply(true);
+    try {
+      await api("/api/whatsapp/auto-reply", {
+        method: "PUT",
+        body: { enabled },
+      });
+      setAutoReply(enabled);
+      toast.success(`Auto-reply ${enabled ? "enabled" : "disabled"}`);
+    } catch {
+      toast.error("Failed to toggle auto-reply");
+    } finally {
+      setTogglingAutoReply(false);
     }
   };
 
@@ -144,15 +179,30 @@ export default function WhatsAppPage() {
         </CardHeader>
         <CardContent className="space-y-4">
           {isConnected && (
-            <div className="flex items-center gap-3 p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
-              <Smartphone className="h-8 w-8 text-emerald-400" />
-              <div>
-                <p className="font-medium text-emerald-300">
+            <div className="flex items-center gap-4 p-4 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
+              <Smartphone className="h-10 w-10 text-emerald-400 shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p className="font-semibold text-emerald-300">
                   WhatsApp Connected
                 </p>
-                <p className="text-sm text-muted-foreground">
-                  Linked via QR pairing
-                </p>
+                {user ? (
+                  <div className="mt-1.5 space-y-1">
+                    <div className="flex items-center gap-2 text-sm">
+                      <Phone className="h-3.5 w-3.5 text-muted-foreground" />
+                      <span className="font-mono">{user.phone}</span>
+                    </div>
+                    {user.name && (
+                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                        <User className="h-3.5 w-3.5" />
+                        <span>{user.name}</span>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    Linked via QR pairing
+                  </p>
+                )}
               </div>
             </div>
           )}
@@ -213,6 +263,32 @@ export default function WhatsAppPage() {
               Disconnect
             </Button>
           )}
+        </CardContent>
+      </Card>
+
+      {/* Auto-Reply */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <BotMessageSquare className="h-5 w-5" />
+            Auto-Reply
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center justify-between">
+            <div className="space-y-0.5">
+              <Label htmlFor="wa-auto-reply">WhatsApp Auto-Reply</Label>
+              <p className="text-xs text-muted-foreground">
+                Automatically respond to incoming WhatsApp messages using skills
+              </p>
+            </div>
+            <Switch
+              id="wa-auto-reply"
+              checked={autoReply}
+              disabled={togglingAutoReply}
+              onCheckedChange={handleToggleAutoReply}
+            />
+          </div>
         </CardContent>
       </Card>
 

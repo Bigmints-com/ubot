@@ -76,6 +76,15 @@ export interface CapabilitiesConfig {
   filesystem?: FilesystemCapabilityConfig;
   exec?: ExecCapabilityConfig;
   google?: GoogleCapabilityConfig;
+  apple?: {
+    enabled?: boolean;
+    services?: {
+      calendar?: { enabled?: boolean };
+      contacts?: { enabled?: boolean };
+      notes?: { enabled?: boolean };
+      mail?: { enabled?: boolean };
+    };
+  };
   tool_routing?: ToolRoutingConfig;
   mcp?: { servers?: Record<string, McpServerConfig> };
   [key: string]: unknown;  // extensible for future capabilities

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -18,14 +18,10 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
-  DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { Pencil, RefreshCw, Trash2 } from "lucide-react";
+import { Pencil, RefreshCw, Trash2, FileCode2 } from "lucide-react";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
 
@@ -54,11 +50,13 @@ export default function SkillsPage() {
   const [skills, setSkills] = useState<Skill[]>([]);
   const [loading, setLoading] = useState(true);
   const [editSkill, setEditSkill] = useState<Skill | null>(null);
+  const [rawContent, setRawContent] = useState<string>("");
+  const [rawLoading, setRawLoading] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Skill | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  const loadSkills = async () => {
+  const loadSkills = useCallback(async () => {
     setLoading(true);
     try {
       const data = await api<{ skills: Skill[] }>("/api/skills");
@@ -68,44 +66,67 @@ export default function SkillsPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     loadSkills();
-  }, []);
+  }, [loadSkills]);
+
+  const openEditor = async (skill: Skill) => {
+    setEditSkill(skill);
+    setRawLoading(true);
+    try {
+      const res = await fetch(`/api/skills/${skill.id}/raw`);
+      if (res.ok) {
+        setRawContent(await res.text());
+      } else {
+        // Fallback: synthesize frontmatter from skill object
+        const filters = skill.trigger.filters || {};
+        const filterLines: string[] = [];
+        if (filters.contacts?.length) filterLines.push(`    contacts: [${filters.contacts.join(", ")}]`);
+        if (filters.groupsOnly) filterLines.push(`    groupsOnly: true`);
+        if (filters.dmsOnly) filterLines.push(`    dmsOnly: true`);
+        const filtersBlock = filterLines.length ? `  filters:\n${filterLines.join("\n")}\n` : "";
+
+        setRawContent(
+          `---\nname: ${skill.name}\ndescription: ${skill.description}\ntriggers: [${skill.trigger.events.join(", ")}]\n${skill.trigger.condition ? `condition: "${skill.trigger.condition}"\n` : ""}outcome: ${skill.outcome.action}\n${filtersBlock}enabled: ${skill.enabled}\n---\n\n${skill.processor.instructions}`
+        );
+      }
+    } catch {
+      setRawContent("# Error loading skill file");
+    } finally {
+      setRawLoading(false);
+    }
+  };
 
   const toggleSkill = async (id: string, enabled: boolean) => {
     try {
       await api(`/api/skills/${id}`, { method: "PUT", body: { enabled } });
-      setSkills((prev) =>
-        prev.map((s) => (s.id === id ? { ...s, enabled } : s))
-      );
+      setSkills((prev) => prev.map((s) => (s.id === id ? { ...s, enabled } : s)));
       toast.success(enabled ? "Skill enabled" : "Skill disabled");
     } catch {
       toast.error("Failed to update skill");
     }
   };
 
-  const saveSkill = async () => {
+  const saveRaw = async () => {
     if (!editSkill) return;
     setSaving(true);
     try {
-      await api(`/api/skills/${editSkill.id}`, {
+      const res = await fetch(`/api/skills/${editSkill.id}/raw`, {
         method: "PUT",
-        body: {
-          name: editSkill.name,
-          description: editSkill.description,
-          enabled: editSkill.enabled,
-          trigger: editSkill.trigger,
-          processor: editSkill.processor,
-          outcome: editSkill.outcome,
-        },
+        headers: { "Content-Type": "text/plain" },
+        body: rawContent,
       });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: "Unknown error" }));
+        throw new Error(err.error || "Save failed");
+      }
       setEditSkill(null);
       loadSkills();
       toast.success("Skill saved");
-    } catch {
-      toast.error("Failed to save skill");
+    } catch (e: any) {
+      toast.error(`Failed to save: ${e.message}`);
     } finally {
       setSaving(false);
     }
@@ -126,23 +147,12 @@ export default function SkillsPage() {
     }
   };
 
-  const triggerLabel = (t: Skill["trigger"]) => {
-    const parts: string[] = [];
-    const events = t.events?.join(", ") || "";
-    if (events) parts.push(events);
-    if (t.filters?.dmsOnly) parts.push("DMs only");
-    if (t.filters?.groupsOnly) parts.push("groups only");
-    if (t.filters?.contacts?.length) parts.push(`${t.filters.contacts.length} contacts`);
-    if (t.filters?.pattern) parts.push(`pattern: ${t.filters.pattern}`);
-    return parts.join(" · ") || "manual";
-  };
-
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Skills</h1>
-          <p className="text-muted-foreground">Manage agent capabilities</p>
+          <p className="text-muted-foreground text-sm">Stored as SKILL.md files · Edit raw to change trigger, instructions &amp; outcome</p>
         </div>
         <Button variant="outline" size="sm" onClick={loadSkills}>
           <RefreshCw className="size-4 mr-2" />
@@ -167,17 +177,14 @@ export default function SkillsPage() {
             <TableBody>
               {skills.length === 0 ? (
                 <TableRow>
-                  <TableCell
-                    colSpan={5}
-                    className="text-center text-muted-foreground py-8"
-                  >
-                    {loading ? "Loading skills..." : "No skills configured"}
+                  <TableCell colSpan={5} className="text-center text-muted-foreground py-8">
+                    {loading ? "Loading skills..." : "No skills configured. Ask the agent to create one."}
                   </TableCell>
                 </TableRow>
               ) : (
                 skills.map((skill) => (
                   <TableRow key={skill.id}>
-                    <TableCell className="font-medium">{skill.name}</TableCell>
+                    <TableCell className="font-medium font-mono text-sm">{skill.id}</TableCell>
                     <TableCell className="text-sm text-muted-foreground max-w-xs truncate">
                       {skill.description}
                     </TableCell>
@@ -188,12 +195,13 @@ export default function SkillsPage() {
                             {e}
                           </Badge>
                         ))}
-                        {skill.trigger.filters?.dmsOnly && (
-                          <Badge variant="outline" className="text-xs">DMs only</Badge>
+                        {skill.trigger.condition && (
+                          <Badge variant="outline" className="text-xs max-w-[180px] truncate" title={skill.trigger.condition}>
+                            if: {skill.trigger.condition}
+                          </Badge>
                         )}
-                        {skill.trigger.filters?.groupsOnly && (
-                          <Badge variant="outline" className="text-xs">Groups only</Badge>
-                        )}
+                        {skill.trigger.filters?.dmsOnly && <Badge variant="outline" className="text-xs">DMs only</Badge>}
+                        {skill.trigger.filters?.groupsOnly && <Badge variant="outline" className="text-xs">Groups only</Badge>}
                       </div>
                     </TableCell>
                     <TableCell>
@@ -208,9 +216,10 @@ export default function SkillsPage() {
                           variant="ghost"
                           size="icon"
                           className="size-8"
-                          onClick={() => setEditSkill({ ...skill })}
+                          title="Edit SKILL.md"
+                          onClick={() => openEditor(skill)}
                         >
-                          <Pencil className="size-4" />
+                          <FileCode2 className="size-4" />
                         </Button>
                         <Button
                           variant="ghost"
@@ -230,19 +239,17 @@ export default function SkillsPage() {
         </CardContent>
       </Card>
 
-      {/* Delete Confirmation Modal */}
+      {/* Delete Confirmation */}
       <Dialog open={!!deleteTarget} onOpenChange={(o) => !o && setDeleteTarget(null)}>
         <DialogContent className="max-w-sm">
           <DialogHeader>
             <DialogTitle>Delete Skill</DialogTitle>
-            <DialogDescription>
-              Are you sure you want to delete <strong>{deleteTarget?.name}</strong>? This will remove the skill file permanently.
-            </DialogDescription>
           </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            Delete <strong>{deleteTarget?.id}</strong>? This removes the SKILL.md file permanently.
+          </p>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleteTarget(null)} disabled={deleting}>
-              Cancel
-            </Button>
+            <Button variant="outline" onClick={() => setDeleteTarget(null)} disabled={deleting}>Cancel</Button>
             <Button variant="destructive" onClick={confirmDelete} disabled={deleting}>
               {deleting ? "Deleting..." : "Delete"}
             </Button>
@@ -250,197 +257,41 @@ export default function SkillsPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Edit Skill Dialog */}
+      {/* Raw Markdown Editor */}
       <Dialog open={!!editSkill} onOpenChange={(o) => !o && setEditSkill(null)}>
-        <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Edit Skill</DialogTitle>
+        <DialogContent className="max-w-3xl w-full h-[80vh] flex flex-col gap-0 p-0">
+          <DialogHeader className="px-6 pt-6 pb-3 border-b">
+            <DialogTitle className="flex items-center gap-2 font-mono text-base">
+              <FileCode2 className="size-4 text-muted-foreground" />
+              skills/{editSkill?.id}/SKILL.md
+            </DialogTitle>
           </DialogHeader>
-          {editSkill && (
-            <div className="space-y-4">
-              <div className="space-y-2">
-                <Label>Name</Label>
-                <Input
-                  value={editSkill.name}
-                  onChange={(e) =>
-                    setEditSkill({ ...editSkill, name: e.target.value })
-                  }
-                />
+
+          <div className="flex-1 overflow-hidden flex flex-col">
+            {rawLoading ? (
+              <div className="flex-1 flex items-center justify-center text-muted-foreground text-sm">
+                Loading...
               </div>
-              <div className="space-y-2">
-                <Label>Description</Label>
-                <Input
-                  value={editSkill.description}
-                  onChange={(e) =>
-                    setEditSkill({ ...editSkill, description: e.target.value })
-                  }
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Instructions</Label>
-                <Textarea
-                  rows={4}
-                  value={editSkill.processor.instructions}
-                  onChange={(e) =>
-                    setEditSkill({
-                      ...editSkill,
-                      processor: { instructions: e.target.value },
-                    })
-                  }
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Trigger Events</Label>
-                <Input
-                  value={editSkill.trigger.events?.join(", ") || ""}
-                  onChange={(e) =>
-                    setEditSkill({
-                      ...editSkill,
-                      trigger: {
-                        ...editSkill.trigger,
-                        events: e.target.value
-                          .split(",")
-                          .map((s) => s.trim())
-                          .filter(Boolean),
-                      },
-                    })
-                  }
-                  placeholder="whatsapp:message"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Condition</Label>
-                <Input
-                  value={editSkill.trigger.condition || ""}
-                  onChange={(e) =>
-                    setEditSkill({
-                      ...editSkill,
-                      trigger: {
-                        ...editSkill.trigger,
-                        condition: e.target.value,
-                      },
-                    })
-                  }
-                  placeholder="Optional: natural language condition"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Contact Filters</Label>
-                <div className="flex flex-wrap gap-1.5 p-2 border rounded-md bg-background min-h-[40px] items-center">
-                  {(editSkill.trigger.filters?.contacts || []).map((c, i) => (
-                    <Badge
-                      key={i}
-                      variant="secondary"
-                      className="pl-2 pr-1 py-0.5 gap-1 text-sm"
-                    >
-                      {c}
-                      <button
-                        type="button"
-                        className="ml-0.5 rounded-full hover:bg-muted-foreground/20 p-0.5"
-                        onClick={() => {
-                          const updated = (editSkill.trigger.filters?.contacts || []).filter((_, idx) => idx !== i);
-                          setEditSkill({
-                            ...editSkill,
-                            trigger: {
-                              ...editSkill.trigger,
-                              filters: {
-                                ...editSkill.trigger.filters,
-                                contacts: updated.length > 0 ? updated : undefined,
-                              },
-                            },
-                          });
-                        }}
-                      >
-                        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
-                          <path d="M4 4L10 10M10 4L4 10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-                        </svg>
-                      </button>
-                    </Badge>
-                  ))}
-                  <input
-                    className="flex-1 min-w-[120px] bg-transparent outline-none text-sm placeholder:text-muted-foreground"
-                    placeholder={editSkill.trigger.filters?.contacts?.length ? "Add more..." : "Type a number, press Enter"}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" || e.key === ",") {
-                        e.preventDefault();
-                        const val = e.currentTarget.value.trim().replace(/,$/, "");
-                        if (!val) return;
-                        const existing = editSkill.trigger.filters?.contacts || [];
-                        if (!existing.includes(val)) {
-                          setEditSkill({
-                            ...editSkill,
-                            trigger: {
-                              ...editSkill.trigger,
-                              filters: {
-                                ...editSkill.trigger.filters,
-                                contacts: [...existing, val],
-                              },
-                            },
-                          });
-                        }
-                        e.currentTarget.value = "";
-                      }
-                    }}
-                  />
-                </div>
-              </div>
-              <div className="flex items-center gap-4">
-                <div className="flex items-center gap-2">
-                  <Switch
-                    checked={editSkill.trigger.filters?.dmsOnly || false}
-                    onCheckedChange={(v) =>
-                      setEditSkill({
-                        ...editSkill,
-                        trigger: {
-                          ...editSkill.trigger,
-                          filters: {
-                            ...editSkill.trigger.filters,
-                            dmsOnly: v || undefined,
-                            groupsOnly: v ? undefined : editSkill.trigger.filters?.groupsOnly,
-                          },
-                        },
-                      })
-                    }
-                  />
-                  <Label className="text-sm">DMs only</Label>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Switch
-                    checked={editSkill.trigger.filters?.groupsOnly || false}
-                    onCheckedChange={(v) =>
-                      setEditSkill({
-                        ...editSkill,
-                        trigger: {
-                          ...editSkill.trigger,
-                          filters: {
-                            ...editSkill.trigger.filters,
-                            groupsOnly: v || undefined,
-                            dmsOnly: v ? undefined : editSkill.trigger.filters?.dmsOnly,
-                          },
-                        },
-                      })
-                    }
-                  />
-                  <Label className="text-sm">Groups only</Label>
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <Switch
-                  checked={editSkill.enabled}
-                  onCheckedChange={(v) =>
-                    setEditSkill({ ...editSkill, enabled: v })
-                  }
-                />
-                <Label>Enabled</Label>
-              </div>
-            </div>
-          )}
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setEditSkill(null)}>
-              Cancel
-            </Button>
-            <Button onClick={saveSkill} disabled={saving}>
-              {saving ? "Saving..." : "Save Changes"}
+            ) : (
+              <textarea
+                className="flex-1 w-full resize-none font-mono text-sm bg-muted/30 px-6 py-4 focus:outline-none border-0 leading-relaxed"
+                value={rawContent}
+                onChange={(e) => setRawContent(e.target.value)}
+                spellCheck={false}
+                autoCorrect="off"
+                autoCapitalize="off"
+                data-gramm="false"
+              />
+            )}
+          </div>
+
+          <DialogFooter className="px-6 py-4 border-t">
+            <p className="text-xs text-muted-foreground flex-1">
+              Edit YAML frontmatter + markdown body. Save to update the skill file.
+            </p>
+            <Button variant="outline" onClick={() => setEditSkill(null)}>Cancel</Button>
+            <Button onClick={saveRaw} disabled={saving || rawLoading}>
+              {saving ? "Saving..." : "Save"}
             </Button>
           </DialogFooter>
         </DialogContent>

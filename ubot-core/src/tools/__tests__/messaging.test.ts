@@ -1,11 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import messagingModule from '../messaging.js';
+import messagingModule from '../../channels/tools.js';
 import { registerModule, createMockContext } from './test-helpers.js';
 
 describe('Messaging Tool Module', () => {
   it('should export correct module metadata', () => {
     expect(messagingModule.name).toBe('messaging');
-    expect(messagingModule.tools.length).toBe(8);
+    expect(messagingModule.tools.length).toBe(12);
   });
 
   it('should register all 8 tool executors', () => {

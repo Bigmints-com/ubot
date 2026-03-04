@@ -7,11 +7,11 @@
 
 import http from 'http';
 import type { LLMProviderConfig } from '../engine/types.js';
-import type { DatabaseConnection } from '../capabilities/skills/repository.js';
-import type { DatabaseConnection as CoreDatabaseConnection } from '../data/database/types.js';
-import { createTaskScheduler, type TaskSchedulerService } from '../capabilities/scheduler/service.js';
-import { DEFAULT_SAFETY_CONFIG, type SafetyConfig, type SafetyRule } from '../safety/types.js';
-import { DEFAULT_SAFETY_RULES } from '../safety/utils.js';
+
+import type { DatabaseConnection } from '../data/database/types.js';
+import { createTaskScheduler, type TaskSchedulerService } from '../automation/scheduler/service.js';
+import { DEFAULT_SAFETY_CONFIG, type SafetyConfig, type SafetyRule } from '../agents/safety/types.js';
+import { DEFAULT_SAFETY_RULES } from '../agents/safety/utils.js';
 import { DEFAULT_WHATSAPP_CONFIG, type WhatsAppConnectionConfig } from '../channels/whatsapp/types.js';
 import { WhatsAppConnection } from '../channels/whatsapp/connection.js';
 import { WhatsAppMessagingProvider } from '../channels/whatsapp/messaging-provider.js';
@@ -20,13 +20,13 @@ import { TelegramMessagingProvider } from '../channels/telegram/messaging-provid
 import { BlueBubblesConnection } from '../channels/imessage/connection.js';
 import { IMessageMessagingProvider } from '../channels/imessage/messaging-provider.js';
 import { MessagingRegistry } from '../channels/registry.js';
-import { createFileSkillRepository } from '../capabilities/skills/file-skill-repository.js';
-import type { SkillRepository } from '../capabilities/skills/skill-repository.js';
-import { createSkillEngine, type SkillEngine } from '../capabilities/skills/skill-engine.js';
-import { createEventBus, type EventBus } from '../capabilities/skills/event-bus.js';
+import { createFileSkillRepository } from '../agents/skills/file-skill-repository.js';
+import type { SkillRepository } from '../agents/skills/skill-repository.js';
+import { createSkillEngine, type SkillEngine } from '../agents/skills/skill-engine.js';
+import { createEventBus, type EventBus } from '../agents/skills/event-bus.js';
 import { loadUbotConfig, saveUbotConfig } from '../data/config.js';
 
-import { createApprovalStore, type ApprovalStore } from '../memory/pending-approvals.js';
+import { createApprovalStore, type ApprovalStore } from '../automation/approvals/service.js';
 
 import type { AgentOrchestrator } from '../engine/orchestrator.js';
 import { log } from '../logger/ring-buffer.js';
@@ -105,7 +105,7 @@ let scheduler: TaskSchedulerService | null = null;
 let agentOrchestrator: AgentOrchestrator | null = null;
 
 // MCP server manager
-import { getMcpServerManager, type McpServerManager } from '../integrations/mcp/mcp-manager.js';
+import { getMcpServerManager, type McpServerManager } from '../capabilities/mcp/mcp-manager.js';
 let mcpManager: McpServerManager | null = null;
 
 const messagingRegistry = new MessagingRegistry();
@@ -138,7 +138,7 @@ let eventBus: EventBus | null = null;
 let approvalStore: ApprovalStore | null = null;
 
 // Database reference for config persistence
-let coreDb: CoreDatabaseConnection | null = null;
+let coreDb: DatabaseConnection | null = null;
 
 // ─── Config Persistence (Direct JSON — single source of truth) ──
 
@@ -356,6 +356,12 @@ function setupWhatsAppHandlers(conn: WhatsAppConnection): void {
 }
 
 async function autoConnectWhatsApp(): Promise<void> {
+  const cfg = loadUbotConfig();
+  if (cfg.channels?.whatsapp?.enabled === false) {
+    console.log('[WhatsApp] Auto-connect skipped — channel is disabled in config.');
+    return;
+  }
+
   const sessionPath = (whatsappConfig as any).sessionPath || './sessions';
   const sessionName = (whatsappConfig as any).sessionName || 'ubot-session';
   const credsPath = join(sessionPath, sessionName, 'creds.json');
@@ -735,9 +741,9 @@ export function initializeApi(db?: DatabaseConnection, agent?: AgentOrchestrator
       ? require('path').join(process.env.UBOT_HOME, 'skills')
       : './skills';
     skillRepo = createFileSkillRepository(skillsDir);
-    coreDb = db as unknown as CoreDatabaseConnection;
+    coreDb = db as unknown as DatabaseConnection;
     eventBus = createEventBus();
-    approvalStore = createApprovalStore(db as unknown as CoreDatabaseConnection);
+    approvalStore = createApprovalStore(db as unknown as DatabaseConnection);
 
     if (agent) {
       const cfg = loadUbotConfig();
@@ -940,6 +946,7 @@ function getApiContext(): ApiContext {
     tgMessages,
     messagingRegistry,
     skillEngine,
+    skillRepo: skillRepo as any,
     eventBus,
     scheduler,
     approvalStore,
@@ -992,7 +999,7 @@ async function handleChannelRoutes(
       cfg.capabilities.search.providers.serper.apiKey = body.serper_api_key;
       process.env.SERPER_API_KEY = body.serper_api_key;
       try {
-        const { setSerperApiKey } = await import('../capabilities/skills/web-search/adapters/serper.js');
+        const { setSerperApiKey } = await import('../capabilities/web-search/adapters/serper.js');
         setSerperApiKey(body.serper_api_key);
       } catch { /* ignore */ }
     }
@@ -1064,6 +1071,24 @@ async function handleChannelRoutes(
     return true;
   }
 
+  // ── Apple Capabilities Config ───────────────────────────
+  if (url === '/api/config/capabilities/apple' && method === 'GET') {
+    const cfg = loadUbotConfig();
+    const apple = (cfg.capabilities as any)?.apple || { enabled: true, services: { calendar: { enabled: true }, contacts: { enabled: true }, notes: { enabled: true }, mail: { enabled: true } } };
+    json(res, apple);
+    return true;
+  }
+
+  if (url === '/api/config/capabilities/apple' && method === 'PUT') {
+    const body = await parseBody(req) as any;
+    const cfg = loadUbotConfig();
+    if (!cfg.capabilities) cfg.capabilities = {};
+    (cfg.capabilities as any).apple = body;
+    saveUbotConfig(cfg);
+    json(res, { saved: true });
+    return true;
+  }
+
   // ── Defaults Options (available choices per purpose) ────
   if (url === '/api/config/defaults/options' && method === 'GET') {
     const cfg = loadUbotConfig();
@@ -1119,6 +1144,37 @@ async function handleChannelRoutes(
       }
     }
 
+    // Apple services (macOS-only)
+    if ((caps as any).apple?.enabled !== false) {
+      const appleSvc = (caps as any).apple?.services || {};
+      if (appleSvc.calendar?.enabled !== false) {
+        options.calendar = [...(options.calendar || []), { value: 'apple.calendar', label: 'Apple Calendar' }];
+      }
+      if (appleSvc.contacts?.enabled !== false) {
+        options.contacts = [...(options.contacts || []), { value: 'apple.contacts', label: 'Apple Contacts' }];
+      }
+      if (appleSvc.notes?.enabled !== false) {
+        if (!options.notes) options.notes = [];
+        options.notes = [...options.notes, { value: 'apple.notes', label: 'Apple Notes' }];
+      }
+      if (appleSvc.mail?.enabled !== false) {
+        options.email = [...(options.email || []), { value: 'apple.mail', label: 'Apple Mail' }];
+      }
+    }
+
+    // iMessage/BlueBubbles contacts
+    if (cfg.channels?.imessage?.enabled) {
+      options.contacts = [...(options.contacts || []), { value: 'imessage.contacts', label: 'iMessage Contacts' }];
+    }
+
+    // Browser options
+    options.browser = [
+      { value: 'mcp.playwright', label: 'MCP Playwright' },
+    ];
+
+    // Add MCP Tavily as a search option
+    options.search = [...(options.search || []), { value: 'mcp.tavily', label: 'MCP Tavily' }];
+
     json(res, { options });
     return true;
   }
@@ -1143,7 +1199,25 @@ async function handleChannelRoutes(
   }
 
   if (url === '/api/whatsapp/status' && method === 'GET') {
-    json(res, { status: waStatus, qr: waQrCode, error: waError });
+    const user = waConnection?.getUser?.() ?? null;
+    const cfg = loadUbotConfig();
+    const autoReply = cfg.channels?.whatsapp?.auto_reply ?? false;
+    json(res, { status: waStatus, qr: waQrCode, error: waError, user, autoReply });
+    return true;
+  }
+
+  if (url === '/api/whatsapp/auto-reply' && method === 'PUT') {
+    const body = await parseBody(req) as any;
+    const enabled = !!body?.enabled;
+    const cfg = loadUbotConfig();
+    if (!cfg.channels) cfg.channels = {};
+    if (!cfg.channels.whatsapp) cfg.channels.whatsapp = {};
+    cfg.channels.whatsapp.auto_reply = enabled;
+    saveUbotConfig(cfg);
+    if (agentOrchestrator) {
+      agentOrchestrator.updateConfig({ autoReplyWhatsApp: enabled });
+    }
+    json(res, { autoReply: enabled, saved: true });
     return true;
   }
 
@@ -1157,11 +1231,18 @@ async function handleChannelRoutes(
     waStatus = 'connecting';
 
     try {
-      if (waConnection) {
+    if (waConnection) {
         try { await waConnection.disconnect(); } catch { /* ignore */ }
         await waConnection.clearSession();
         waConnection = null;
       }
+
+      // Mark as enabled in config
+      const cfg = loadUbotConfig();
+      if (!cfg.channels) cfg.channels = {};
+      if (!cfg.channels.whatsapp) cfg.channels.whatsapp = {};
+      cfg.channels.whatsapp.enabled = true;
+      saveUbotConfig(cfg);
 
       waConnection = new WhatsAppConnection({
         ...DEFAULT_WHATSAPP_CONFIG,
@@ -1191,24 +1272,47 @@ async function handleChannelRoutes(
     if (waConnection) {
       try {
         await waConnection.disconnect();
+        // For manual disconnect, we also clear the session so it doesn't auto-reconnect
+        await waConnection.clearSession();
       } catch {}
       waConnection = null;
     }
     waStatus = 'disconnected';
     waQrCode = null;
     waError = null;
+
+    // Mark as disabled in config
+    const cfg = loadUbotConfig();
+    if (!cfg.channels) cfg.channels = {};
+    if (!cfg.channels.whatsapp) cfg.channels.whatsapp = {};
+    cfg.channels.whatsapp.enabled = false;
+    saveUbotConfig(cfg);
+
     json(res, { status: 'disconnected' });
     return true;
   }
 
   // ── Telegram ──────────────────────────────────────────
   if (url === '/api/telegram/status' && method === 'GET') {
+    const cfg = loadUbotConfig();
     json(res, {
       status: tgStatus,
       error: tgError,
       botUsername: tgConnection?.botUsername ?? null,
       botName: tgConnection?.botName ?? null,
+      autoReply: cfg.channels?.telegram?.auto_reply ?? false,
     });
+    return true;
+  }
+
+  if (url === '/api/telegram/auto-reply' && method === 'POST') {
+    const body = await parseBody(req) as any;
+    const cfg = loadUbotConfig();
+    if (!cfg.channels) cfg.channels = {} as any;
+    if (!cfg.channels!.telegram) cfg.channels!.telegram = {} as any;
+    cfg.channels!.telegram!.auto_reply = !!body?.enabled;
+    saveUbotConfig(cfg);
+    json(res, { autoReply: cfg.channels!.telegram!.auto_reply });
     return true;
   }
 

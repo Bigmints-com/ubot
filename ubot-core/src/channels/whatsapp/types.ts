@@ -63,6 +63,10 @@ export interface WhatsAppConnectionConfig {
   browser?: [string, string, string];
   /** Rate limiter configuration for human-like send behavior */
   rateLimiter?: Partial<RateLimiterConfig>;
+  /** Maximum QR code retry cycles before giving up (0 = unlimited). Default 3. */
+  maxQrRetries?: number;
+  /** Maximum reconnection attempts for non-QR disconnects. Default 10. */
+  maxReconnectAttempts?: number;
 }
 
 export interface WhatsAppAdapterEvents {

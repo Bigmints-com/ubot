@@ -17,7 +17,7 @@ export async function handleIntegrationRoutes(
   // ── Google Auth API ──────────────────────────────────
   if (url === '/api/google/auth/status' && method === 'GET') {
     try {
-      const { getGoogleAuthStatus } = await import('../../integrations/google/auth.js');
+      const { getGoogleAuthStatus } = await import('../../capabilities/google/auth.js');
       const status = getGoogleAuthStatus();
       json(res, status);
     } catch (err: any) {
@@ -28,7 +28,7 @@ export async function handleIntegrationRoutes(
 
   if (url === '/api/google/auth/start' && method === 'POST') {
     try {
-      const { startGoogleAuth } = await import('../../integrations/google/auth.js');
+      const { startGoogleAuth } = await import('../../capabilities/google/auth.js');
       await startGoogleAuth();
       json(res, { success: true, message: 'Google authorization complete. Tokens saved.' });
     } catch (err: any) {
@@ -39,7 +39,7 @@ export async function handleIntegrationRoutes(
 
   if (url === '/api/google/auth/clear' && method === 'POST') {
     try {
-      const { clearGoogleAuth } = await import('../../integrations/google/auth.js');
+      const { clearGoogleAuth } = await import('../../capabilities/google/auth.js');
       await clearGoogleAuth();
       json(res, { success: true, message: 'Google auth cleared.' });
     } catch (err: any) {
@@ -50,7 +50,7 @@ export async function handleIntegrationRoutes(
 
   if (url === '/api/google/services/config' && method === 'GET') {
     try {
-      const { getGoogleServicesConfig } = await import('../../integrations/google/auth.js');
+      const { getGoogleServicesConfig } = await import('../../capabilities/google/auth.js');
       const services = getGoogleServicesConfig();
       json(res, { services });
     } catch (err: any) {
@@ -62,7 +62,7 @@ export async function handleIntegrationRoutes(
   if (url === '/api/google/services/config' && method === 'PUT') {
     try {
       const body = await parseBody(req) as any;
-      const { saveGoogleServicesConfig } = await import('../../integrations/google/auth.js');
+      const { saveGoogleServicesConfig } = await import('../../capabilities/google/auth.js');
       const updated = await saveGoogleServicesConfig(body.services || {});
       json(res, { services: updated });
     } catch (err: any) {

@@ -456,7 +456,7 @@ export function createAgentOrchestrator(
     const client = createLLMClient();
     
     // Determine allowed tools
-    let filteredTools = getToolsForSource(isOwner);
+    let filteredTools = await getToolsForSource(isOwner);
     if (agentId && agents.has(agentId)) {
       const agent = agents.get(agentId)!;
       if (agent.allowedTools && agent.allowedTools.length > 0) {

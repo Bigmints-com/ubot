@@ -54,7 +54,7 @@ install: build
 	@mkdir -p $(UBOT_HOME)/logs
 	@mkdir -p $(UBOT_HOME)/sessions
 	@mkdir -p $(UBOT_HOME)/creds
-	@mkdir -p $(UBOT_HOME)/browser-profile
+
 	@mkdir -p $(UBOT_HOME)/workspace
 	@mkdir -p $(UBOT_HOME)/custom/modules
 	@mkdir -p $(UBOT_HOME)/custom/staging
@@ -100,8 +100,7 @@ install: build
 		echo "   ⚠️  No web export found (expected $(WEB_DIR)/out/)"; \
 	fi
 
-	@# Copy public assets for backend static serving
-	@cp -r $(CORE_DIR)/public $(UBOT_HOME)/public 2>/dev/null || true
+
 
 	@# ── Config (merge, never overwrite) ────────────────────────────────
 	@if [ ! -f $(UBOT_HOME)/config.json ]; then \

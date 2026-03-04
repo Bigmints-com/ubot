@@ -1,20 +1,21 @@
 import { describe, it, expect } from 'vitest';
-import schedulerModule from '../scheduler.js';
+import schedulerModule from '../../automation/scheduler/tools.js';
 import { registerModule, createMockContext } from './test-helpers.js';
 
 describe('Scheduler Tool Module', () => {
   it('should export correct module metadata', () => {
     expect(schedulerModule.name).toBe('scheduler');
-    expect(schedulerModule.tools.length).toBe(6);
+    expect(schedulerModule.tools.length).toBe(7);
     expect(schedulerModule.tools.map(t => t.name)).toEqual([
       'schedule_message', 'set_auto_reply', 'create_reminder',
       'list_schedules', 'delete_schedule', 'trigger_schedule',
+      'schedule_agent_task',
     ]);
   });
 
   it('should register all 6 executors', () => {
     const registry = registerModule(schedulerModule);
-    expect(registry.registeredNames()).toHaveLength(6);
+    expect(registry.registeredNames()).toHaveLength(7);
   });
 
   describe('schedule_message', () => {

@@ -31,6 +31,7 @@ const CAPABILITY_MODULES: Record<string, string[]> = {
   cli: ["cli"],
   filesystem: ["files"],
   google: ["google"],
+  apple: ["apple"],
   mcp: [], // dynamic — mcp:* modules
   browser: ["browser"],
   memory: ["memory"],

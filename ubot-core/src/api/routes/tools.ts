@@ -24,7 +24,7 @@ export async function handleToolsRoutes(
   ctx: ApiContext,
 ): Promise<boolean> {
   if (url === '/api/tools' && method === 'GET') {
-    const allTools = getAllToolsWithModules();
+    const allTools = await getAllToolsWithModules();
     
     // Also fetch MCP tools from the manager if available
     let mcpTools: Array<{ module: string, tool: ToolDefinition }> = [];

@@ -209,7 +209,7 @@ export function routeTools(
  */
 export function getConnectedMcpServers(): Set<string> {
   try {
-    const { getMcpServerManager } = require('../integrations/mcp/mcp-manager.js');
+    const { getMcpServerManager } = require('../capabilities/mcp/mcp-manager.js');
     const mgr = getMcpServerManager();
     const servers = mgr.getServers();
     const connected = new Set<string>();

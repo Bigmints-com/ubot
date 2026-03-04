@@ -5,19 +5,20 @@
 
 import http from 'http';
 import type { AgentOrchestrator } from '../engine/orchestrator.js';
-import type { ApprovalStore } from '../memory/pending-approvals.js';
-import type { SkillEngine } from '../capabilities/skills/skill-engine.js';
-import type { EventBus } from '../capabilities/skills/event-bus.js';
-import type { TaskSchedulerService } from '../capabilities/scheduler/service.js';
+import type { ApprovalStore } from '../automation/approvals/service.js';
+import type { SkillEngine } from '../agents/skills/skill-engine.js';
+import type { EventBus } from '../agents/skills/event-bus.js';
+import type { TaskSchedulerService } from '../automation/scheduler/service.js';
 import type { WhatsAppConnection } from '../channels/whatsapp/connection.js';
 import type { TelegramConnection } from '../channels/telegram/connection.js';
 import type { MessagingRegistry } from '../channels/registry.js';
 import type { WhatsAppMessagingProvider } from '../channels/whatsapp/messaging-provider.js';
 import type { TelegramMessagingProvider } from '../channels/telegram/messaging-provider.js';
 import type { WhatsAppConnectionConfig } from '../channels/whatsapp/types.js';
-import type { SafetyConfig, SafetyRule } from '../safety/types.js';
+import type { SafetyConfig, SafetyRule } from '../agents/safety/types.js';
 import type { DatabaseConnection as CoreDatabaseConnection } from '../data/database/types.js';
-import type { McpServerManager } from '../integrations/mcp/mcp-manager.js';
+import type { McpServerManager } from '../capabilities/mcp/mcp-manager.js';
+import type { SkillRepository } from '../agents/skills/skill-repository.js';
 
 export interface ApiContext {
   // Core
@@ -43,6 +44,7 @@ export interface ApiContext {
 
   // Services
   skillEngine: SkillEngine | null;
+  skillRepo: SkillRepository | null;
   eventBus: EventBus | null;
   scheduler: TaskSchedulerService | null;
   approvalStore: ApprovalStore | null;

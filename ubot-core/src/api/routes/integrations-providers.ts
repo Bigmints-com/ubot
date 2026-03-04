@@ -307,7 +307,7 @@ async function syncSearchToSerper(): Promise<void> {
   const cfg = loadUbotConfig();
   const serper = cfg.capabilities?.search?.providers?.serper;
   try {
-    const { setSerperApiKey } = await import('../../capabilities/skills/web-search/adapters/serper.js');
+    const { setSerperApiKey } = await import('../../capabilities/web-search/adapters/serper.js');
     setSerperApiKey(serper?.enabled !== false ? (serper?.apiKey as string || null) : null);
   } catch { /* ignore */ }
 }

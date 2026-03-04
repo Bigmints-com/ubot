@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import filesModule from '../files.js';
+import filesModule from '../../capabilities/filesystem/tools.js';
 import { createMockRegistry, createMockContext } from './test-helpers.js';
 
 describe('Files Tool Module', () => {
