@@ -48,6 +48,7 @@ interface SkillFrontmatter {
     contacts?: string[];
     groups?: string[];
     groupsOnly?: boolean;
+    dmsOnly?: boolean;
     source?: string;
     pattern?: string;
   };
@@ -103,6 +104,7 @@ function toFrontmatter(skill: Skill): string {
     if (f.contacts?.length) lines.push(`filter_contacts: [${f.contacts.join(', ')}]`);
     if (f.groups?.length) lines.push(`filter_groups: [${f.groups.join(', ')}]`);
     if (f.groupsOnly) lines.push(`filter_groups_only: true`);
+    if (f.dmsOnly) lines.push(`filter_dms_only: true`);
     if (f.source) lines.push(`filter_source: ${f.source}`);
     if (f.pattern) lines.push(`filter_pattern: ${f.pattern}`);
   }
@@ -141,6 +143,7 @@ function fileToSkill(dirPath: string): Skill | null {
   if ((meta as any).filter_contacts) trigger.filters!.contacts = (meta as any).filter_contacts;
   if ((meta as any).filter_groups) trigger.filters!.groups = (meta as any).filter_groups;
   if ((meta as any).filter_groups_only) trigger.filters!.groupsOnly = true;
+  if ((meta as any).filter_dms_only) trigger.filters!.dmsOnly = true;
   if ((meta as any).filter_source) trigger.filters!.source = (meta as any).filter_source;
   if ((meta as any).filter_pattern) trigger.filters!.pattern = (meta as any).filter_pattern;
 

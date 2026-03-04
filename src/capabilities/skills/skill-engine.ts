@@ -70,8 +70,14 @@ export function createSkillEngine(
     }
 
     // Groups only
-    const isGroup = (event.from || '').endsWith('@g.us');
+    const isGroup = (event.from || '').endsWith('@g.us') || 
+      ((event.data?.rawJid as string) || '').includes('@g.us');
     if (filters.groupsOnly && !isGroup) {
+      return false;
+    }
+
+    // DMs only (inverse of groupsOnly)
+    if (filters.dmsOnly && isGroup) {
       return false;
     }
 

@@ -209,9 +209,38 @@ export async function handleIncomingMessage(
   // 4. Resolve session ID
   const sessionId = resolveSessionId(msg, isOwner);
 
-  // 5. Emit skill event (visitors only — owner goes direct to agent)
+  // 5. Master auto-reply switch (visitors only)
+  //    If auto-reply is OFF → nothing fires. No skills, no orchestrator.
+  //    If auto-reply is ON  → skills decide who gets a reply (contacts, groups, etc.)
   if (!isOwner) {
-    emitSkillEvent(msg, isOwner, deps);
+    const config = deps.orchestrator.getConfig();
+    const autoReplyEnabled = msg.channel === 'whatsapp'
+      ? config.autoReplyWhatsApp
+      : msg.channel === 'telegram'
+        ? (config.autoReplyTelegram ?? false)
+        : false;
+
+    if (!autoReplyEnabled) {
+      return { isOwner, sessionId, response: '', handled: false };
+    }
+
+    // Auto-reply is ON → emit skill event.
+    // Skills handle the fine-grained filtering:
+    //   - filter_contacts: only reply to specific phone numbers
+    //   - filter_dms_only: true = skip group messages
+    //   - filter_groups_only: true = only reply in groups
+    //   - filter_pattern: regex match on message body (e.g. @mentions)
+    //   - condition: LLM-checked intent (e.g. "when someone asks about pricing")
+    //
+    // Skills with outcome 'reply' send the response back to the sender.
+    // No hardcoded contact/group filtering needed here — skills do it all.
+    if (deps.eventBus) {
+      emitSkillEvent(msg, isOwner, deps);
+    }
+
+    // Don't fall through to the orchestrator — skills are the reply mechanism.
+    // (If no skill matches, nobody replies — that's correct behavior.)
+    return { isOwner, sessionId, response: '', handled: false };
   }
 
   // 6. Owner: check pending approvals
@@ -242,80 +271,17 @@ export async function handleIncomingMessage(
     }
   }
 
-  // 7. Skills run independently via event bus (emitSkillEvent at step 5).
-  //    Silent skills (spam deletion) act in the background.
-  //    Conversation always flows through the orchestrator below.
-
-  // 8. Auto-reply policy for visitors
-  if (!isOwner) {
-    const config = deps.orchestrator.getConfig();
-    const shouldAutoReply = msg.channel === 'whatsapp'
-      ? config.autoReplyWhatsApp
-      : msg.channel === 'telegram'
-        ? (config.autoReplyTelegram ?? config.autoReplyWhatsApp ?? false)
-        : false;
-
-    if (!shouldAutoReply) {
-      return { isOwner, sessionId, response: '', handled: false };
-    }
-
-    // WhatsApp group filter — don't reply in groups unless mentioned
-    if (msg.channel === 'whatsapp') {
-      const rawJid = (msg.extra?.rawJid as string) || msg.senderId;
-      const isGroup = rawJid.includes('@g.us');
-
-      if (isGroup) {
-        // Check group policy: false = never, 'mentions_only' = only when @mentioned, true = always
-        const groupPolicy = config.autoReplyGroups ?? false;
-
-        if (groupPolicy === false) {
-          console.log(`[Unified] ⏭ Skipping group message (groups disabled): ${rawJid}`);
-          return { isOwner, sessionId, response: '', handled: false };
-        }
-
-        if (groupPolicy === 'mentions_only' || groupPolicy === true) {
-          // Check if the bot/owner is mentioned in the message
-          const ownerPhone = (config.ownerPhone || '').replace(/\D/g, '');
-          const botName = (config.botName || 'ubot').toLowerCase();
-          const body = msg.body.toLowerCase();
-          const isMentioned = body.includes(`@${ownerPhone}`) ||
-            body.includes(`@${botName}`) ||
-            body.includes(botName);
-
-          if (groupPolicy === 'mentions_only' && !isMentioned) {
-            return { isOwner, sessionId, response: '', handled: false };
-          }
-          // groupPolicy === true: reply to all group messages (original behavior)
-        }
-      }
-    }
-
-    // Contact whitelist (for DMs — allow only certain numbers)
-    if (msg.channel === 'whatsapp' && config.autoReplyContacts?.length > 0) {
-      const jid = msg.senderId;
-      const allowed = config.autoReplyContacts.some(
-        (c: string) => jid.includes(c.replace(/[^0-9]/g, ''))
-      );
-      if (!allowed) {
-        return { isOwner, sessionId, response: '', handled: false };
-      }
-    }
-  }
-
-  // 9. Route to the orchestrator
+  // 7. Route owner messages to the orchestrator
   try {
-    // Map channel to the source type the orchestrator expects
-    const source = isOwner ? 'web' as const : msg.channel;
     const response = await deps.orchestrator.chat(
       sessionId,
       msg.body,
-      source,
+      'web',
       msg.senderName || undefined,
       undefined,
       msg.attachments,
     );
 
-    // 10. Dispatch response back through the channel
     if (response.content) {
       await msg.replyFn(response.content);
     }
@@ -327,7 +293,7 @@ export async function handleIncomingMessage(
   }
 }
 
-// ─── Helpers ─────────────────────────────────────────────
+// ─── Helpers ─────────────────────────────────────────
 
 function resolveChannelFromSessionId(sessionId: string): Channel {
   if (sessionId.startsWith('telegram:')) return 'telegram';
