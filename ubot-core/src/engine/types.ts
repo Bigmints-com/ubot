@@ -143,6 +143,10 @@ export interface AgentConfig {
   autoReplyTelegram: boolean;
   /** Contacts to auto-reply to (empty = all) */
   autoReplyContacts: string[];
+  /** Group reply policy: false = never, 'mentions_only' = only when @mentioned, true = always */
+  autoReplyGroups: boolean | 'mentions_only';
+  /** Bot name for mention detection in groups (e.g. 'ubot') */
+  botName: string;
 }
 
 export interface AgentResponse {
@@ -266,4 +270,6 @@ You are the owner's personal secretary. Handle most conversations autonomously, 
   autoReplyWhatsApp: false,
   autoReplyTelegram: false,
   autoReplyContacts: [],
+  autoReplyGroups: false,
+  botName: 'ubot',
 };
