@@ -4,16 +4,51 @@ The "Interface" of Ubot. The Connectivity layer manages the bridge between Ubot 
 
 ## Core Components
 
-- **Messaging Adapters**: Pluggable modules for WhatsApp (via Baileys), Telegram (via node-telegram-bot-api), and iMessage (via BlueBubbles REST API).
+- **Messaging Adapters**: Pluggable modules for three channels, each with their own connection file:
+  - WhatsApp → `channels/whatsapp/connection.ts` (Baileys, raw socket protocol)
+  - Telegram → `channels/telegram/connection.ts` (node-telegram-bot-api)
+  - iMessage → `channels/imessage/index.ts` (BlueBubbles REST API)
 - **Provider Registry**: A central registry that maps channel names to their respective provider instances.
-- **Standardized Event Flow**: Incoming raw messages are normalized into a common format (e.g., `SkillEvent`).
+- **Standardized Event Flow**: Incoming raw messages are normalized into `UnifiedMessage` objects via a single handler (`engine/handler.ts`).
 
-## Mechanics
+## Unified Message Handler (`handler.ts`)
 
-1. **Connection Management**: Handles authentication, session persistence, and automatic reconnection for various protocols.
-2. **Media Handling**: Specialized logic for processing images, audio (with STT support), and documents received via messaging channels.
-3. **Outgoing Routing**: The orchestrator uses the registry to resolve the correct channel for sending replies, ensuring the interaction stays in the original thread.
+All channels normalize messages into `UnifiedMessage` and call `handleIncomingMessage()`. This single function handles:
+
+1. **Owner Detection**: Single source of truth — checks phone/Telegram ID/username against config.
+2. **Auto-Save Owner IDs**: Learns and persists owner identifiers on first contact.
+3. **Session Routing**: Owner → `web-console`, visitors → channel-specific sessions (e.g., WhatsApp JID, `telegram:chatId`).
+4. **Skill Event Emission**: Every message emits a `SkillEvent` to the EventBus for skill matching.
+5. **Auto-Reply Policy**: Master switch per channel — if OFF, nothing fires for visitors.
+6. **Approval Handling** (owner only): If the owner's message explicitly references a pending approval — starts with "approve:" or contains an approval ID — the handler resolves the approval in the store, then relays the response to the requester's session via `deps.orchestrator.chat()` + `deps.relayMessage()`. Non-approval owner messages fall through to the orchestrator unchanged.
+7. **Orchestrator Routing** (owner only): After approval checks, owner messages route through `deps.orchestrator.chat()` and the response is sent back via `msg.replyFn`.
+
+## WhatsApp Interactive Messages
+
+The WhatsApp connection (`connection.ts`) fully parses interactive bot content:
+
+- **`extractBody(msg)`**: Handles text, interactive (buttons, lists, carousels), template, native flow, and extendedText messages. Formats interactive content as readable text with option labels.
+- **`extractInteractiveOptions(msg)`**: Extracts structured `WhatsAppInteractiveOption[]` from raw messages for tool use.
+- **`sendInteractiveResponse(jid, msgId, selection)`**: Sends structured responses (text_reply, button, list_item, quick_reply, native_flow) back to bots.
+- **`WhatsAppInteractiveOption` type**: `{ type, id, label, description?, section?, url?, flowName?, flowParams?, cardIndex? }`
+
+## LID Resolution
+
+WhatsApp uses two JID formats: phone-based (`971569737344@s.whatsapp.net`) and LID-based (`127058135019537@lid`). The connection layer:
+
+- Maintains a LID→phone mapping file in the session directory
+- Resolves LIDs to phone JIDs for routing and owner detection
+- Uses the original LID for replying (required by Baileys)
+
+## Rate Limiting
+
+All outbound WhatsApp messages go through `WhatsAppRateLimiter`:
+
+- Per-minute: 8 messages max
+- Per-hour: 60 messages max
+- Per-day: 500 messages max
+- Random human-like delays (1-8 seconds) between sends
 
 ## Multi-Channel Support
 
-Ubot is designed to handle multiple accounts and platforms simultaneously. A single instance can listen on WhatsApp, Telegram, and iMessage, routing events to the same orchestrator brain while maintaining separate conversation stores for each platform.
+A single Ubot instance can listen on WhatsApp, Telegram, and iMessage simultaneously, routing events to the same orchestrator while maintaining separate conversation stores per platform.

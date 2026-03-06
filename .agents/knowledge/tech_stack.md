@@ -10,27 +10,34 @@ Ubot is built on a modern, asynchronous, and modular stack designed for high per
 
 ## 2. Persistence Layer
 
-- **SQLite**: A lightweight, file-based database used for persistent session memory, contact profiles, and skill storage.
-- **Durable Metadata**: Critical identity and behavior state is mirrored as **Markdown** files in the workspace (see [Markdown-as-Truth](file:///Users/pretheesh/Projects/ubot/.agents/knowledge/principles_architectural.md)).
+- **SQLite**: A lightweight, file-based database used for persistent session memory, contact profiles, conversation history, approvals, and follow-ups.
+- **Skills**: Two storage backends exist. File-based skills are stored as `SKILL.md` files in `~/.ubot/skills/<skill-name>/` — human-editable, git-trackable. SQLite-backed skills are created via the `create_skill` tool or web UI and stored in the main database.
+- **Durable Identity**: Soul and identity state stored as Markdown files (`IDENTITY.md`, `SOUL.md`).
 
 ## 3. Messaging Gateways (Adapters)
 
-Ubot uses a provider-based architecture to interface with different platforms:
+Ubot uses a provider-based architecture with a **Unified Message Handler** (`handler.ts`):
 
-- **WhatsApp**: Integrated via the **Baileys** library (raw socket-based WhatsApp Web protocol).
+- **WhatsApp**: Integrated via **Baileys** (raw socket-based WhatsApp Web protocol). Supports interactive messages (buttons, lists, carousels), LID resolution, rate limiting, and media handling.
 - **Telegram**: Handled via **node-telegram-bot-api**, supporting the standard bot API.
-- **iMessage**: Connected via **BlueBubbles**, a macOS app that exposes iMessage over a local REST API. Ubot talks HTTP to BlueBubbles — no direct `chat.db` access needed.
-- **Unified Event Bus**: All adapters emit standardized `SkillEvent` objects, allowing the engine to be platform-agnostic.
+- **iMessage**: Connected via **BlueBubbles**, a macOS app that exposes iMessage over a local REST API.
+- **Unified Event Bus**: All adapters normalize into `UnifiedMessage` → `SkillEvent` objects, enabling platform-agnostic processing.
 
 ## 4. AI & LLM Integration
 
-- **OpenAI / Anthropic APIs**: Supported through specialized provider classes.
-- **Tool Calling**: Native support for tool-calling models, with fallback parsers for older or smaller LLMs.
-- **MCP (Model Context Protocol)**: Support for connecting to external tool servers.
+- **OpenAI-Compatible API**: Supports any provider that implements the OpenAI chat completions API (Gemini, Ollama, OpenAI, Anthropic).
+- **Native Tool Calling**: Uses structured function calling (not text parsing). Tools are formatted via `formatToolsForAPI()` and sent as the `tools` parameter.
+- **MCP (Model Context Protocol)**: Connects to external tool servers. MCP connections are configured per-instance in `config.json` under `mcp_servers`. When connected, their tools appear automatically and are deduplicated by `tool-router.ts`.
+- **Tool Routing**: `tool-router.ts` handles native vs MCP deduplication with alias mapping.
 
-## 5. Deployment Environment
+## 5. Tool Architecture
 
-Ubot is optimized for **edge execution**:
+- **Auto-Discovery**: Tool modules are discovered from `capabilities/`, `agents/`, and `automation/` directories at startup.
+- **Current Count**: 107+ native module tools + 2 orchestrator tools + MCP tools (instance-configured) = variable total. Use `cli_triage` to see the current active tool list.
+- **14 Modules**: messaging, memory, sessions, files, scheduler, skills, approvals, followups, vault, apple, google, cli, exec, media, patch, web-search, web-fetch.
 
-- **Resource Footprint**: Designed to run comfortably on devices with <1GB of RAM (e.g., Raspberry Pi, old Android phones via Termux).
-- **Environment Management**: Configuration is handled via `~/.ubot/config.json` (production) or `config.json` in the project root (development). Config sections include `server`, `llm`, `channels`, `filesystem`, `cli`, `owner`, and `integrations`.
+## 6. Deployment
+
+- **Production**: Compiled TypeScript → `~/.ubot/lib/`, run with `node index.js`.
+- **Development**: `npm run dev` with tsx for hot-reloading.
+- **Config**: `~/.ubot/config.json` with sections for server, llm, channels, filesystem, mcp_servers, owner, and integrations.

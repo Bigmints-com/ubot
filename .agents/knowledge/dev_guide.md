@@ -1,48 +1,95 @@
 # Developer Guide: Extending Ubot
 
-Ubot is designed to be easily extensible. Developers can add new capabilities by creating tool modules, MCP servers, or custom agent personas.
+Ubot is designed to be easily extensible. Developers can add new capabilities by creating tool modules, MCP servers, skills, or custom agent personas.
 
 ## 1. Creating a Tool Module
 
-Tool modules are found in `src/tools/`. To add a new one:
+Tool modules are auto-discovered from `src/capabilities/`, `src/agents/`, and `src/automation/`. To add a new one:
 
-1.  **Define the Interface**: Create a `ToolDefinition` with the tool name, description, and parameter schema.
-2.  **Implement the Executor**: Write an asynchronous function that takes the validated arguments and returns a `ToolExecutionResult`.
-3.  **Register**: Add the module to the central `ToolRegistry`.
+1. **Create a directory** under one of the scan directories (e.g., `src/capabilities/my-feature/`)
+2. **Create `index.ts`** that exports `toolModules: ToolModule[]`
+3. **Define tools**: Each `ToolModule` has `name`, `tools: ToolDefinition[]`, and a `register(registry, ctx)` function
+4. **Register executors**: In the `register` function, call `registry.register('tool_name', async (args) => { ... })`
+
+Infrastructure modules (messaging, memory, sessions) are registered explicitly in `src/tools/registry.ts`.
+
+### JID Normalization for WhatsApp Tools
+
+If your tool sends WhatsApp messages, normalize the JID before calling `sendMessage`:
+
+```typescript
+if (!to.includes("@")) {
+  const digits = to.replace(/\D/g, "");
+  to = `${digits}@s.whatsapp.net`;
+}
+```
 
 ## 2. Connecting an MCP Server
 
 The Model Context Protocol (MCP) is the preferred way to add complex, third-party capabilities.
 
-- **Configuration**: Add the server details (STDIO or HTTP) to the `mcp.config.json` in the workspace.
-- **Discovery**: Ubot automatically polls the server, discovers its tools, and makes them available to agents (prefixed with the server name).
+- **Configuration**: Add server details to `~/.ubot/config.json` under `mcp_servers`
+- **Discovery**: Ubot automatically discovers tools and registers them with deduplication
+- **Tool Routing**: Native tool names are aliased to MCP equivalents when an MCP server provides a better implementation
 
 ## 3. Drafting a Specialized Persona
 
-Agents are defined by a single `.agent.md` file in `workspace/agents/`.
-
-### Template:
-
-```markdown
-# Identity
-
-Name: [Agent Name]
-Description: [Single sentence role]
-
-# Tools
-
-- [module_name_1]
-- [specific_tool_name]
-
-# System Prompt
-
-[Deep technical instructions and personality rules]
-```
+Agents are defined by a single `.agent.md` file in `~/.ubot/workspace/agents/`.
 
 ## 4. Building Automated Skills
 
-Skills are created via the Ubot CLI or the Skills Management UI:
+There are two ways to create a skill:
 
-1.  **Trigger**: Select an event (e.g., `cron:tick`, `whatsapp:message`, `telegram:message`, `imessage:message`).
-2.  **Processor**: Draft the LLM instructions for this specific automation.
-3.  **Outcome**: Define the final action (e.g., `reply` or `trigger_webhook`).
+### a) File-based (manually authored)
+
+Create `~/.ubot/skills/<skill-name>/SKILL.md`:
+
+```yaml
+---
+name: My Skill
+description: What it does
+triggers: [whatsapp:message]
+filter_dms_only: true
+condition: LLM condition for phase 2 matching
+outcome: reply
+enabled: true
+---
+# Instructions
+
+Skill instructions for the LLM.
+```
+
+### b) Programmatic (via tool or web UI)
+
+Use the `create_skill` tool to create a SQLite-backed skill with the Trigger → Processor → Outcome structure:
+
+```
+create_skill(
+  name: "My Skill",
+  description: "What it does",
+  instructions: "Natural language instructions for the LLM",
+  events: "whatsapp:message",
+  condition: "when the message is about pricing",
+  outcome: "reply"
+)
+```
+
+Both formats are loaded and executed by the same `SkillEngine`. File-based skills are identified by their directory name as ID; SQLite skills use a generated `sk_<timestamp>` ID.
+
+### Adding a Visitor-Safe Tool
+
+If a skill needs to call a tool during visitor sessions, add the tool name to `VISITOR_SAFE_TOOL_NAMES` in `src/engine/tools.ts`.
+
+## 5. Build & Deploy
+
+```bash
+cd ubot-core
+npm run build                          # Compiles TypeScript to dist/
+cp -R dist/* ~/.ubot/lib/             # Deploy to production
+kill $(pgrep -f "node.*ubot/lib")     # Stop old process
+UBOT_HOME=~/.ubot node ~/.ubot/lib/index.js  # Start new process
+```
+
+## 6. Maintenance Rule
+
+> **IMPORTANT**: When adding or removing tools, update `/.agents/knowledge/registry_tools.md` with the new tool name, description, and parameters. This file is the reference for all available tools and must be kept in sync with the codebase.
