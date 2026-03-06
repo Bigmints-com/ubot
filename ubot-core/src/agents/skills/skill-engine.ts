@@ -10,12 +10,13 @@
 
 import type { Skill, SkillEvent, SkillRunResult, WorkflowStage } from './skill-types.js';
 import type { SkillRepository } from './skill-repository.js';
+import type { ConversationStore } from '../../memory/conversation.js';
 
 /** The LLM generation function — injected from the agent orchestrator */
 export type LLMGenerateFn = (systemPrompt: string, userMessage: string) => Promise<string>;
 
 /** The agent chat function — runs a message through the full agent loop with tools */
-export type AgentChatFn = (message: string, sessionId: string, source?: string, contactName?: string) => Promise<{
+export type AgentChatFn = (message: string, sessionId: string, source?: string, contactName?: string, skillContext?: string, isOwner?: boolean) => Promise<{
   response: string;
   toolCalls: Array<{ tool: string; args: Record<string, unknown>; result?: string }>;
 }>;
@@ -56,6 +57,7 @@ export function createSkillEngine(
   repo: SkillRepository,
   llmGenerate: LLMGenerateFn,
   agentChat: AgentChatFn,
+  conversationStore?: ConversationStore,
 ): SkillEngine {
   
   // ── Phase 1: Fast filter matching ────────────────────────
@@ -180,6 +182,7 @@ Does this event match the condition? Respond with ONLY "yes" or "no".`;
     sessionId: string,
     source: string,
     contactName?: string,
+    isOwner?: boolean,
   ): Promise<{ output: string; toolCalls: any[]; success: boolean; error?: string }> {
     const maxRetries = stage.retries ?? 0;
     let lastError = '';
@@ -203,7 +206,7 @@ Does this event match the condition? Respond with ONLY "yes" or "no".`;
             const resolvedArgs = resolveToolArgs(stage.tool.arguments, context);
             const toolResult = await agentChat(
               `[STAGE: ${stage.name}] Call tool ${stage.tool.name} with ${JSON.stringify(resolvedArgs)}`,
-              sessionId, source, contactName,
+              sessionId, source, contactName, undefined, isOwner,
             );
             return {
               output: toolResult.response,
@@ -223,7 +226,7 @@ Does this event match the condition? Respond with ONLY "yes" or "no".`;
               return { output: '', toolCalls: [], success: true };
             }
             // Run sub-stages sequentially
-            return await executeStages(stage.stages, context, sessionId, source, contactName);
+            return await executeStages(stage.stages, context, sessionId, source, contactName, isOwner);
           }
 
           case 'parallel': {
@@ -233,7 +236,7 @@ Does this event match the condition? Respond with ONLY "yes" or "no".`;
             console.log(`[SkillEngine] Running ${stage.stages.length} stages in parallel`);
             const results = await Promise.all(
               stage.stages.map(async (subStage) => {
-                const subResult = await executeStage(subStage, { ...context }, sessionId, source, contactName);
+                const subResult = await executeStage(subStage, { ...context }, sessionId, source, contactName, isOwner);
                 if (subStage.outputKey) {
                   context[subStage.outputKey] = subResult.output;
                 }
@@ -284,13 +287,14 @@ Answer:`;
     sessionId: string,
     source: string,
     contactName?: string,
+    isOwner?: boolean,
   ): Promise<{ output: string; toolCalls: any[]; success: boolean; error?: string }> {
     let finalOutput = '';
     let allToolCalls: any[] = [];
 
     for (const stage of stages) {
       console.log(`[SkillEngine] Running stage: ${stage.name} (${stage.type})`);
-      const result = await executeStage(stage, context, sessionId, source, contactName);
+      const result = await executeStage(stage, context, sessionId, source, contactName, isOwner);
 
       if (stage.outputKey) {
         context[stage.outputKey] = result.output;
@@ -329,9 +333,13 @@ Answer:`;
     }
 
     try {
-      const sessionId = event.source === 'telegram' 
-        ? `telegram:${event.from}` 
-        : (event.from || `skill-${skill.id}-${Date.now()}`);
+      // Session ID must match the convention in handler.ts resolveSessionId:
+      // WhatsApp: raw JID, Telegram: telegram:chatId, others: channel:senderId
+      const sessionId = event.source === 'whatsapp'
+        ? (event.from || `skill-${skill.id}-${Date.now()}`)
+        : event.source
+          ? `${event.source}:${event.from}`
+          : (event.from || `skill-${skill.id}-${Date.now()}`);
       
       const contactName = (event.data?.senderName as string) || event.from || undefined;
 
@@ -345,10 +353,12 @@ Answer:`;
         }
       };
 
+      const isOwner = event.data?.isOwner as boolean | undefined;
+
       if (skill.processor.stages && skill.processor.stages.length > 0) {
         // ─── Stage-based pipeline execution ──────────────────────────────────
         const result = await executeStages(
-          skill.processor.stages, pipelineContext, sessionId, event.source, contactName,
+          skill.processor.stages, pipelineContext, sessionId, event.source, contactName, isOwner,
         );
         return {
           skillId: skill.id,
@@ -360,27 +370,62 @@ Answer:`;
         };
       } else {
         // ─── Legacy single-processor execution ──────────────────────────────
-        const context = [
-          `[AUTOMATED SKILL EXECUTION — NO CONFIRMATION NEEDED]`,
-          `Execute this skill NOW. Do NOT ask for confirmation.`,
-          ``,
-          `Skill: ${skill.name}`,
-          `Description: ${skill.description}`,
-          ``,
-          `Event context:`,
-          `- Source: ${event.source}`,
-          `- From: ${contactName || event.from || 'unknown'}`,
-          `- Body: ${event.body || '(no body)'}`,
-          event.data ? `- Data: ${JSON.stringify(event.data)}` : '',
-          ``,
-          `Instructions:`,
-          skill.processor.instructions,
-          ``,
-          `IMPORTANT: The reply will be sent automatically — do NOT use send_message or reply_to_message.`,
-          `Follow the Visitor Security Policy in the system prompt for what to share vs. escalate via ask_owner.`,
-        ].filter(Boolean).join('\n');
+        const senderDisplay = contactName || event.from || 'unknown';
+        
+        const channelLabel = event.source === 'web' ? 'Command Center' : event.source || 'messaging';
 
-        const result = await agentChat(context, sessionId, event.source, contactName);
+        // Fetch owner's recent messages for context (so bot skills know what the owner asked for)
+        let ownerContextBlock = '';
+        if (conversationStore) {
+          try {
+            const ownerHistory = conversationStore.getHistory('web-console', 10);
+            const ownerMsgs = ownerHistory
+              .filter(m => m.role === 'user')
+              .slice(-5)
+              .map(m => `  - "${m.content.slice(0, 200)}"`);
+            if (ownerMsgs.length > 0) {
+              ownerContextBlock = [
+                ``,
+                `OWNER'S RECENT COMMANDS (from their control session — use this to understand their intent):`,
+                ...ownerMsgs,
+                ``,
+              ].join('\n');
+            }
+          } catch { /* ignore */ }
+        }
+
+        const skillContext = [
+          `[SKILL: ${skill.name}] Respond to ${senderDisplay}'s ${channelLabel} message.`,
+          `Your ENTIRE response will be sent back to them via ${channelLabel}.`,
+          ownerContextBlock,
+          `Skill instructions: ${skill.processor.instructions}`,
+          ``,
+          `RULES:`,
+          `- USE tools first if the request needs information you don't have (search_messages, get_contacts, web_search, etc.)`,
+          `- After using tools, compose the final reply with the actual information found`,
+          `- NEVER say "I'll check" or "I'll confirm" or "let me get back to you" — DO the action RIGHT NOW using tools`,
+          `- If you need owner approval, call ask_owner IMMEDIATELY in this turn — don't promise to do it later`,
+          `- If you found information via tools, GIVE THE ANSWER — don't say "I found it, I'll let you know"`,
+          `- COMPLETE every action in this turn. There is no "later" — this is your only chance to act`,
+          `- NEVER claim you did something unless you actually called a tool and got a result in THIS conversation`,
+          `- Your own previous messages saying "I'll check" or "I'll confirm" do NOT mean you actually did it — if asked, call the tool again`,
+          `- If you're unsure whether you completed an action, call the tool to verify — don't guess or assume`,
+          `- Write the reply message directly — not a description of what you'll do`,
+          `- Do NOT use send_message. Follow visitor security policy.`,
+        ].join('\n');
+
+        // The actual user message is just what the visitor said —
+        // this keeps conversation history clean and contextual
+        const visitorMessage = event.body || '(no body)';
+
+        const result = await agentChat(
+          visitorMessage,
+          sessionId,
+          event.source,
+          contactName,
+          skillContext,
+          isOwner,
+        );
         return {
           skillId: skill.id,
           success: true,

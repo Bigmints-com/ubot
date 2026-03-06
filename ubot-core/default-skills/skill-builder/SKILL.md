@@ -10,7 +10,7 @@ enabled: true
 
 # Skill Builder
 
-Guide the owner through creating or improving Ubot skills. Work conversationally — one question at a time. You know the full SKILL.md schema, all available tools, and what makes a good skill.
+Guide the owner through creating or improving Ubot skills. Work conversationally — one question at a time. You have full owner-level tool access (all 110+ tools).
 
 ## When this fires
 
@@ -22,30 +22,49 @@ Guide the owner through creating or improving Ubot skills. Work conversationally
 - "what can skills do?"
 - "how do skills work?"
 
+## Your tool access
+
+This skill runs with **owner-level access** — you have ALL tools available. Use them freely:
+- `read_file`, `write_file` — read and write SKILL.md files
+- `list_skills`, `create_skill`, `update_skill`, `delete_skill` — manage SQLite-backed skills
+- `exec`, `cli_run` — for building more complex automations
+- Any other tool from the full registry
+
+To see the complete tool catalog, read:
+`read_file("~/.ubot/workspace/.agents/knowledge/registry_tools.md")`
+
+Or read a flat reference table:
+`read_file("~/.ubot/workspace/.agents/knowledge/tools_reference.md")`
+
 ## Workflow
 
-### Creating a NEW skill
+### Creating a NEW file-based skill
 
-1. **Understand the intent** — What should this skill do? Don't ask for a name yet. Understand the behavior first.
-2. **Determine the trigger** — Which channel(s)? WhatsApp only, Telegram, or both? DMs only, groups only, or both?
-3. **Determine the condition** — When exactly should it fire? Draft a tight one-sentence condition for Phase 2 LLM matching.
-4. **Determine the filters** — Specific contacts? Specific groups? A regex pattern to pre-filter messages?
-5. **Determine the instructions** — What should the bot do when it fires? Which tools will it need?
-6. **Determine the outcome** — `reply` (send response back), `silent` (skill uses tools directly), `send` (to a specific target), or `store` (save without sending)?
+1. **Understand the intent** — What should this skill do? Don't ask for a name yet.
+2. **Determine the trigger** — Which channel(s)? WhatsApp, Telegram, or both? DMs only, groups only, or both?
+3. **Determine the condition** — When exactly should it fire? Draft a tight one-sentence Phase 2 condition.
+4. **Determine the filters** — Specific contacts? Specific groups? Regex pattern?
+5. **Determine the instructions** — What should the bot do? Which tools will it need?
+6. **Determine the outcome** — `reply`, `silent`, `send`, or `store`?
 7. **Name it** — Short, lowercase, hyphenated directory name (e.g. `whatsapp-dm-reply`, `gmail-daily-brief`)
-8. **Show and confirm** — Present the full assembled SKILL.md in a code block for the owner to review before writing
+8. **Show and confirm** — Present the full assembled SKILL.md in a code block for review
 9. **Write it** — `write_file("~/.ubot/skills/<name>/SKILL.md", content)`
 
-### Editing an EXISTING skill
+### Creating a SQLite-backed skill (quick, web UI manageable)
+
+Use `create_skill(name, description, instructions, events, condition, outcome)` directly. No file needed.
+
+### Editing an existing skill
 
 1. `read_file("~/.ubot/skills/<name>/SKILL.md")` to get the current version
 2. Understand what needs to change
-3. Show the proposed change for confirmation
-4. Rewrite the file
+3. Show the proposed changes for confirmation
+4. Rewrite with `write_file`
 
 ### Listing existing skills
 
-Use `list_skills()` to show what's already defined, or `read_file` to inspect a specific one.
+`list_skills()` — shows all SQLite-backed skills
+`list_files("~/.ubot/skills/")` — shows all file-based skill directories
 
 ---
 
@@ -58,8 +77,8 @@ description: One sentence — what it does and when it fires
 triggers: [whatsapp:message]       # Trigger options below
 filter_dms_only: true              # Only DMs (omit if not needed)
 filter_groups_only: true           # Only groups (omit if not needed)
-filter_contacts: ["971501234567"]  # Restrict to specific phone numbers (omit = all)
-filter_groups: ["120363...@g.us"]  # Restrict to specific group JIDs (omit = all)
+filter_contacts: ["971501234567"]  # Restrict to specific phone numbers (omit = all contacts)
+filter_groups: ["120363...@g.us"]  # Restrict to specific group JIDs (omit = all groups)
 filter_pattern: "keyword|phrase"   # Regex pre-filter on message body (omit if not needed)
 condition: when exactly this should fire  # Phase 2 LLM yes/no check (omit = auto-match)
 outcome: reply                     # reply | silent | send | store
@@ -77,7 +96,7 @@ Markdown instructions for the LLM when this skill fires.
 | `[whatsapp:message]` | WhatsApp messages only |
 | `[telegram:message]` | Telegram messages only |
 | `[whatsapp:message, telegram:message]` | Both channels |
-| `[*:*]` | All channels and event types |
+| `[*:*]` | All channels and all event types |
 
 ### Outcome options
 
@@ -91,51 +110,21 @@ Markdown instructions for the LLM when this skill fires.
 ### Two-phase matching
 
 - **Phase 1 (free)**: Checks source, DMs/groups filter, contact/group lists, regex pattern. No LLM cost.
-- **Phase 2 (cheap LLM call)**: If `condition` is set, an LLM evaluates it as yes/no. Skip with no condition = auto-match after Phase 1.
+- **Phase 2 (cheap LLM call)**: If `condition` is set, an LLM evaluates it as yes/no. Omit condition = auto-match after Phase 1.
 
 ### Owner context injection
 
-When a skill fires, the engine automatically injects the owner's **last 5 messages** from the web console into the skill context. Skills can act on owner intent without calling `ask_owner`.
+When a skill fires, the engine automatically injects the **owner's last 5 messages** from the web console into the skill context. Skills can act on owner intent without calling `ask_owner`.
 
----
+### Tool access in skills
 
-## Available Tools Reference
+- **Owner-triggered skills** (the owner messages the bot): full owner tool access — all 110+ tools
+- **Visitor-triggered skills** (external contacts messaging): visitor-safe tools only — 11 tools:
+  `ask_owner`, `search_messages`, `get_contacts`, `get_profile`, `get_conversations`,
+  `save_memory`, `web_search`, `web_fetch`, `list_pending_approvals`, `gcal_list_events`, `wa_respond_to_bot`
 
-Skills run with visitor-level access. The following tools are available inside skill instructions:
-
-### Communication
-- `send_message(to, body, channel?)` — Send a message to any platform
-- `search_messages(from?, to?, query?, limit?)` — Search conversation history (use at start for context)
-- `get_contacts(query?, channel?)` — Look up contacts by name or number
-- `get_conversations(limit?)` — List recent conversations
-- `reply_to_message(messageId, body)` — Reply quoting the original
-- `react_to_message(messageId, emoji)` — React with emoji
-- `wa_respond_to_bot(to, response)` — Respond to a WhatsApp bot menu (use with `outcome: silent`)
-
-### Scheduling & Follow-ups
-- `schedule_message(to, body, time)` — Schedule a message for later. Supports natural language ("in 2 hours", "tomorrow at 9am")
-- `create_reminder(message, time, recurrence?)` — Reminder for the owner. Recurrence: once, daily, weekly, monthly
-- `schedule_followup(session_id, contact_id, channel, reason, context, time?)` — Track a promise or pending item. Default 1 hour.
-- `get_conversation_status(session_id)` — Check for pending/overdue follow-ups at the start of a returning conversation
-
-### Memory
-- `save_memory(contactId, category, key, value)` — Store a fact. Categories: identity, preference, fact, relationship, note
-- `get_profile(contactId)` — Retrieve all stored facts for a contact
-
-### Owner Escalation
-- `ask_owner(question, context, requester_jid)` — Escalate a decision or ask for approval
-- `list_pending_approvals()` — List open approval requests
-
-### Google Workspace *(requires Google OAuth configured)*
-- `gcal_list_events(start?, end?, maxResults?)` — Check the owner's calendar availability
-- `gcal_create_event(summary, start, end, ...)` — Create a calendar event
-- `gmail_search(query, maxResults?)` — Search Gmail
-- `gmail_send(to, subject, body)` — Send an email
-- `drive_list(folderId?)` — List Drive files
-- `web_search(query)` — Search the internet
-- `web_fetch(url)` — Fetch content from a URL
-
-> **Note**: Filesystem, vault, scheduler, CLI, exec, and most Google tools are owner-only and NOT available inside skills. Skills run with limited access for security.
+When writing instructions for a skill that visitors can trigger, only reference visitor-safe tools.
+When writing instructions for owner-only skills, all tools are available.
 
 ---
 
@@ -143,26 +132,29 @@ Skills run with visitor-level access. The following tools are available inside s
 
 **Tight conditions** — Vague conditions cause false positives. Be specific about the exact scenario.
 
-**Mutual exclusion** — If two skills both match DMs, use contrasting conditions to differentiate (e.g. "real human" vs "automated bot or service").
+**Mutual exclusion** — If two skills both match DMs, use contrasting conditions (e.g. "real human" vs "automated bot or service").
 
-**Name tools explicitly** — If the skill needs `search_messages` for context, say so in the instructions. Don't assume the LLM will figure it out.
+**Name tools explicitly** — If the skill needs `search_messages` for context, say so. Don't assume the LLM will figure it out.
 
-**outcome: silent** — Use this when the skill calls tools directly to send messages (e.g. `wa_respond_to_bot`). Use `reply` for conversational responses.
+**`outcome: silent`** — Use when the skill calls tools to send messages directly (e.g. `wa_respond_to_bot`). Use `reply` for conversational responses.
 
-**filter_contacts** — Always populate this for skills that should only respond to specific people. An empty list = all contacts.
+**`filter_contacts`** — Always populate for skills that should only respond to specific people. Empty list = all contacts.
 
-**filter_pattern** — Use for cheap regex pre-filtering before the LLM condition check. Good for keyword-triggered skills ("invoice", "urgent", "@mention"). Bad for WhatsApp @mentions (those are metadata, not body text — use a condition instead).
+**`filter_pattern`** — Use for cheap regex pre-filtering before the LLM condition check. Good for keyword-triggered skills. NOT reliable for WhatsApp @mentions (those are metadata, not body text — use a condition instead).
 
-**Start with context** — Good skill instructions begin with: `search_messages` to get history, `get_conversation_status` for follow-ups, `get_contacts` for contact info.
+**Start with context** — Good skill instructions begin with: `search_messages` for history, `get_conversation_status` for follow-ups, `get_contacts` for contact info.
 
 ---
 
 ## File Locations
 
-- Runtime skills (live): `~/.ubot/skills/<skill-name>/SKILL.md`
-- Default skills (repo): `ubot-core/default-skills/<skill-name>/SKILL.md`
-- Always write to `~/.ubot/skills/` when creating a skill for immediate use
+- **Live skills (runtime)**: `~/.ubot/skills/<skill-name>/SKILL.md` — write here for immediate effect
+- **Default skills (repo)**: `ubot-core/default-skills/<skill-name>/SKILL.md` — for skills that ship with the product
+
+Always write to `~/.ubot/skills/` for new skills the owner creates at runtime.
+
+---
 
 ## Before writing
 
-ALWAYS show the full assembled SKILL.md in a code block and ask the owner to confirm before calling `write_file`. Make it easy for them to spot issues.
+ALWAYS show the full assembled SKILL.md in a code block and ask the owner to confirm before calling `write_file`. Make it easy to spot issues.

@@ -137,6 +137,9 @@ let eventBus: EventBus | null = null;
 // Owner approval system
 let approvalStore: ApprovalStore | null = null;
 
+// Follow-up store for conversation continuity
+let followUpStoreInstance: any | null = null;
+
 // Database reference for config persistence
 let coreDb: DatabaseConnection | null = null;
 
@@ -266,6 +269,9 @@ function setupWhatsAppHandlers(conn: WhatsAppConnection): void {
     const jid = msg.from || '';
     const replyJid = msg.rawJid || jid;
 
+    // Always prefer pushName (WhatsApp display name) over raw JID
+    const senderName = msg.pushName || msg.from || '';
+
     // Download media if present
     let attachments: import('../engine/types.js').Attachment[] | undefined;
     if (msg.hasMedia && msg.id && waConnection) {
@@ -323,7 +329,7 @@ function setupWhatsAppHandlers(conn: WhatsAppConnection): void {
     const unified: UnifiedMessage = {
       channel: 'whatsapp',
       senderId: jid,
-      senderName: msg.from || '',
+      senderName,
       body: msg.body,
       timestamp: msg.timestamp instanceof Date ? msg.timestamp : new Date(),
       replyFn: async (text: string) => {
@@ -338,6 +344,8 @@ function setupWhatsAppHandlers(conn: WhatsAppConnection): void {
         participant: msg.participant,
         hasMedia: msg.hasMedia,
         quotedMessageId: msg.quotedMessageId,
+        pushName: msg.pushName,
+        interactiveOptions: msg.interactiveOptions,
       },
       attachments,
     };
@@ -362,9 +370,11 @@ async function autoConnectWhatsApp(): Promise<void> {
     return;
   }
 
-  const sessionPath = (whatsappConfig as any).sessionPath || './sessions';
+  const sessionPath = (whatsappConfig as any).sessionPath || DEFAULT_WHATSAPP_CONFIG.sessionPath;
   const sessionName = (whatsappConfig as any).sessionName || 'ubot-session';
   const credsPath = join(sessionPath, sessionName, 'creds.json');
+
+  console.log(`[WhatsApp] Auto-connect: checking session at ${credsPath}`);
 
   if (!existsSync(credsPath)) {
     console.log('[WhatsApp] No saved session found — waiting for manual connect via UI');
@@ -731,7 +741,7 @@ function migrateConfig(): void {
   log.info('Migration', 'Config migrated to v3.0 (capabilities)');
 }
 
-export function initializeApi(db?: DatabaseConnection, agent?: AgentOrchestrator, wsPath?: string): void {
+export function initializeApi(db?: DatabaseConnection, agent?: AgentOrchestrator, wsPath?: string, followUpStore?: any): void {
   migrateConfig();
   workspacePath = wsPath || null;
   if (db) {
@@ -801,9 +811,9 @@ export function initializeApi(db?: DatabaseConnection, agent?: AgentOrchestrator
         async (systemPrompt: string, userMessage: string) => {
           return agent.generate(systemPrompt, userMessage);
         },
-        async (message: string, sessionId: string, source?: string, contactName?: string) => {
+        async (message: string, sessionId: string, source?: string, contactName?: string, skillContext?: string, isOwner?: boolean) => {
           const chatSource = (source || 'web') as 'web' | 'whatsapp' | 'telegram';
-          const result = await agent.chat(sessionId, message, chatSource, contactName);
+          const result = await agent.chat(sessionId, message, chatSource, contactName, isOwner, undefined, skillContext);
           return {
             response: result.content,
             toolCalls: result.toolCalls?.map(tc => ({
@@ -813,6 +823,7 @@ export function initializeApi(db?: DatabaseConnection, agent?: AgentOrchestrator
             })) || [],
           };
         },
+        agent.getConversationStore(),
       );
 
       // Skills are now file-based (SKILL.md) — no DB seeding needed.
@@ -879,6 +890,22 @@ export function initializeApi(db?: DatabaseConnection, agent?: AgentOrchestrator
     registerAgentTools(agent);
   }
 
+  // Store follow-up store reference and start checker
+  if (followUpStore) {
+    followUpStoreInstance = followUpStore;
+    if (agent) {
+      import('../automation/followups/checker.js').then(({ startFollowUpChecker }) => {
+        startFollowUpChecker({
+          followUpStore,
+          chat: (sessionId: string, message: string, source: string, contactName?: string, isOwner?: boolean) => {
+            return agent.chat(sessionId, message, source as any, contactName, isOwner);
+          },
+        });
+        console.log('[FollowUps] Follow-up checker started');
+      }).catch(err => console.error('[FollowUps] Failed to start checker:', err.message));
+    }
+  }
+
   autoConnectWhatsApp();
   autoConnectTelegram();
   autoConnectIMessage();
@@ -899,9 +926,10 @@ async function registerAgentTools(agent: AgentOrchestrator): Promise<void> {
     getEventBus: () => eventBus,
     getWorkspacePath: () => workspacePath,
     getCliService: () => null, // CLI service is lazily loaded in the tool module
+    getFollowUpStore: () => followUpStoreInstance,
   };
 
-  registerAllToolModules(registry, toolContext);
+  await registerAllToolModules(registry, toolContext);
 
   // Load custom tool modules from custom/modules/
   const { registerCustomModules } = await import('../tools/registry.js');
