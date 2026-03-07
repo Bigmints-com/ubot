@@ -10,7 +10,7 @@ import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Bot, User, Users, Save, RefreshCw, Brain, Trash2, Check, Plus, Database, Zap, Eye, Pencil } from "lucide-react";
+import { Bot, User, Users, Save, RefreshCw, Brain, Trash2, Check, Plus, Database, Eye, Pencil } from "lucide-react";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
 
@@ -791,28 +791,200 @@ function PersonasTable({
   );
 }
 
-function ContactsList() {
+function ContactsTable() {
+  const [personas, setPersonas] = useState<PersonaSummary[]>([]);
+  const [memoriesByContact, setMemoriesByContact] = useState<Record<string, MemoryEntry[]>>({});
+  const [selected, setSelected] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [personaData, memData] = await Promise.all([
+        api<{ personas: PersonaSummary[] }>("/api/personas"),
+        api<{ memoriesByContact: Record<string, MemoryEntry[]> }>("/api/memories"),
+      ]);
+      setPersonas(
+        (personaData.personas || []).filter(
+          (p) => p.type === "core" && p.id !== BOT_SOUL_ID && p.id !== OWNER_SOUL_ID
+        )
+      );
+      setMemoriesByContact(memData.memoriesByContact || {});
+    } catch {
+      /* ignore */
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  /** Extract a specific field from a contact's memories */
+  const getField = (contactId: string, key: string): string | undefined => {
+    const memories = memoriesByContact[contactId];
+    if (!memories) return undefined;
+    const entry = memories.find(
+      (m) => m.key.toLowerCase() === key.toLowerCase() && m.category !== "summary"
+    );
+    return entry?.value;
+  };
+
+  /** Build a display name: prefer extracted "name", fallback to label */
+  const getDisplayName = (p: PersonaSummary): string => {
+    const name = getField(p.id, "name") || getField(p.id, "full_name") || getField(p.id, "display_name");
+    return name || p.label;
+  };
+
+  /** Get phone number(s) — the id itself is often a phone number */
+  const getPhone = (p: PersonaSummary): string => {
+    const phone = getField(p.id, "phone") || getField(p.id, "phone_number");
+    if (phone) return phone;
+    // The persona ID is often a phone number like +1234567890
+    const idDigits = p.id.replace(/[^0-9+]/g, "");
+    if (idDigits.length >= 8) return idDigits.startsWith("+") ? idDigits : `+${idDigits}`;
+    return "—";
+  };
+
+  const handleDelete = async (personaId: string) => {
+    try {
+      await api(`/api/personas/${encodeURIComponent(personaId)}`, {
+        method: "DELETE",
+      });
+      setPersonas((prev) => prev.filter((p) => p.id !== personaId));
+      if (selected === personaId) setSelected(null);
+      toast.success("Contact deleted");
+    } catch {
+      toast.error("Failed to delete contact");
+    }
+  };
+
+  if (loading) {
+    return <div className="text-center text-muted-foreground py-8">Loading...</div>;
+  }
+
+  if (personas.length === 0 && !selected) {
+    return (
+      <div className="text-center text-muted-foreground py-12 border rounded-lg border-dashed">
+        <User className="size-10 mx-auto mb-3 opacity-40" />
+        <p className="font-medium">No contact profiles yet</p>
+        <p className="text-sm mt-1">Contact profiles are automatically created and updated from conversations.</p>
+      </div>
+    );
+  }
+
+  if (selected) {
+    const persona = personas.find((p) => p.id === selected);
+    return (
+      <div className="space-y-4">
+        <Button variant="ghost" size="sm" onClick={() => setSelected(null)}>
+          ← Back to list
+        </Button>
+        <DocumentEditor
+          personaId={selected}
+          label={`${getDisplayName(persona!) || selected} — Persona`}
+          description="Personality traits, communication style, and relationship context"
+        />
+        <ProfileDetails
+          contactId={selected}
+          title={`${getDisplayName(persona!) || selected} — Details`}
+        />
+      </div>
+    );
+  }
+
   return (
-    <PersonasTable 
-      filter={(p) => p.type === 'core' && p.id !== BOT_SOUL_ID && p.id !== OWNER_SOUL_ID}
-      icon={User}
-      emptyTitle="No contact profiles yet"
-      emptyDescription="Contact profiles are automatically created and updated from conversations."
-    />
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <p className="text-sm text-muted-foreground">
+          {personas.length} contact{personas.length !== 1 ? "s" : ""} found
+        </p>
+        <Button variant="outline" size="sm" onClick={load}>
+          <RefreshCw className="size-4 mr-1" />
+          Refresh
+        </Button>
+      </div>
+      <Card>
+        <CardContent className="p-0">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Name</TableHead>
+                <TableHead>Phone</TableHead>
+                <TableHead>Email</TableHead>
+                <TableHead>Company</TableHead>
+                <TableHead>Location</TableHead>
+                <TableHead>Last Updated</TableHead>
+                <TableHead className="w-[50px]"></TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {personas.map((p) => {
+                const displayName = getDisplayName(p);
+                const phone = getPhone(p);
+                const email = getField(p.id, "email") || "—";
+                const company = getField(p.id, "company") || getField(p.id, "organization") || "—";
+                const location = getField(p.id, "location") || getField(p.id, "city") || getField(p.id, "country") || "—";
+
+                return (
+                  <TableRow
+                    key={p.id}
+                    className="cursor-pointer group"
+                    onClick={() => setSelected(p.id)}
+                  >
+                    <TableCell>
+                      <div className="flex items-center gap-2">
+                        <div className="bg-muted rounded-full size-8 flex items-center justify-center shrink-0">
+                          <User className="size-4" />
+                        </div>
+                        <div className="min-w-0">
+                          <span className="font-medium truncate block">{displayName}</span>
+                          {displayName !== p.label && (
+                            <span className="text-xs text-muted-foreground truncate block">{p.label}</span>
+                          )}
+                        </div>
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-muted-foreground font-mono text-xs">
+                      {phone}
+                    </TableCell>
+                    <TableCell className="text-muted-foreground text-sm">
+                      {email}
+                    </TableCell>
+                    <TableCell className="text-muted-foreground text-sm">
+                      {company}
+                    </TableCell>
+                    <TableCell className="text-muted-foreground text-sm">
+                      {location}
+                    </TableCell>
+                    <TableCell className="text-muted-foreground text-sm">
+                      {p.updatedAt ? new Date(p.updatedAt).toLocaleDateString() : "—"}
+                    </TableCell>
+                    <TableCell>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="size-7 opacity-0 group-hover:opacity-100 text-destructive hover:text-destructive"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDelete(p.id);
+                        }}
+                      >
+                        <Trash2 className="size-3.5" />
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+    </div>
   );
 }
 
-function SpecializedAgentsList() {
-  return (
-    <PersonasTable 
-      filter={(p) => p.type === 'agent'}
-      icon={Zap}
-      showTypeBadge
-      emptyTitle="No specialized agents yet"
-      emptyDescription="Create .agent.md files in your agents/ directory to see them here."
-    />
-  );
-}
 
 /* ------------------------------------------------------------------ */
 /*  Main Page                                                          */
@@ -835,7 +1007,7 @@ export default function PersonasPage() {
       <Separator />
 
       <Tabs defaultValue="bot" className="w-full">
-        <TabsList className="grid w-full max-w-xl grid-cols-4">
+        <TabsList className="grid w-full max-w-xl grid-cols-3">
           <TabsTrigger value="bot" className="flex items-center gap-1.5">
             <Bot className="size-4" />
             Bot Identity
@@ -843,10 +1015,6 @@ export default function PersonasPage() {
           <TabsTrigger value="owner" className="flex items-center gap-1.5">
             <User className="size-4" />
             Owner Profile
-          </TabsTrigger>
-          <TabsTrigger value="agents" className="flex items-center gap-1.5">
-            <Zap className="size-4" />
-            Specialized Agents
           </TabsTrigger>
           <TabsTrigger value="contacts" className="flex items-center gap-1.5">
             <Users className="size-4" />
@@ -871,12 +1039,9 @@ export default function PersonasPage() {
 
         </TabsContent>
 
-        <TabsContent value="agents" className="mt-6">
-          <SpecializedAgentsList />
-        </TabsContent>
 
         <TabsContent value="contacts" className="mt-6">
-          <ContactsList />
+          <ContactsTable />
         </TabsContent>
       </Tabs>
     </div>

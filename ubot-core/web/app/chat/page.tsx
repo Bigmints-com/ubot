@@ -11,7 +11,8 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
   Send, Trash2, Bot, User, Wrench, Sparkles, Loader2,
   Paperclip, X, FileText, Image as ImageIcon, File as FileIcon,
-  ArrowDown,
+  ArrowDown, Globe, Smartphone, MessageCircle,
+  Send as SendIcon,
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { ThreadSidebar } from "@/components/thread-sidebar";
@@ -51,6 +52,13 @@ const ACCEPTED_TYPES = [
   "application/json", "application/xml",
 ];
 
+const CHANNEL_META: Record<string, { icon: typeof Globe; label: string; color: string }> = {
+  web: { icon: Globe, label: "Web", color: "text-blue-500" },
+  whatsapp: { icon: Smartphone, label: "WhatsApp", color: "text-green-500" },
+  telegram: { icon: SendIcon, label: "Telegram", color: "text-sky-500" },
+  imessage: { icon: MessageCircle, label: "iMessage", color: "text-indigo-500" },
+};
+
 export default function ChatPage() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
@@ -63,15 +71,25 @@ export default function ChatPage() {
   const messageCountRef = useRef(0);
   const [showScrollDown, setShowScrollDown] = useState(false);
   const [activeThreadId, setActiveThreadId] = useState<string>("");
+  const [activeThreadType, setActiveThreadType] = useState<string>("web");
+  const [activeThreadName, setActiveThreadName] = useState<string>("");
   const [threadReady, setThreadReady] = useState(false);
+  const [processingThreads, setProcessingThreads] = useState<string[]>([]);
+
+  const isReadOnly = activeThreadType !== "web";
+  // Show typing indicator if: web thread is loading locally, OR backend reports this thread is processing
+  const isProcessing = loading || processingThreads.includes(activeThreadId);
 
   // Initialize: fetch threads and select or create one
   useEffect(() => {
     const init = async () => {
       try {
-        const data = await api<{ sessions: Array<{ id: string }> }>("/api/chat/sessions");
+        const data = await api<{ sessions: Array<{ id: string; type: string; name: string }> }>("/api/chat/sessions");
         if (data.sessions && data.sessions.length > 0) {
-          setActiveThreadId(data.sessions[0].id);
+          const first = data.sessions[0];
+          setActiveThreadId(first.id);
+          setActiveThreadType(first.type || "web");
+          setActiveThreadName(first.name || "");
         } else {
           // Create first thread
           const res = await api<{ session: { id: string } }>("/api/chat/sessions", {
@@ -79,10 +97,13 @@ export default function ChatPage() {
             body: { name: "General" },
           });
           setActiveThreadId(res.session.id);
+          setActiveThreadType("web");
+          setActiveThreadName("General");
         }
       } catch {
         // Fallback to legacy
         setActiveThreadId("web-console");
+        setActiveThreadType("web");
       }
       setThreadReady(true);
     };
@@ -124,9 +145,22 @@ export default function ChatPage() {
     return () => clearInterval(interval);
   }, [loading, pollForNewMessages]);
 
+  // Poll for backend processing status (shows typing indicator for Telegram/WhatsApp threads)
+  useEffect(() => {
+    const pollProcessing = async () => {
+      try {
+        const data = await api<{ sessions: string[] }>("/api/chat/processing");
+        setProcessingThreads(data.sessions || []);
+      } catch { /* ignore */ }
+    };
+    pollProcessing();
+    const interval = setInterval(pollProcessing, 1500);
+    return () => clearInterval(interval);
+  }, []);
+
   useEffect(() => {
     scrollToBottom();
-  }, [messages, loading]);
+  }, [messages, isProcessing]);
 
   const scrollToBottom = () => {
     setTimeout(() => {
@@ -389,11 +423,21 @@ export default function ChatPage() {
     } catch { /* ignore */ }
   };
 
-  const handleSelectThread = (threadId: string) => {
+  const handleSelectThread = async (threadId: string) => {
     if (threadId === activeThreadId) return;
     setMessages([]);
     messageCountRef.current = 0;
     setActiveThreadId(threadId);
+    // Look up thread type
+    try {
+      const data = await api<{ sessions: Array<{ id: string; type: string; name: string }> }>("/api/chat/sessions");
+      const thread = data.sessions?.find((s: { id: string }) => s.id === threadId);
+      setActiveThreadType(thread?.type || "web");
+      setActiveThreadName(thread?.name || "");
+    } catch {
+      setActiveThreadType("web");
+      setActiveThreadName("");
+    }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -441,6 +485,22 @@ export default function ChatPage() {
         onNewThread={handleNewThread}
       />
       <div className="flex flex-col flex-1 min-w-0 min-h-0 overflow-hidden relative">
+
+      {/* Channel header for non-web threads */}
+      {isReadOnly && (() => {
+        const meta = CHANNEL_META[activeThreadType];
+        const Icon = meta?.icon || Globe;
+        return (
+          <div className="flex items-center gap-2 px-4 py-2 border-b bg-muted/30">
+            <Icon className={`size-4 ${meta?.color || "text-muted-foreground"}`} />
+            <span className="text-sm font-medium">{activeThreadName || activeThreadId}</span>
+            <Badge variant="outline" className="text-[10px] ml-auto">
+              {meta?.label || activeThreadType} · Read-only
+            </Badge>
+          </div>
+        );
+      })()}
+
       {/* Messages */}
       <ScrollArea className="flex-1 min-h-0 px-4" ref={scrollRef}>
         <div className="py-4 space-y-4 max-w-3xl mx-auto">
@@ -551,7 +611,7 @@ export default function ChatPage() {
             </div>
           ))}
 
-          {loading && (
+          {isProcessing && (
             <div className="flex gap-3 items-start">
               <Avatar className="size-8 shrink-0">
                 <AvatarFallback className="bg-primary text-primary-foreground text-xs">
@@ -631,50 +691,63 @@ export default function ChatPage() {
         </div>
       )}
 
-      {/* Input */}
-      <div className="px-4 py-3">
-        <div className="flex gap-2 max-w-3xl mx-auto">
-          {/* Hidden file input */}
-          <input
-            ref={fileInputRef}
-            type="file"
-            className="hidden"
-            multiple
-            accept={ACCEPTED_TYPES.join(",")}
-            onChange={(e) => {
-              handleFileSelect(e.target.files);
-              e.target.value = ""; // Reset so same file can be selected again
-            }}
-          />
-          <Button
-            variant="ghost"
-            size="icon"
-            className="shrink-0"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={loading}
-            title="Attach files (images, PDFs, documents)"
-          >
-            <Paperclip className="size-4" />
-          </Button>
-          <Textarea
-            ref={textareaRef}
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder={pendingAttachments.length > 0 ? "Add a message about the attachment(s)..." : "Type a message..."}
-            className="min-h-[40px] max-h-[120px] resize-none"
-            rows={1}
-          />
-          <Button
-            onClick={sendMessage}
-            disabled={(!input.trim() && pendingAttachments.length === 0) || loading}
-            size="icon"
-            className="shrink-0"
-          >
-            <Send className="size-4" />
-          </Button>
+      {/* Input — only for web threads */}
+      {isReadOnly ? (
+        <div className="px-4 py-3 bg-muted/20 border-t">
+          <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground max-w-3xl mx-auto">
+            {(() => {
+              const meta = CHANNEL_META[activeThreadType];
+              const Icon = meta?.icon || Globe;
+              return <Icon className={`size-4 ${meta?.color || ""}`} />;
+            })()}
+            <span>Viewing {CHANNEL_META[activeThreadType]?.label || activeThreadType} conversation · Messages handled by skills</span>
+          </div>
         </div>
-      </div>
+      ) : (
+        <div className="px-4 py-3">
+          <div className="flex gap-2 max-w-3xl mx-auto">
+            {/* Hidden file input */}
+            <input
+              ref={fileInputRef}
+              type="file"
+              className="hidden"
+              multiple
+              accept={ACCEPTED_TYPES.join(",")}
+              onChange={(e) => {
+                handleFileSelect(e.target.files);
+                e.target.value = ""; // Reset so same file can be selected again
+              }}
+            />
+            <Button
+              variant="ghost"
+              size="icon"
+              className="shrink-0"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={loading}
+              title="Attach files (images, PDFs, documents)"
+            >
+              <Paperclip className="size-4" />
+            </Button>
+            <Textarea
+              ref={textareaRef}
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder={pendingAttachments.length > 0 ? "Add a message about the attachment(s)..." : "Type a message..."}
+              className="min-h-[40px] max-h-[120px] resize-none"
+              rows={1}
+            />
+            <Button
+              onClick={sendMessage}
+              disabled={(!input.trim() && pendingAttachments.length === 0) || loading}
+              size="icon"
+              className="shrink-0"
+            >
+              <Send className="size-4" />
+            </Button>
+          </div>
+        </div>
+      )}
       </div>
     </div>
   );

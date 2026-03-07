@@ -21,6 +21,21 @@ import type { SkillEngine } from '../agents/skills/skill-engine.js';
 import type { Skill, SkillEvent } from '../agents/skills/skill-types.js';
 import { OWNER_SOUL_ID } from '../memory/soul.js';
 
+// ─── Processing Tracker ───────────────────────────────────
+
+/** Tracks which sessions are currently being processed by the LLM */
+const activeSessions = new Set<string>();
+
+/** Get all currently processing session IDs */
+export function getProcessingSessions(): string[] {
+  return Array.from(activeSessions);
+}
+
+/** Check if a specific session is being processed */
+export function isSessionProcessing(sessionId: string): boolean {
+  return activeSessions.has(sessionId);
+}
+
 // ─── Types ────────────────────────────────────────────────
 
 export type Channel = 'whatsapp' | 'telegram' | 'imessage' | 'web';
@@ -210,12 +225,14 @@ export async function handleIncomingMessage(
   const sessionId = resolveSessionId(msg, isOwner);
 
   // 5. Master auto-reply switch (visitors only)
-  //    If auto-reply is OFF → nothing fires. No skills, no orchestrator.
-  //    If auto-reply is ON  → skills decide who gets a reply (contacts, groups, etc.)
+  //    If auto-reply is OFF → nothing fires. No orchestrator, no skills.
+  //    If auto-reply is ON  → LLM handles everything (with skill context injected).
+  //
+  //    Architecture: LLM-FIRST (see .agents/specs/message-flow.md)
+  //    The orchestrator receives ALL valid visitor messages. Skills are injected as
+  //    context/instructions — the LLM decides how to act. No silent message drops.
   if (!isOwner) {
     const config = deps.orchestrator.getConfig();
-    // Default to ON — only explicit `false` disables auto-reply.
-    // Skills handle the fine-grained control (who, where, when).
     const autoReplyEnabled = msg.channel === 'whatsapp'
       ? config.autoReplyWhatsApp !== false
       : msg.channel === 'telegram'
@@ -226,54 +243,116 @@ export async function handleIncomingMessage(
       return { isOwner, sessionId, response: '', handled: false };
     }
 
-    // Auto-reply is ON → emit skill event.
-    // Skills handle the fine-grained filtering:
-    //   - filter_contacts: only reply to specific phone numbers
-    //   - filter_dms_only: true = skip group messages
-    //   - filter_groups_only: true = only reply in groups
-    //   - filter_pattern: regex match on message body (e.g. @mentions)
-    //   - condition: LLM-checked intent (e.g. "when someone asks about pricing")
-    //
-    // Skills with outcome 'reply' send the response back to the sender.
-    // No hardcoded contact/group filtering needed here — skills do it all.
-    if (deps.eventBus) {
-      emitSkillEvent(msg, isOwner, deps);
+    // Build skill context: gather instructions from enabled skills whose
+    // fast filters match this event (no LLM cost — just filter checks).
+    let skillContext = '';
+    if (deps.skillEngine) {
+      const event: SkillEvent = {
+        source: msg.channel,
+        type: 'message',
+        from: msg.senderId,
+        to: 'bot',
+        body: msg.body,
+        timestamp: msg.timestamp,
+        data: {
+          senderName: msg.senderName,
+          senderUsername: msg.senderUsername,
+          isOwner: false,
+          ...msg.extra,
+        },
+      };
+      const matchedSkills = deps.skillEngine.getMatchingSkills(event);
+      if (matchedSkills.length > 0) {
+        const skillInstructions = matchedSkills.map(s =>
+          `### Skill: ${s.name}\n${s.processor.instructions || s.trigger.condition || '(no specific instructions)'}`
+        ).join('\n\n');
+        skillContext = [
+          `[SKILL CONTEXT] The following skill instructions are relevant to this conversation.`,
+          `Follow them when the visitor's message matches their intent:\n`,
+          skillInstructions,
+          ``,
+          `RULES:`,
+          `- USE tools first if the request needs information you don't have`,
+          `- After using tools, compose the final reply with the actual information found`,
+          `- NEVER say "I'll check" or "let me get back to you" — DO the action RIGHT NOW`,
+          `- If you need owner approval, call ask_owner IMMEDIATELY`,
+          `- COMPLETE every action in this turn. There is no "later"`,
+          `- Write the reply message directly — not a description of what you'll do`,
+          `- Do NOT use send_message. Follow visitor security policy.`,
+        ].join('\n');
+        console.log(`[Unified] 📋 Injecting ${matchedSkills.length} skill(s) as context: ${matchedSkills.map(s => s.name).join(', ')}`);
+      }
     }
 
-    // Don't fall through to the orchestrator — skills are the reply mechanism.
-    // (If no skill matches, nobody replies — that's correct behavior.)
-    return { isOwner, sessionId, response: '', handled: false };
+    // Route to orchestrator — the LLM handles everything:
+    // conversational replies, tool calls, skill instructions, asking for details.
+    activeSessions.add(sessionId);
+    try {
+      const response = await deps.orchestrator.chat(
+        sessionId,
+        msg.body,
+        msg.channel,
+        msg.senderName || undefined,
+        false, // isOwner = false
+        msg.attachments,
+        skillContext || undefined,
+      );
+
+      if (response.content) {
+        await msg.replyFn(response.content);
+      }
+
+      return { isOwner, sessionId, response: response.content, handled: true };
+    } catch (err: any) {
+      console.error(`[Unified] Visitor chat error (${msg.channel}):`, err.message);
+      return { isOwner, sessionId, response: '', handled: false };
+    } finally {
+      activeSessions.delete(sessionId);
+    }
   }
 
-  // 6. Owner: check pending approvals
+  // 6. Owner: check pending approvals — only consume if the message explicitly
+  //    references an approval (e.g. "approve: yes" or the approval ID).
+  //    Otherwise, let it flow to the orchestrator where the LLM can decide
+  //    to use the respond_to_approval tool if appropriate.
   if (isOwner && deps.approvalStore) {
     const pending = deps.approvalStore.getPending();
     if (pending.length > 0) {
-      const approval = pending[0];
-      deps.approvalStore.resolve(approval.id, msg.body);
-      console.log(`[Unified] ✅ Owner responded to approval ${approval.id}`);
+      const trimmed = msg.body.trim().toLowerCase();
+      // Only auto-consume if the message starts with "approve:" or contains an approval ID
+      const isExplicitApproval = trimmed.startsWith('approve:') || trimmed.startsWith('approve ') ||
+        pending.some(a => msg.body.includes(a.id));
 
-      // Feed approval response back to the requester's session
-      if (approval.requesterJid) {
-        const reqSessionId = approval.requesterJid;
-        const reqSource = resolveChannelFromSessionId(reqSessionId);
-        const systemMessage = `[SYSTEM] The owner responded to your approval request (ID: ${approval.id}): "${msg.body}"\n\nPlease relay this information to the visitor appropriately.`;
+      if (isExplicitApproval) {
+        const approval = pending[0];
+        // Strip "approve:" prefix if present
+        const response = msg.body.replace(/^approve:\s*/i, '').trim() || msg.body;
+        deps.approvalStore.resolve(approval.id, response);
+        console.log(`[Unified] ✅ Owner responded to approval ${approval.id}`);
 
-        deps.orchestrator.chat(reqSessionId, systemMessage, reqSource).then(async result => {
-          if (result.content && deps.relayMessage) {
-            const sent = await deps.relayMessage(reqSessionId, result.content);
-            console.log(`[Unified] ↩ Approval follow-up ${sent ? 'sent' : 'FAILED'} to ${reqSessionId}`);
-          } else if (result.content) {
-            console.warn(`[Unified] ⚠️ No relayMessage function — approval response to ${reqSessionId} was NOT delivered`);
-          }
-        }).catch(err => console.error('[Unified] Approval follow-up failed:', err.message));
+        // Feed approval response back to the requester's session
+        if (approval.requesterJid) {
+          const reqSessionId = approval.requesterJid;
+          const reqSource = resolveChannelFromSessionId(reqSessionId);
+          const systemMessage = `[SYSTEM] The owner responded to your approval request (ID: ${approval.id}): "${response}"\n\nPlease relay this information to the visitor appropriately.`;
+
+          deps.orchestrator.chat(reqSessionId, systemMessage, reqSource).then(async result => {
+            if (result.content && deps.relayMessage) {
+              const sent = await deps.relayMessage(reqSessionId, result.content);
+              console.log(`[Unified] ↩ Approval follow-up ${sent ? 'sent' : 'FAILED'} to ${reqSessionId}`);
+            } else if (result.content) {
+              console.warn(`[Unified] ⚠️ No relayMessage function — approval response to ${reqSessionId} was NOT delivered`);
+            }
+          }).catch(err => console.error('[Unified] Approval follow-up failed:', err.message));
+        }
+
+        return { isOwner, sessionId, response: '', handled: true };
       }
-
-      return { isOwner, sessionId, response: '', handled: true };
     }
   }
 
   // 7. Route owner messages to the orchestrator
+  activeSessions.add(sessionId);
   try {
     const response = await deps.orchestrator.chat(
       sessionId,
@@ -292,6 +371,8 @@ export async function handleIncomingMessage(
   } catch (err: any) {
     console.error(`[Unified] Chat error (${msg.channel}):`, err.message);
     return { isOwner, sessionId, response: '', handled: false };
+  } finally {
+    activeSessions.delete(sessionId);
   }
 }
 

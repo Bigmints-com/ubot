@@ -2,39 +2,82 @@
 
 A catalog of automated workflows that allow Ubot to react to events without manual prompts.
 
-## 1. Automation Model
+## 1. Architecture
 
-All skills follow the **Trigger → Processor → Outcome** pipeline.
+Skills are **file-based** — each skill is a `SKILL.md` file in `~/.ubot/skills/<skill-name>/`. Skills follow the **Trigger → Processor → Outcome** pipeline and are loaded dynamically at startup (no DB migration needed).
 
-## 2. Common Skill Templates
+### SKILL.md Format
 
-### 🕒 Daily Briefing
+```yaml
+---
+name: Skill Name
+description: What this skill does
+triggers: [message]
+filter_dms_only: true # Only DMs, no groups
+filter_groups_only: false # Only groups
+filter_contacts: [] # Restrict to specific contacts
+filter_groups: [] # Restrict to specific groups
+condition: LLM-checked condition text # Phase 2 intent check
+outcome: reply | silent # reply = send response back, silent = no auto-reply
+enabled: true
+---
+# Instructions
 
-- **Trigger**: `cron:tick` (Every morning at 8:00 AM).
-- **Processor**: Search for top news and calendar events, then summarize into a "Good Morning" message.
-- **Outcome**: `send_message` to the owner.
+Markdown instructions for the LLM when this skill fires.
+```
 
-### 📬 Smart Responder
+## 2. Two-Phase Matching
 
-- **Trigger**: `whatsapp:message`.
-- **Condition**: "When someone asks about my availability."
-- **Processor**: Multi-stage pipeline:
-  1. `tool:google_calendar_list_events`
-  2. `prompt: "Based on these events, suggest a time..."`
-- **Outcome**: `reply`.
+- **Phase 1 (Fast Filter)**: Source, DMs-only, groups-only, contact/group lists, regex patterns. Zero LLM cost.
+- **Phase 2 (LLM Condition)**: If `condition` is set, an LLM classifies the event as "yes/no" match. One cheap classification call. Skills without conditions auto-match if Phase 1 passes.
 
-### 🗃️ Auto-Archiver
+## 3. Owner Context Injection
 
-- **Trigger**: `email:received`.
-- **Condition**: "If the email is a receipt or invoice."
-- **Processor**: `tool:files_write_file` to `workspace/finances/`.
-- **Outcome**: `silent`.
+When a skill executes, the engine injects the **owner's last 5 commands** from the `web-console` session into the skill's context. This allows skills to understand the owner's intent without calling `ask_owner`. For example, if the owner said "book an appointment" via Telegram, the bot interaction skill can see that intent and act accordingly.
 
-## 3. Advanced Workflow Pipelines
+## 4. Current Skills
 
-Project Nexus enabled multi-stage workflows. A single skill can now chain multiple "Processors" together, passing variables like `{{stage_1.result}}` to `stage_2`. This allows for complex logic such as:
+### 🤖 WhatsApp Bot Interaction
 
-1.  **Stage 1 (Search)**: Gather raw data.
-2.  **Stage 2 (Analyze)**: LLM processing of the raw data.
-3.  **Stage 3 (Execute)**: Tool call based on the analysis.
-4.  **Stage 4 (Notify)**: Final confirmation to the user.
+- **Trigger**: `message` (DMs only)
+- **Condition**: "message is from an automated WhatsApp bot or service"
+- **Outcome**: `silent`
+- **Tools used**: `wa_respond_to_bot`, `search_messages`, `ask_owner`
+- **Purpose**: Navigate WhatsApp bot menus (letter-based, number-based, keyword, interactive buttons). Reads owner's intent from context, sends the exact menu key the bot expects. Auto-sends "Hi" for session restarts.
+
+### 💬 DM Auto Reply
+
+- **Trigger**: `message` (DMs only)
+- **Condition**: "message is from a real human person — NOT from an automated bot"
+- **Outcome**: `reply`
+- **Purpose**: Reply to personal WhatsApp DMs as the owner's secretary.
+
+### 👥 WhatsApp Group Contacts
+
+- **Trigger**: `message` (groups only)
+- **Outcome**: `reply`
+- **Purpose**: Handle group-related contact queries.
+
+### 📢 WhatsApp Group Mentions
+
+- **Trigger**: `message` (groups only)
+- **Outcome**: `reply`
+- **Purpose**: Respond when mentioned in group conversations.
+
+## 5. Skill Routing (Mutual Exclusion)
+
+Skills can be made mutually exclusive using conditions. For example, `DM Auto Reply` and `WhatsApp Bot Interaction` both match DMs, but their LLM conditions ensure only one fires:
+
+- Bot message → Bot Interaction skill (condition: "automated bot") ✓ / DM Reply (condition: "real human") ✗
+- Human message → Bot Interaction skill ✗ / DM Reply ✓
+
+## 6. Advanced Workflow Pipelines
+
+Skills support multi-stage workflows via `stages` in the YAML frontmatter. A single skill can chain multiple processors:
+
+1. **Stage 1 (Search)**: Gather raw data via tool call.
+2. **Stage 2 (Analyze)**: LLM processing of the raw data.
+3. **Stage 3 (Execute)**: Tool call based on the analysis.
+4. **Stage 4 (Notify)**: Final confirmation to the user.
+
+Variables pass between stages via `{{stage_name.output}}` substitution.

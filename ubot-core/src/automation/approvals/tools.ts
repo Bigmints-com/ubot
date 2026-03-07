@@ -62,7 +62,7 @@ const approvalsToolModule: ToolModule = {
       if (agent) {
         const convStore = agent.getConversationStore();
         convStore.getOrCreateSession('web-console', 'web', 'Command Center');
-        const notification = `🔔 **Approval Request** (ID: ${approval.id})\n\n**From:** ${context || 'Unknown'}\n**Question:** ${question}\n\n👉 Go to the Approvals page to respond, or reply here with your answer.`;
+        const notification = `🔔 **Approval Request** (ID: ${approval.id})\n\n**From:** ${context || 'Unknown'}\n**Requester:** ${requesterJid}\n**Question:** ${question}\n\n👉 Go to the Approvals page to respond, or reply here with your answer.`;
         convStore.addMessage('web-console', 'assistant', notification, { source: 'web' });
 
         // Notify owner via WhatsApp

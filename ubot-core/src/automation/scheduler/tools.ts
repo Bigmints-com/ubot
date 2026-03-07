@@ -76,6 +76,59 @@ const schedulerToolModule: ToolModule = {
   register(registry: ToolRegistry, ctx: ToolContext) {
     const mr = ctx.getMessagingRegistry();
 
+    // ── Register handler factories for task persistence ──
+    const sched = ctx.getScheduler();
+    if (sched && typeof sched.registerHandlerFactory === 'function') {
+      // Factory for scheduled_message tasks
+      sched.registerHandlerFactory('scheduled_message', (data: any) => {
+        return async (_ctx: any, d: any) => {
+          const provider = mr.resolveProvider(d.channel || undefined);
+          await provider.sendMessage(d.to, d.body);
+          console.log(`[Scheduler] Sent scheduled message to ${d.to}`);
+          return { sent: true, to: d.to };
+        };
+      });
+
+      // Factory for reminder tasks
+      sched.registerHandlerFactory('reminder', (data: any) => {
+        return async (_ctx: any, d: any) => {
+          const reminderText = `⏰ **Reminder:** ${d.message}`;
+          const tg = ctx.getTelegram();
+          const wa = ctx.getWhatsApp();
+          const agent = ctx.getAgent();
+          const config = agent?.getConfig();
+          if (d.ownerTelegramId && tg) {
+            try { await tg.sendMessage(Number(d.ownerTelegramId), reminderText); return { sent: true, channel: 'telegram' }; } catch {}
+          }
+          const ownerPhone = config?.ownerPhone;
+          if (wa?.isConnected && ownerPhone) {
+            try {
+              const jid = `${ownerPhone.replace(/\D/g, '')}@s.whatsapp.net`;
+              await wa.sendMessage(jid, { text: reminderText });
+              return { sent: true, channel: 'whatsapp' };
+            } catch {}
+          }
+          return { sent: false, stored: true };
+        };
+      });
+
+      // Factory for agent_task tasks
+      sched.registerHandlerFactory('agent_task', (data: any) => {
+        return async (_ctx: any, d: any) => {
+          const orchestrator = ctx.getAgent() as any;
+          if (!orchestrator?.chat) throw new Error('Agent orchestrator not available');
+          console.log(`[Scheduler] Running agent task: ${d.prompt?.slice(0, 100)}`);
+          const sessionId = `sched-${Date.now()}`;
+          const result = await orchestrator.chat(sessionId, d.prompt, 'web', 'scheduler', true);
+          console.log(`[Scheduler] Agent task completed: ${result.content?.slice(0, 100)}`);
+          return { success: true, content: result.content, tools: result.toolCalls?.length || 0 };
+        };
+      });
+
+      // Load persisted tasks now that factories are registered
+      sched.loadPersistedTasks();
+    }
+
     registry.register('schedule_message', async (args) => {
       const to = String(args.to || '');
       const body = String(args.body || args.message || '');

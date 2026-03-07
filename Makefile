@@ -143,8 +143,17 @@ install: build
 
 	@echo ""
 	@echo "✅ Ubot installed!"
-	@echo ""
-	@echo "   Get started:  ubot start"
+
+	@# ── Auto-restart if server is running ──────────────────────────────
+	@if [ -f $(UBOT_HOME)/ubot.pid ] && kill -0 $$(cat $(UBOT_HOME)/ubot.pid) 2>/dev/null; then \
+		echo ""; \
+		echo "🔄 Server is running — restarting with new code..."; \
+		$(INSTALL_BIN_DIR)/ubot restart; \
+	else \
+		echo ""; \
+		echo "   Get started:  ubot start"; \
+	fi
+
 	@echo "   Dashboard:    http://localhost:11490"
 	@echo "   Config:       $(UBOT_HOME)/config.json"
 

@@ -2,37 +2,65 @@
 
 A guide for "Day 2" operations, ensuring the health, durability, and evolution of a Ubot instance.
 
-## 1. Backup & Recovery
+## 1. Build & Deploy
 
-All critical state resides in the **Workspace** (`~/.ubot/workspace`).
+```bash
+cd ~/Projects/ubot/ubot-core
+npm run build                          # Compiles TypeScript → dist/
+cp -R dist/* ~/.ubot/lib/             # Deploy to production
+kill $(pgrep -f "node.*ubot/lib")     # Stop old process
+sleep 2
+cd ~/.ubot && UBOT_HOME=$HOME/.ubot NODE_ENV=production \
+  nohup node ~/.ubot/lib/index.js >> ~/.ubot/logs/ubot.log 2>&1 &
+```
 
-- **Standard Backup**: Regularly archive the entire workspace directory. This includes personas, the identity soul, and the durable memory database.
-- **Recovery**: Restoring the workspace to a new Ubot installation immediately restores the agent's personality and history.
+## 2. Monitoring
 
-## 2. System Monitoring
+- **Logs**: `tail -f ~/.ubot/logs/ubot.log | grep -v "GET /api/"`
+- **Tool count**: `grep "tools total" ~/.ubot/logs/ubot.log | tail -1`
+- **Visitor tool count**: `grep "Tools available" ~/.ubot/logs/ubot.log | tail -5` (should be 11 for visitor, 131+ for owner)
+- **Skill matching**: `grep "SkillEngine" ~/.ubot/logs/ubot.log | tail -20`
+- **Message flow**: `grep "Unified\|RateLimiter" ~/.ubot/logs/ubot.log | tail -20`
 
-Ubot provides built-in tools for operational health:
+## 3. Debugging Common Issues
 
-- **`ubot logs -f`**: Real-time tailing of the engine logs.
-- **Tool Registry Audit**: Periodically check the `duration` and `success` rates in the session logs to identify failing integrations or high-latency providers.
+### Tool not found (visitor session)
 
-## 3. Migration (DB to Markdown)
+If a skill fails with "Unknown tool: X", add the tool to `VISITOR_SAFE_TOOL_NAMES` in `src/engine/tools.ts`.
 
-As Ubot evolves, it moves more state into Markdown:
+### JID decode error
 
-- **Auto-Sync**: The `Soul` module handles most migrations automatically by exporting SQLite records to `SOUL.md` on startup.
-- **Manual Override**: If the filesystem and DB diverge, the filesystem (Markdown) is always treated as the **Primary Source of Truth** for identity.
+If `wa_respond_to_bot` fails with "Cannot destructure property 'user' of jidDecode(...)", the JID isn't normalized. The tool should handle this automatically, but verify the `to` parameter includes `@s.whatsapp.net`.
 
-## 4. Debugging Tool Failures
+### LLM hallucinating tool calls
 
-When an agent reports a tool failure:
+If log shows `0 tool calls` but the response text contains `[Used tools: ...]`, the LLM is writing tool names as text instead of using structured function calling. This often happens after repeated tool failures — fix the underlying tool error.
 
-1.  **Check Validation**: View logs for `WorkspaceGuard` violations. This usually means the LLM provided an invalid or out-of-bounds path.
-2.  **Verify Context**: Ensure the active agent persona has the necessary tool module in its `# Tools` list.
-3.  **Test in Isolation**: Use the `src/tools/test-helpers.ts` to run tool modules in a mock environment to verify their logic.
+### Skill not firing
 
-## 5. Engine Updates
+Check the two-phase matching:
 
-- **Update Process**: Pull the latest code, run `make install`, then `ubot restart`. The Makefile handles building both backend and web UI, installing to `~/.ubot`, and merging config.
-- **Database Migrations**: Ubot uses an idempotent "ensureTable" pattern (see `skill-repository.ts`). On startup, the engine automatically applies any necessary schema updates to the SQLite files.
-- **Config Merging**: `make install` deep-merges `cli/default-config.json` into `~/.ubot/config.json`, adding new keys without overwriting existing values.
+1. Phase 1: `grep "Phase 1" ~/.ubot/logs/ubot.log` — are candidates found?
+2. Phase 2: `grep "Phase 2" ~/.ubot/logs/ubot.log` — does the condition match?
+
+## 4. Skill Management
+
+Skills are file-based in `~/.ubot/skills/<skill-name>/SKILL.md`. To add/edit/remove:
+
+- Create: `mkdir ~/.ubot/skills/my-skill && vim ~/.ubot/skills/my-skill/SKILL.md`
+- Edit: Modify the SKILL.md file directly — changes are picked up automatically on next event
+- Delete: Remove the directory
+
+## 5. Backup & Recovery
+
+All critical state resides in `~/.ubot/`:
+
+- `config.json` — System configuration
+- `skills/` — All skill definitions (SKILL.md files)
+- `sessions/` — WhatsApp auth session data
+- `data/ubot.db` — SQLite database (conversations, contacts, memories)
+- `lib/` — Compiled JavaScript (can be regenerated from source)
+
+## 6. Knowledge Maintenance Rule
+
+> **When adding or removing tools, always update `/.agents/knowledge/registry_tools.md`** with the tool name, parameters, and description. This is the canonical reference and must stay in sync with the codebase.

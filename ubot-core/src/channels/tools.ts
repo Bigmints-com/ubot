@@ -19,7 +19,7 @@ const MESSAGING_TOOLS: ToolDefinition[] = [
   },
   {
     name: 'search_messages',
-    description: 'Search through message history across all connected platforms',
+    description: 'Find past messages and conversations. Use this to check what was discussed, find schedules, look up details mentioned in previous chats, or verify what was said before.',
     parameters: [
       { name: 'from', type: 'string', description: 'Filter by sender phone number or ID', required: false },
       { name: 'to', type: 'string', description: 'Filter by recipient phone number or ID', required: false },
@@ -30,7 +30,7 @@ const MESSAGING_TOOLS: ToolDefinition[] = [
   },
   {
     name: 'get_contacts',
-    description: 'List contacts from connected messaging platforms. Can search by name or number.',
+    description: 'Look up contact information by name or number. Use this to find someone\'s phone number, check if a contact exists, or look up group membership.',
     parameters: [
       { name: 'query', type: 'string', description: 'Search by name, phone number, or ID', required: false },
       { name: 'channel', type: 'string', description: 'Filter by messaging channel', required: false },
@@ -113,6 +113,14 @@ const MESSAGING_TOOLS: ToolDefinition[] = [
       { name: 'channel', type: 'string', description: 'Messaging channel', required: false },
     ],
   },
+  {
+    name: 'wa_respond_to_bot',
+    description: 'Send a response to a WhatsApp bot\'s interactive message (menu selections, button taps, text choices). Use this when the bot presents options like "type A for appointments" or shows interactive buttons/lists. Send the exact option text the bot expects.',
+    parameters: [
+      { name: 'to', type: 'string', description: 'The WhatsApp JID of the bot to respond to (the rawJid from the incoming message)', required: true },
+      { name: 'response', type: 'string', description: 'The exact text/option to send back to the bot (e.g. "A" for booking, or the button label)', required: true },
+    ],
+  },
 ];
 
 const messagingToolModule: ToolModule = {
@@ -126,7 +134,23 @@ const messagingToolModule: ToolModule = {
       const body = String(args.body || args.message || '');
       if (!to || !body) return { toolName: 'send_message', success: false, error: 'Missing "to" or "body" parameter', duration: 0 };
       try {
-        const provider = mr.resolveProvider(args.channel as string | undefined);
+        let channel = args.channel as string | undefined;
+        
+        // Smart channel detection: if no channel specified and the recipient looks like
+        // an international phone number, prefer WhatsApp (if connected) over other providers.
+        // This prevents messages from routing to iMessage/BlueBubbles for non-iMessage contacts.
+        if (!channel && /^\+\d{10,}$/.test(to.replace(/\s/g, ''))) {
+          try {
+            const waProvider = mr.getProvider('whatsapp');
+            if (waProvider.status === 'connected') {
+              channel = 'whatsapp';
+            }
+          } catch {
+            // WhatsApp not registered — fall through to default
+          }
+        }
+        
+        const provider = mr.resolveProvider(channel);
         await provider.sendMessage(to, body);
         return { toolName: 'send_message', success: true, result: `Message sent to ${to} via ${provider.channel}: "${body}"`, duration: 0 };
       } catch (err: any) {
@@ -291,6 +315,33 @@ const messagingToolModule: ToolModule = {
         return { toolName: 'create_poll', success: true, result: `Poll created: "${question}" with ${options.length} options`, duration: 0 };
       } catch (err: any) {
         return { toolName: 'create_poll', success: false, error: err.message, duration: 0 };
+      }
+    });
+
+    registry.register('wa_respond_to_bot', async (args) => {
+      let to = String(args.to || '');
+      const response = String(args.response || '');
+      if (!to || !response) {
+        return { toolName: 'wa_respond_to_bot', success: false, error: 'Missing "to" (bot JID) or "response" (text to send)', duration: 0 };
+      }
+      try {
+        const waConn = ctx.getWhatsApp();
+        if (!waConn || !waConn.isConnected) {
+          return { toolName: 'wa_respond_to_bot', success: false, error: 'WhatsApp is not connected', duration: 0 };
+        }
+        // Normalize JID — LLM may pass phone numbers like "+97143020600" instead of JIDs
+        if (!to.includes('@')) {
+          const digits = to.replace(/\D/g, '');
+          to = `${digits}@s.whatsapp.net`;
+        }
+        // Send as plain text — WhatsApp bots accept text replies for menu selections
+        console.log(`[wa_respond_to_bot] Sending "${response}" to ${to}`);
+        await waConn.sendMessage(to, { text: response });
+        console.log(`[wa_respond_to_bot] ✅ Message sent successfully`);
+        return { toolName: 'wa_respond_to_bot', success: true, result: `Sent "${response}" to bot ${to}`, duration: 0 };
+      } catch (err: any) {
+        console.log(`[wa_respond_to_bot] ❌ Failed: ${err.message}`);
+        return { toolName: 'wa_respond_to_bot', success: false, error: `Failed to respond to bot: ${err.message}`, duration: 0 };
       }
     });
   },

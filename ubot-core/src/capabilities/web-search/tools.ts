@@ -12,7 +12,7 @@ import type { ToolModule, ToolRegistry, ToolContext, ToolDefinition } from '../.
 const WEB_SEARCH_TOOLS: ToolDefinition[] = [
   {
     name: 'web_search',
-    description: 'Search the web for information. Returns titles, links, and snippets from Google (via Serper) or DuckDuckGo.',
+    description: "Answer questions about the real world, current events, facts, or anything not in your memory. Use this when you need to look something up that you don't already know.",
     parameters: [
       { name: 'query', type: 'string', description: 'Search query', required: true },
       { name: 'max_results', type: 'number', description: 'Max results to return (default 8)', required: false },

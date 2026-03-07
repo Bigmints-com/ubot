@@ -1,19 +1,23 @@
-# Anatomy Part 4: The Skills (Workflow Composability)
+# Anatomy Part 4: The Skills (LLM Context Layer)
 
-The "Action" of Ubot. The Skill Engine enables complex, automated workflows that go beyond simple chat interactions.
+Skills provide **behavioral instructions** that the LLM follows when handling visitor messages.
+They are NOT a separate pipeline — they are context injected into the orchestrator.
 
-## Core Components
+> **Architecture: LLM-FIRST** (see `.agents/specs/message-flow.md` for the full contract)
 
-- **`SkillEngine`**: Manages the processing of events through a multi-stage pipeline.
-- **`Skill` Object**: Defined by a Trigger (when), a Processor (how), and an Outcome (what).
-- **`SkillRepository`**: Interface for skill persistence. Two backends exist:
-  - **`file-skill-repository.ts`** — Stores each skill as `~/.ubot/skills/<skill-name>/SKILL.md`. Used for manually authored skills; git-trackable and human-editable.
-  - **`skill-repository.ts`** — SQLite-backed persistence. Used for skills created via the web UI or the `create_skill` / `update_skill` tools.
-  - The `SkillEngine` accepts either backend through the same `SkillRepository` interface.
+## How Skills Work
+
+1. Visitor message arrives → handler checks auto-reply toggle
+2. Handler runs **fast filters** (Phase 1) on enabled skills — zero LLM cost
+3. Matching skills' instructions are gathered and **injected as context** into the orchestrator call
+4. The **LLM decides** how to act: follow skill instructions, call tools, respond conversationally, or ask for details
+5. Response is sent back via `replyFn`
+
+Skills **do not gate** access to the LLM. If no skills match, the LLM still handles the message.
 
 ## Skill Definition Format (SKILL.md)
 
-Skills are defined as Markdown files with YAML frontmatter:
+Skills are defined as Markdown files with YAML frontmatter in `~/.ubot/skills/<skill-name>/SKILL.md`:
 
 ```yaml
 ---
@@ -28,31 +32,33 @@ enabled: true
 # Instructions for the LLM
 ```
 
-## Two-Phase Matching
+## Fast Filters (Phase 1)
 
-1. **Phase 1 (Filter)**: Fast checks — source, DMs-only, groups-only, contact/group allowlists, regex patterns. Zero LLM cost.
-2. **Phase 2 (Condition)**: LLM classifies event against the skill's `condition` text. One cheap yes/no call. Skills without conditions auto-match if Phase 1 passes.
+These run in the handler before the orchestrator call, to select which skills are relevant:
 
-## Owner Context Injection
+- **Source filter**: only match messages from a specific channel
+- **DMs only / Groups only**: message type filter
+- **Contact allowlist**: only respond to specific contacts
+- **Group allowlist**: only respond in specific groups
+- **Pattern filter**: regex match on message body
 
-When a skill executes, the engine reads the **owner's last 5 messages** from the `web-console` session (via `ConversationStore`) and injects them into the skill context. This allows skills to understand the owner's intent without calling `ask_owner`. Example: owner says "book an appointment" via Telegram → bot interaction skill sees that context → selects menu option "A" without asking.
+## What Changed (March 2026)
 
-## Pipeline Execution
+The previous architecture routed visitor messages through a separate SkillEngine pipeline
+that would silently drop messages when no skill matched. This was an over-correction from
+spam prevention fixes. The architecture now follows the LLM-first principle:
 
-### Legacy Single-Processor
-
-Most skills use the legacy path: the LLM receives skill instructions + event body + owner context as a `skillContext` string, and processes the message using `agentChat()` with the visitor's session and tools.
-
-### Stage-Based Pipeline
-
-Advanced skills chain multiple stages:
-
-1. **Stage 1 (prompt/tool)**: Gather data or transform input.
-2. **Stage 2 (prompt/tool)**: LLM processing of stage 1 output.
-3. **Stage 3 (tool)**: Execute action based on analysis.
-
-Data flows between stages via `pipelineContext` and `outputKey` variables (`{{stage_name.output}}`).
+- **Before**: `Visitor → SkillEngine → (no match = drop)` ❌
+- **After**: `Visitor → Orchestrator (with skill context injected)` ✅
 
 ## Visitor Tool Access
 
-Skills run with visitor-level tool access (11 tools from `VISITOR_SAFE_TOOL_NAMES`). The `wa_respond_to_bot` tool was added to this allowlist to enable the bot interaction skill to send replies to WhatsApp bots.
+Visitors have restricted tool access (defined in `VISITOR_SAFE_TOOL_NAMES`). This is
+enforced by the orchestrator's `getToolsForSource(isOwner=false)`, not by the handler.
+
+## Key Files
+
+- `src/engine/handler.ts` — Unified message handler (routes to orchestrator)
+- `src/agents/skills/skill-engine.ts` — Skill matching (fast filters + LLM condition check)
+- `src/agents/skills/file-skill-repository.ts` — File-based skill storage
+- `.agents/specs/message-flow.md` — Architectural contract (source of truth)

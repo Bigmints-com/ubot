@@ -9,11 +9,15 @@ import {
   MessageSquare,
   Pencil,
   Trash2,
-  Check,
-  X,
   MoreVertical,
   PanelLeftClose,
   PanelLeft,
+  Filter,
+  Globe,
+  Smartphone,
+  Send,
+  MessageCircle,
+  Loader2,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -40,6 +44,15 @@ interface ThreadSidebarProps {
   onNewThread: () => void;
 }
 
+type ChannelFilter = "all" | "web" | "whatsapp" | "telegram" | "imessage";
+
+const CHANNEL_CONFIG: Record<string, { icon: typeof MessageSquare; label: string; color: string }> = {
+  web: { icon: Globe, label: "Web", color: "text-blue-500" },
+  whatsapp: { icon: Smartphone, label: "WhatsApp", color: "text-green-500" },
+  telegram: { icon: Send, label: "Telegram", color: "text-sky-500" },
+  imessage: { icon: MessageCircle, label: "iMessage", color: "text-indigo-500" },
+};
+
 function timeAgo(dateStr: string): string {
   const now = Date.now();
   const then = new Date(dateStr).getTime();
@@ -63,6 +76,8 @@ export function ThreadSidebar({
   const [collapsed, setCollapsed] = useState(false);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
+  const [channelFilter, setChannelFilter] = useState<ChannelFilter>("all");
+  const [processingIds, setProcessingIds] = useState<string[]>([]);
   const renameInputRef = useRef<HTMLInputElement>(null);
 
   const loadThreads = async () => {
@@ -77,6 +92,19 @@ export function ThreadSidebar({
   useEffect(() => {
     loadThreads();
   }, [activeThreadId]);
+
+  // Poll for processing status to show typing indicators
+  useEffect(() => {
+    const poll = async () => {
+      try {
+        const data = await api<{ sessions: string[] }>("/api/chat/processing");
+        setProcessingIds(data.sessions || []);
+      } catch { /* ignore */ }
+    };
+    poll();
+    const interval = setInterval(poll, 1500);
+    return () => clearInterval(interval);
+  }, []);
 
   useEffect(() => {
     if (renamingId && renameInputRef.current) {
@@ -129,6 +157,20 @@ export function ThreadSidebar({
     }
   };
 
+  // Filter threads by channel
+  const filteredThreads = channelFilter === "all"
+    ? threads
+    : threads.filter((t) => t.type === channelFilter);
+
+  // Count threads by channel for the filter badges
+  const channelCounts = threads.reduce<Record<string, number>>((acc, t) => {
+    acc[t.type] = (acc[t.type] || 0) + 1;
+    return acc;
+  }, {});
+
+  // Available channels (only show filters for channels that have threads)
+  const availableChannels = Object.keys(channelCounts).sort();
+
   if (collapsed) {
     return (
       <div className="flex flex-col items-center py-2 px-1 border-r gap-1 bg-sidebar">
@@ -155,7 +197,7 @@ export function ThreadSidebar({
   }
 
   return (
-    <div className="flex flex-col w-56 h-full border-r bg-sidebar shrink-0 overflow-hidden">
+    <div className="flex flex-col w-72 h-full border-r bg-sidebar shrink-0 overflow-hidden">
       {/* Header */}
       <div className="flex items-center justify-between px-3 py-2 border-b">
         <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
@@ -183,105 +225,160 @@ export function ThreadSidebar({
         </div>
       </div>
 
+      {/* Channel Filter Tabs */}
+      {availableChannels.length > 1 && (
+        <div className="flex items-center gap-0.5 px-2 py-1.5 border-b overflow-x-auto">
+          <Button
+            variant={channelFilter === "all" ? "secondary" : "ghost"}
+            size="sm"
+            className="h-6 px-2 text-[10px] font-medium shrink-0"
+            onClick={() => setChannelFilter("all")}
+          >
+            All
+            <span className="ml-1 text-muted-foreground">{threads.length}</span>
+          </Button>
+          {availableChannels.map((ch) => {
+            const config = CHANNEL_CONFIG[ch];
+            if (!config) return null;
+            const Icon = config.icon;
+            return (
+              <Button
+                key={ch}
+                variant={channelFilter === ch ? "secondary" : "ghost"}
+                size="sm"
+                className="h-6 px-2 text-[10px] font-medium shrink-0"
+                onClick={() => setChannelFilter(ch as ChannelFilter)}
+                title={config.label}
+              >
+                <Icon className={cn("size-3 mr-0.5", config.color)} />
+                <span className="hidden sm:inline">{config.label}</span>
+                <span className="ml-1 text-muted-foreground">{channelCounts[ch]}</span>
+              </Button>
+            );
+          })}
+        </div>
+      )}
+
       {/* Thread list */}
       <ScrollArea className="flex-1 min-h-0">
         <div className="py-1">
-          {threads.map((thread) => (
-            <div
-              key={thread.id}
-              className={cn(
-                "group flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-accent/50 transition-colors",
-                thread.id === activeThreadId && "bg-accent"
-              )}
-              onClick={() => {
-                if (renamingId !== thread.id) onSelectThread(thread.id);
-              }}
-            >
-              <MessageSquare className="size-3.5 shrink-0 text-muted-foreground" />
+          {filteredThreads.map((thread) => {
+            const channelConf = CHANNEL_CONFIG[thread.type];
+            const ChannelIcon = channelConf?.icon || MessageSquare;
+            const channelColor = channelConf?.color || "text-muted-foreground";
 
-              <div className="flex-1 min-w-0">
-                {renamingId === thread.id ? (
-                  <form
-                    onSubmit={(e) => {
-                      e.preventDefault();
-                      handleRename(thread.id);
-                    }}
-                    className="flex items-center gap-1"
-                  >
-                    <Input
-                      ref={renameInputRef}
-                      value={renameValue}
-                      onChange={(e) => setRenameValue(e.target.value)}
-                      className="h-5 text-xs px-1"
-                      onKeyDown={(e) => {
-                        if (e.key === "Escape") setRenamingId(null);
+            return (
+              <div
+                key={thread.id}
+                className={cn(
+                  "group flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-accent/50 transition-colors",
+                  thread.id === activeThreadId && "bg-accent"
+                )}
+                onClick={() => {
+                  if (renamingId !== thread.id) onSelectThread(thread.id);
+                }}
+              >
+                <ChannelIcon className={cn("size-3.5 shrink-0", channelColor)} />
+
+                <div className="flex-1 min-w-0">
+                  {renamingId === thread.id ? (
+                    <form
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        handleRename(thread.id);
                       }}
-                      onBlur={() => handleRename(thread.id)}
-                    />
-                  </form>
-                ) : (
-                  <>
-                    <p className="text-xs font-medium truncate">
-                      {thread.name}
-                    </p>
-                    <p className="text-[10px] text-muted-foreground">
-                      {thread.messageCount} msgs · {timeAgo(thread.updatedAt)}
-                    </p>
-                  </>
+                      className="flex items-center gap-1"
+                    >
+                      <Input
+                        ref={renameInputRef}
+                        value={renameValue}
+                        onChange={(e) => setRenameValue(e.target.value)}
+                        className="h-5 text-xs px-1"
+                        onKeyDown={(e) => {
+                          if (e.key === "Escape") setRenamingId(null);
+                        }}
+                        onBlur={() => handleRename(thread.id)}
+                      />
+                    </form>
+                  ) : (
+                    <>
+                      <p className="text-xs font-medium truncate flex items-center gap-1.5">
+                        {thread.name}
+                        {processingIds.includes(thread.id) && (
+                          <span className="relative flex size-2">
+                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                            <span className="relative inline-flex rounded-full size-2 bg-emerald-500" />
+                          </span>
+                        )}
+                      </p>
+                      <p className="text-[10px] text-muted-foreground">
+                        {processingIds.includes(thread.id)
+                          ? "Thinking..."
+                          : `${thread.messageCount} msgs · ${timeAgo(thread.updatedAt)}`
+                        }
+                      </p>
+                    </>
+                  )}
+                </div>
+
+                {renamingId !== thread.id && (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="size-5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <MoreVertical className="size-3" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="w-32">
+                      <DropdownMenuItem
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setRenamingId(thread.id);
+                          setRenameValue(thread.name);
+                        }}
+                      >
+                        <Pencil className="size-3 mr-2" />
+                        Rename
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDelete(thread.id);
+                        }}
+                        className="text-destructive focus:text-destructive"
+                      >
+                        <Trash2 className="size-3 mr-2" />
+                        Delete
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 )}
               </div>
+            );
+          })}
 
-              {renamingId !== thread.id && (
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="size-5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      <MoreVertical className="size-3" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="w-32">
-                    <DropdownMenuItem
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setRenamingId(thread.id);
-                        setRenameValue(thread.name);
-                      }}
-                    >
-                      <Pencil className="size-3 mr-2" />
-                      Rename
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleDelete(thread.id);
-                      }}
-                      className="text-destructive focus:text-destructive"
-                    >
-                      <Trash2 className="size-3 mr-2" />
-                      Delete
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              )}
-            </div>
-          ))}
-
-          {threads.length === 0 && (
+          {filteredThreads.length === 0 && (
             <div className="px-3 py-6 text-center">
-              <p className="text-xs text-muted-foreground">No threads yet</p>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="mt-2 text-xs"
-                onClick={onNewThread}
-              >
-                <Plus className="size-3 mr-1" />
-                Start a thread
-              </Button>
+              <p className="text-xs text-muted-foreground">
+                {channelFilter === "all"
+                  ? "No threads yet"
+                  : `No ${CHANNEL_CONFIG[channelFilter]?.label || channelFilter} threads`}
+              </p>
+              {channelFilter === "all" && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="mt-2 text-xs"
+                  onClick={onNewThread}
+                >
+                  <Plus className="size-3 mr-1" />
+                  Start a thread
+                </Button>
+              )}
             </div>
           )}
         </div>

@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find /Users/pretheesh/Projects/ubot/.agents -type f \\\\\\( -name \"*.yaml\" -o -name \"*.yml\" -o -name \"*.json\" \\\\\\) 2>/dev/null | head -20)",
+      "Bash(make install)",
+      "Bash(git add ubot-core/src/automation/scheduler/service.ts ubot-core/default-skills/news-briefing/)",
+      "Bash(git commit -m \"fix: scheduler readonly date fix + add news-briefing default skill:*)",
+      "Bash(git push)"
+    ]
+  }
+}

@@ -11,7 +11,7 @@ import type { ToolModule, ToolRegistry, ToolContext, ToolDefinition } from '../t
 const MEMORY_TOOLS: ToolDefinition[] = [
   {
     name: 'save_memory',
-    description: 'Save a structured fact or preference to a contact profile or the owner profile. Use this when the user explicitly asks you to remember something.',
+    description: 'Remember a fact, preference, or note about a person. Use this to save things you learn during conversation so you can recall them later (e.g. their job, preferences, relationship to the owner).',
     parameters: [
       { name: 'contactId', type: 'string', description: 'The phone number, Telegram ID, or "__owner__" for the owner profile', required: true },
       { name: 'category', type: 'string', description: 'Memory category: "identity", "preference", "fact", "relationship", or "note"', required: true },
@@ -21,7 +21,7 @@ const MEMORY_TOOLS: ToolDefinition[] = [
   },
   {
     name: 'get_profile',
-    description: 'Retrieve structured facts and preferences from a contact profile or the owner profile.',
+    description: 'Look up everything you know about a person — their name, job, preferences, and past notes. Use this before answering questions about someone, or to personalize your responses.',
     parameters: [
       { name: 'contactId', type: 'string', description: 'The phone number, Telegram ID, or "__owner__" for the owner profile', required: true },
     ],

@@ -37,6 +37,7 @@ export interface ToolContext {
   getEventBus(): any | null;
   getWorkspacePath(): string | null;
   getCliService(): any | null;
+  getFollowUpStore(): any | null;
 }
 
 /**

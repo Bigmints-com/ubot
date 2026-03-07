@@ -1,5 +1,7 @@
 import type { WASocket } from '@whiskeysockets/baileys';
 import type { RateLimiterConfig } from './rate-limiter.js';
+import { join } from 'path';
+import { homedir } from 'os';
 
 export type WhatsAppConnectionStatus = 
   | 'disconnected'
@@ -7,6 +9,28 @@ export type WhatsAppConnectionStatus =
   | 'connected'
   | 'reconnecting'
   | 'logged_out';
+
+/** Structured interactive option extracted from a bot message */
+export interface WhatsAppInteractiveOption {
+  /** Option type: 'button' | 'list_item' | 'quick_reply' | 'url_button' | 'native_flow' */
+  type: string;
+  /** Button/row ID */
+  id: string;
+  /** Display text / label */
+  label: string;
+  /** Optional description (for list items) */
+  description?: string;
+  /** Section title (for list items) */
+  section?: string;
+  /** URL (for url_button type) */
+  url?: string;
+  /** Flow name (for native_flow type) */
+  flowName?: string;
+  /** Raw flow params JSON (for native_flow type) */
+  flowParams?: string;
+  /** Card index (for carousel items) */
+  cardIndex?: number;
+}
 
 export interface WhatsAppMessage {
   id: string;
@@ -24,6 +48,10 @@ export interface WhatsAppMessage {
   quotedMessageId?: string;
   /** In group messages, the actual sender JID (e.g. 919947793728@s.whatsapp.net) */
   participant?: string;
+  /** WhatsApp display name of the sender (from pushName) */
+  pushName?: string;
+  /** Structured interactive options from bot messages (buttons, lists, etc.) */
+  interactiveOptions?: WhatsAppInteractiveOption[];
 }
 
 export interface WhatsAppSendMessageOptions {
@@ -124,9 +152,15 @@ export interface WhatsAppMessageListResult {
   hasMore: boolean;
 }
 
+/** Resolve the canonical session directory — always absolute */
+function getDefaultSessionPath(): string {
+  const ubotHome = process.env.UBOT_HOME || join(homedir(), '.ubot');
+  return join(ubotHome, 'sessions');
+}
+
 export const DEFAULT_WHATSAPP_CONFIG: WhatsAppConnectionConfig = {
   sessionName: 'ubot-session',
-  sessionPath: './sessions',
+  sessionPath: getDefaultSessionPath(),
   printQRInTerminal: true,
   connectTimeoutMs: 60000,
   keepAliveIntervalMs: 25000,

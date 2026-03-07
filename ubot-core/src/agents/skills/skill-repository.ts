@@ -126,12 +126,18 @@ export function createSkillRepository(db: DatabaseConnection): SkillRepository {
 
     getByEventType(eventKey: string) {
       // eventKey is 'source:type', e.g. 'whatsapp:message'
-      // We need to find skills whose trigger.events contains this key or '*:*'
+      // Match: exact, wildcards (*:*), channel wildcards (whatsapp:*),
+      // and bare event names ('message' matches any channel's 'message')
+      const [eventSource, eventType] = eventKey.split(':');
       const all = this.getEnabled();
       return all.filter(skill => {
-        return skill.trigger.events.some(e => 
-          e === eventKey || e === '*:*' || e === `${eventKey.split(':')[0]}:*`
-        );
+        return skill.trigger.events.some(e => {
+          if (e === eventKey) return true;
+          if (e === '*:*') return true;
+          if (e === `${eventSource}:*`) return true;
+          if (!e.includes(':') && e === eventType) return true;
+          return false;
+        });
       });
     },
 
