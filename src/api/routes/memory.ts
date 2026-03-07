@@ -78,6 +78,20 @@ export async function handleMemoryRoutes(
   }
 
   // ── Memories (Structured Profile Data) ──────────────────
+
+  // Bulk fetch: all memories grouped by contactId
+  if (url === '/api/memories' && method === 'GET') {
+    if (!ctx.agentOrchestrator) { json(res, { memoriesByContact: {} }); return true; }
+    const all = ctx.agentOrchestrator.getMemoryStore().getAllMemories();
+    const grouped: Record<string, typeof all> = {};
+    for (const m of all) {
+      if (!grouped[m.contactId]) grouped[m.contactId] = [];
+      grouped[m.contactId].push(m);
+    }
+    json(res, { memoriesByContact: grouped });
+    return true;
+  }
+
   if (url.match(/^\/api\/memories\/[^/]+$/) && method === 'GET') {
     if (!ctx.agentOrchestrator) { json(res, { memories: [] }); return true; }
     const parts = url.split('/');

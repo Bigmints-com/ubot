@@ -87,6 +87,7 @@ export function createMockContext(opts: MockContextOptions = {}): ToolContext {
     getEventBus: () => allNull ? null : createMockEventBus(),
     getWorkspacePath: () => allNull ? null : '/tmp/ubot-test-workspace',
     getCliService: () => null,
+    getFollowUpStore: () => null,
   };
 
   return {

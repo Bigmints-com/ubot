@@ -143,15 +143,30 @@ const webFetchToolModule: ToolModule = {
       }
 
       try {
-        const response = await fetch(url, {
-          headers: {
-            'User-Agent': 'Mozilla/5.0 (compatible; UbotFetch/1.0)',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-            'Accept-Language': 'en-US,en;q=0.5',
-          },
-          redirect: 'follow',
-          signal: AbortSignal.timeout(15000),
-        });
+        // Temporarily disable TLS verification for this fetch
+        // (handles corporate proxies, self-signed certs, missing local issuer certs)
+        const prevTls = process.env.NODE_TLS_REJECT_UNAUTHORIZED;
+        process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+
+        let response: Response;
+        try {
+          response = await fetch(url, {
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (compatible; UbotFetch/1.0)',
+              'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+              'Accept-Language': 'en-US,en;q=0.5',
+            },
+            redirect: 'follow',
+            signal: AbortSignal.timeout(15000),
+          });
+        } finally {
+          // Restore TLS setting
+          if (prevTls === undefined) {
+            delete process.env.NODE_TLS_REJECT_UNAUTHORIZED;
+          } else {
+            process.env.NODE_TLS_REJECT_UNAUTHORIZED = prevTls;
+          }
+        }
 
         if (!response.ok) {
           return {

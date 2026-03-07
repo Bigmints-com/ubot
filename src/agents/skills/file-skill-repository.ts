@@ -231,10 +231,18 @@ export function createFileSkillRepository(skillsDir: string): SkillRepository {
     },
 
     getByEventType(eventKey: string) {
+      const [eventSource, eventType] = eventKey.split(':');
       return this.getEnabled().filter(skill =>
-        skill.trigger.events.some(e =>
-          e === eventKey || e === '*:*' || e === `${eventKey.split(':')[0]}:*`
-        )
+        skill.trigger.events.some(e => {
+          // Exact match (e.g. 'whatsapp:message' === 'whatsapp:message')
+          if (e === eventKey) return true;
+          // Wildcard matches
+          if (e === '*:*') return true;
+          if (e === `${eventSource}:*`) return true;
+          // Bare event name (e.g. 'message' matches 'whatsapp:message', 'telegram:message', etc.)
+          if (!e.includes(':') && e === eventType) return true;
+          return false;
+        })
       );
     },
 

@@ -4,6 +4,7 @@ import fs from 'fs';
 import path from 'path';
 import type { LLMProviderConfig, Attachment } from '../../engine/types.js';
 import { parseBody, parseLargeBody, json, notFound, error, type ApiContext } from '../context.js';
+import { getProcessingSessions } from '../../engine/handler.js';
 
 export async function handleChatRoutes(
   req: http.IncomingMessage,
@@ -204,9 +205,7 @@ export async function handleChatRoutes(
       return true;
     }
     const sessions = ctx.agentOrchestrator.getConversationStore().listSessions();
-    // Only return web sessions for the thread UI
-    const webSessions = sessions.filter(s => s.type === 'web');
-    json(res, { sessions: webSessions });
+    json(res, { sessions });
     return true;
   }
 
@@ -257,6 +256,12 @@ export async function handleChatRoutes(
     }
     ctx.agentOrchestrator.getConversationStore().deleteSession(sessionId);
     json(res, { deleted: true, sessionId });
+    return true;
+  }
+
+  // Active processing status — which sessions are currently being processed by the LLM
+  if (url === '/api/chat/processing' && method === 'GET') {
+    json(res, { sessions: getProcessingSessions() });
     return true;
   }
 

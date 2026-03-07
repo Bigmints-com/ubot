@@ -163,8 +163,11 @@ export function routeTools(
   const filteredMcp = mcpTools.filter(t => {
     if (hiddenMcp.has(t.name)) return false;
 
-    // If this MCP tool has no native overlap, it's an enrichment — always keep
+    // Filter out tools from disconnected MCP servers — don't send to LLM
     const parsed = parseMcpToolName(t.name);
+    if (parsed && !mcpConnected.has(parsed.server)) return false;
+
+    // If this MCP tool has no native overlap, it's an enrichment — always keep
     if (parsed && !nativeNameSet.has(parsed.baseName)) {
       mcpEnrichments++;
     }

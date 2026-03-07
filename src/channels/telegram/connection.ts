@@ -68,16 +68,24 @@ export class TelegramConnection {
 
       // Handle polling errors with auto-reconnect
       this.bot.on('polling_error', (err) => {
-        console.error('[Telegram] Polling error:', err.message);
+        const msg = err.message || '';
+        console.error('[Telegram] Polling error:', msg);
         this.emit('error', err);
 
-        // Auto-reconnect on fatal polling errors
-        if (err.message?.includes('EFATAL') && !this._reconnecting) {
+        // Determine if this is a recoverable error that killed the polling loop
+        const isFatal = msg.includes('EFATAL');
+        const isConflict = msg.includes('409') || msg.includes('Conflict');
+        const isNetworkError = msg.includes('ECONNRESET') || msg.includes('ETIMEDOUT') || msg.includes('ENOTFOUND');
+        const shouldReconnect = isFatal || isConflict || isNetworkError;
+
+        if (shouldReconnect && !this._reconnecting) {
           this._reconnecting = true;
           this._reconnectAttempts++;
           if (this._reconnectAttempts <= 10) {
-            const delay = Math.min(5000 * this._reconnectAttempts, 60000);
-            console.log(`[Telegram] Attempting reconnect in ${delay / 1000}s (attempt ${this._reconnectAttempts}/10)...`);
+            // For 409 conflicts, wait longer on first attempt to let the other instance die
+            const baseDelay = isConflict ? 10000 : 5000;
+            const delay = Math.min(baseDelay * this._reconnectAttempts, 60000);
+            console.log(`[Telegram] ⚠️ ${isConflict ? '409 Conflict detected — another instance may be running. ' : ''}Attempting reconnect in ${delay / 1000}s (attempt ${this._reconnectAttempts}/10)...`);
             setTimeout(async () => {
               try {
                 await this.disconnect();
@@ -92,6 +100,7 @@ export class TelegramConnection {
             }, delay);
           } else {
             console.error('[Telegram] Max reconnect attempts reached. Manual restart needed.');
+            this.updateStatus('error');
             this._reconnecting = false;
           }
         }

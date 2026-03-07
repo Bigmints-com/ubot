@@ -22,9 +22,80 @@ import { log } from '../logger/ring-buffer.js';
 import { logCapability } from '../capabilities/cli/capability-log.js';
 import { LoopDetector } from './loop-detector.js';
 
+/**
+ * Find recent outbound messages sent TO a specific contact by the owner.
+ * Searches all sessions for send_message tool calls targeting this contact.
+ * Also searches by contact name since LID-based contacts can't be matched by phone.
+ */
+function findRecentOutboundMessages(
+  contactSessionId: string,
+  conversationStore: ConversationStore,
+  contactName?: string,
+): string[] {
+  const outbound: string[] = [];
+
+  // Build search terms: phone number, LID number, contact name
+  const searchTerms: string[] = [];
+  const contactId = contactSessionId.replace(/@.*/, '');
+  searchTerms.push(contactId);
+  if (contactName && contactName !== contactId && !contactName.includes('@')) {
+    searchTerms.push(contactName.toLowerCase());
+  }
+
+  try {
+    const sessions = conversationStore.listSessions();
+    const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000); // Last 24 hours
+
+    for (const session of sessions) {
+      if (session.id === contactSessionId) continue;
+      if (session.updatedAt < cutoff) continue;
+      if (session.type !== 'web') continue;
+
+      const history = conversationStore.getHistory(session.id, 30);
+      for (const msg of history) {
+        if (msg.role !== 'assistant') continue;
+        const content = msg.content || '';
+        const contentLower = content.toLowerCase();
+        
+        // Check if this message mentions any of our search terms
+        const mentionsContact = searchTerms.some(term => contentLower.includes(term));
+        if (!mentionsContact) continue;
+
+        // If it involved send_message tool calls, this is likely an outbound message
+        const toolNames = msg.metadata?.toolCall?.toolName || '';
+        if (toolNames.includes('send_message')) {
+          outbound.push(content.slice(0, 300));
+        }
+      }
+
+      // Also check the user's original request that triggered the send_message
+      // This gives us the full context of WHY the owner sent the message
+      for (let i = 0; i < history.length; i++) {
+        const msg = history[i];
+        if (msg.role !== 'user') continue;
+        const content = msg.content || '';
+        const contentLower = content.toLowerCase();
+        
+        const mentionsContact = searchTerms.some(term => contentLower.includes(term));
+        if (!mentionsContact) continue;
+
+        // Check if the next assistant message used send_message
+        const nextMsg = history[i + 1];
+        if (nextMsg?.role === 'assistant' && nextMsg.metadata?.toolCall?.toolName?.includes('send_message')) {
+          outbound.push(`[Owner's request]: ${content.slice(0, 300)}`);
+        }
+      }
+    }
+  } catch (err: any) {
+    console.error('[Orchestrator] Failed to find outbound messages:', err.message);
+  }
+
+  return outbound.slice(-5); // Return at most 5 recent context items
+}
+
 export interface AgentOrchestrator {
   /** Process a message and return the agent's response */
-  chat(sessionId: string, message: string, source?: 'web' | 'whatsapp' | 'telegram' | 'imessage', contactName?: string, isOwner?: boolean, attachments?: Attachment[]): Promise<AgentResponse>;
+  chat(sessionId: string, message: string, source?: 'web' | 'whatsapp' | 'telegram' | 'imessage', contactName?: string, isOwner?: boolean, attachments?: Attachment[], skillContext?: string): Promise<AgentResponse>;
   /** Direct LLM text generation (no tools) — for skill generation, etc. */
   generate(systemPrompt: string, userMessage: string): Promise<string>;
   /** Get the current config */
@@ -340,8 +411,11 @@ export function createAgentOrchestrator(
           memoryStore.saveMemory(personaId, 'identity', 'name', contactName, 'metadata');
         }
         if (source === 'whatsapp' && sessionId.includes('@')) {
-          const phone = '+' + sessionId.replace(/@.*/, '');
-          memoryStore.saveMemory(personaId, 'identity', 'phone', phone, 'metadata');
+          // Only save phone if it's a real phone JID, not a LID
+          if (sessionId.endsWith('@s.whatsapp.net')) {
+            const phone = '+' + sessionId.replace(/@.*/, '');
+            memoryStore.saveMemory(personaId, 'identity', 'phone', phone, 'metadata');
+          }
           memoryStore.saveMemory(personaId, 'identity', 'channel', 'whatsapp', 'metadata');
         }
         if (source === 'telegram' && sessionId.startsWith('telegram:')) {
@@ -527,6 +601,7 @@ export function createAgentOrchestrator(
       contactName?: string,
       isOwner?: boolean,
       attachments?: Attachment[],
+      skillContext?: string,
     ): Promise<AgentResponse> {
       const startTime = Date.now();
       const toolResults: ToolExecutionResult[] = [];
@@ -535,11 +610,15 @@ export function createAgentOrchestrator(
       metricsCollector.recordMessage(source || 'web', 'in');
 
       // Ensure session exists
-      conversationStore.getOrCreateSession(
+      const session = conversationStore.getOrCreateSession(
         sessionId,
         source,
         source === 'web' ? 'Command Center' : contactName || sessionId
       );
+      // Update session name if we now have a better name (e.g. pushName resolved)
+      if (contactName && session.name !== contactName && source !== 'web' && !session.name?.startsWith(contactName)) {
+        conversationStore.renameSession(sessionId, contactName);
+      }
 
       // Store the user message
       const userMetadata: ChatMessageMetadata = {
@@ -556,6 +635,32 @@ export function createAgentOrchestrator(
 
       // Build the messages array with history (pass isOwner for soul prompt framing)
       let messages = buildMessages(sessionId, message, ownerFlag, attachments);
+
+      // If skill context is provided, inject it as a system directive right before the user message.
+      // This keeps skill instructions out of conversation history while giving the LLM context.
+      if (skillContext) {
+        // Find recent outbound messages TO this contact for thread context
+        const recentOutbound = findRecentOutboundMessages(sessionId, conversationStore, contactName);
+        
+        // Insert skill context as a system message before the last user message
+        const lastUserMsgIdx = messages.length - 1;
+        const contextParts = [skillContext];
+        
+        if (recentOutbound.length > 0) {
+          contextParts.push('');
+          contextParts.push('## Recent messages the owner sent TO this person:');
+          for (const msg of recentOutbound) {
+            contextParts.push(`- "${msg}"`);
+          }
+          contextParts.push('');
+          contextParts.push('Use this context to understand what the person is replying to.');
+        }
+        
+        messages.splice(lastUserMsgIdx, 0, {
+          role: 'system',
+          content: contextParts.join('\n'),
+        } as ChatMsg);
+      }
       let lastUsage: { promptTokens: number; completionTokens: number; totalTokens: number } | undefined;
 
       // Agent loop with tool calling

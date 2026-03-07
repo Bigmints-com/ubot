@@ -7,13 +7,14 @@ import makeWASocket, {
 } from '@whiskeysockets/baileys';
 import pino from 'pino';
 import qrcode from 'qrcode-terminal';
-import { mkdir, access, readdir, readFile, rm } from 'fs/promises';
+import { mkdir, access, readdir, readFile, writeFile, rm } from 'fs/promises';
 import { join } from 'path';
 import type { 
   WhatsAppConnectionConfig, 
   WhatsAppConnectionStatus,
   WhatsAppAdapterEvents,
-  WhatsAppMessage
+  WhatsAppMessage,
+  WhatsAppInteractiveOption
 } from './types.js';
 import { DEFAULT_WHATSAPP_CONFIG } from './types.js';
 import type { AnyMessageContent, WAMessage } from '@whiskeysockets/baileys';
@@ -41,6 +42,7 @@ export class WhatsAppConnection {
   private eventListeners: Map<string, Set<Function>> = new Map();
   private saveCreds: (() => Promise<void>) | null = null;
   private lidToPhone: Map<string, string> = new Map();
+  private phoneToLid: Map<string, string> = new Map();
   private logger: pino.Logger;
   private rateLimiter: WhatsAppRateLimiter;
   /** Keep recent raw messages for media download */
@@ -235,6 +237,12 @@ export class WhatsAppConnection {
     }
   }
 
+  /** Resolve a LID JID to a phone JID if known, otherwise return the original */
+  public resolveLid(jid: string): string {
+    if (!jid.endsWith('@lid')) return jid;
+    return this.lidToPhone.get(jid) || jid;
+  }
+
   /** Load LID→phone mappings from session directory files */
   private async loadLIDMappings(): Promise<void> {
     const sessionDir = join(this.config.sessionPath, this.config.sessionName);
@@ -251,6 +259,7 @@ export class WhatsAppConnection {
           const lidJid = `${lid}@lid`;
           const phoneJid = `${phoneNumber}@s.whatsapp.net`;
           this.lidToPhone.set(lidJid, phoneJid);
+          this.phoneToLid.set(phoneJid, lidJid);
         } catch {
           // Skip invalid files
         }
@@ -258,6 +267,28 @@ export class WhatsAppConnection {
       console.log(`[WhatsApp] Loaded ${this.lidToPhone.size} LID→phone mappings`);
     } catch (err: any) {
       console.error('[WhatsApp] Failed to read session dir for LID mappings:', err.message);
+    }
+  }
+
+  /** Persist a new LID↔phone mapping to session directory */
+  private async saveLIDMapping(lid: string, phoneNumber: string): Promise<void> {
+    const lidClean = lid.replace('@lid', '');
+    const phoneClean = phoneNumber.replace('@s.whatsapp.net', '');
+    const sessionDir = join(this.config.sessionPath, this.config.sessionName);
+    try {
+      // Save reverse mapping (LID → phone)
+      await writeFile(
+        join(sessionDir, `lid-mapping-${lidClean}_reverse.json`),
+        JSON.stringify(phoneClean),
+      );
+      // Save forward mapping (phone → LID)
+      await writeFile(
+        join(sessionDir, `lid-mapping-${phoneClean}.json`),
+        JSON.stringify(lidClean),
+      );
+      console.log(`[WhatsApp] 💾 Saved LID mapping: ${lidClean}@lid ↔ ${phoneClean}@s.whatsapp.net`);
+    } catch (err: any) {
+      console.error('[WhatsApp] Failed to save LID mapping:', err.message);
     }
   }
 
@@ -332,9 +363,61 @@ export class WhatsAppConnection {
       }
     });
 
+    // ── Dynamic LID mapping capture ──────────────────────────
+    // Baileys emits contacts.update when it resolves LID↔phone associations.
+    // We capture these at runtime so we don't need to restart to learn new contacts.
+    this.socket.ev.on('contacts.update' as any, (updates: any[]) => {
+      for (const contact of updates) {
+        if (!contact.id) continue;
+        const id = contact.id as string;
+        // If this is a phone JID and we get a LID, save the mapping
+        if (id.endsWith('@s.whatsapp.net') && contact.lid) {
+          const lidJid = typeof contact.lid === 'string'
+            ? (contact.lid.endsWith('@lid') ? contact.lid : `${contact.lid}@lid`)
+            : undefined;
+          if (lidJid && !this.lidToPhone.has(lidJid)) {
+            this.lidToPhone.set(lidJid, id);
+            this.phoneToLid.set(id, lidJid);
+            console.log(`[WhatsApp] 📇 Captured LID mapping: ${lidJid} → ${id}`);
+            this.saveLIDMapping(lidJid, id).catch(() => {});
+          }
+        }
+        // If this is a LID and we have the phone, save it
+        if (id.endsWith('@lid') && !this.lidToPhone.has(id)) {
+          // Check if we can find a phone from Baileys' internal resolution
+          const verifiedName = contact.verifiedName || contact.notify || contact.name;
+          if (verifiedName) {
+            console.log(`[WhatsApp] 📇 Contact update for LID ${id}: name=${verifiedName}`);
+          }
+        }
+      }
+    });
+
     this.socket.ev.on('creds.update', async () => {
       if (this.saveCreds) {
         await this.saveCreds();
+      }
+    });
+
+    // ── Messaging history for LID↔phone linking ─────────────
+    // When Baileys sends/receives messages, we can often learn LID↔phone
+    // from the message's participant or key.remoteJid fields.
+    this.socket.ev.on('messaging-history.set' as any, (data: any) => {
+      try {
+        const contacts = data?.contacts || [];
+        for (const c of contacts) {
+          if (c.id?.endsWith('@s.whatsapp.net') && c.lid) {
+            const lidJid = c.lid.endsWith('@lid') ? c.lid : `${c.lid}@lid`;
+            if (!this.lidToPhone.has(lidJid)) {
+              this.lidToPhone.set(lidJid, c.id);
+              this.phoneToLid.set(c.id, lidJid);
+              console.log(`[WhatsApp] 📇 History LID mapping: ${lidJid} → ${c.id}`);
+              this.saveLIDMapping(lidJid, c.id).catch(() => {});
+            }
+          }
+        }
+      } catch {
+        // Ignore history parse errors
       }
     });
 
@@ -345,10 +428,15 @@ export class WhatsAppConnection {
 
         const body = this.extractBody(msg);
         const hasMedia = !!(msg.message?.imageMessage || msg.message?.videoMessage || msg.message?.audioMessage || msg.message?.documentMessage);
-        console.log(`[WhatsApp] 📩 type=${type} fromMe=${msg.key.fromMe} jid=${msg.key.remoteJid} hasMedia=${hasMedia} body="${body.slice(0, 60)}"`);
-        
-        // Store raw message for potential media download
-        if (msg.key.id && hasMedia) {
+        const hasInteractive = this.hasInteractiveContent(msg);
+
+        // Skip empty-body non-notify events (contact syncs, phone lookups, receipts etc.)
+        if (!body && !hasMedia && !hasInteractive) continue;
+
+        console.log(`[WhatsApp] 📩 type=${type} fromMe=${msg.key.fromMe} jid=${msg.key.remoteJid} hasMedia=${hasMedia} hasInteractive=${hasInteractive} body="${body.slice(0, 60)}"`);
+
+        // Store raw message for media download AND interactive response lookup
+        if (msg.key.id) {
           this.rawMessages.set(msg.key.id, msg);
           // Prune old messages to prevent memory leak
           if (this.rawMessages.size > this.MAX_RAW_MESSAGES) {
@@ -357,50 +445,234 @@ export class WhatsAppConnection {
           }
         }
 
-        // Emit message if it has body text OR media (media-only messages get a placeholder body)
-        if (!msg.key.fromMe && (body || hasMedia)) {
-          const parsed = this.parseMessage(msg, body || (hasMedia ? '[Media message]' : ''));
+        // Emit message if not from self
+        if (!msg.key.fromMe) {
+          const parsed = this.parseMessage(msg, body || '[Media message]');
           this.emit('message.received', parsed);
         }
       }
     });
   }
 
-  /** Extract text body from any WhatsApp message type */
+  /** Check if a raw message contains interactive content */
+  private hasInteractiveContent(msg: any): boolean {
+    const m = msg.message;
+    if (!m) return false;
+    return !!(m.interactiveMessage || m.interactiveResponseMessage ||
+             m.buttonsMessage || m.buttonsResponseMessage ||
+             m.listMessage || m.listResponseMessage ||
+             m.templateMessage || m.templateButtonReplyMessage);
+  }
+
+  /** Extract text body from any WhatsApp message type, including interactive content */
   private extractBody(msg: any): string {
     const m = msg.message;
     if (!m) return '';
-    return m.conversation
+
+    // Standard text messages
+    const basicText = m.conversation
       || m.extendedTextMessage?.text
       || m.imageMessage?.caption
       || m.videoMessage?.caption
-      || m.documentMessage?.caption
-      || m.buttonsResponseMessage?.selectedDisplayText
-      || m.listResponseMessage?.singleSelectReply?.selectedRowId
-      || m.templateButtonReplyMessage?.selectedDisplayText
-      || '';
+      || m.documentMessage?.caption;
+    if (basicText) return basicText;
+
+    // ── Interactive response messages (user tapped a button / selected a list item) ──
+    if (m.buttonsResponseMessage?.selectedDisplayText) {
+      return `[Button selected: ${m.buttonsResponseMessage.selectedDisplayText}]`;
+    }
+    if (m.listResponseMessage?.singleSelectReply?.selectedRowId) {
+      const title = m.listResponseMessage.title || '';
+      const rowId = m.listResponseMessage.singleSelectReply.selectedRowId;
+      return `[List selection: ${rowId}]${title ? ` (${title})` : ''}`;
+    }
+    if (m.templateButtonReplyMessage?.selectedDisplayText) {
+      return `[Template button selected: ${m.templateButtonReplyMessage.selectedDisplayText}]`;
+    }
+    if (m.interactiveResponseMessage) {
+      const irm = m.interactiveResponseMessage;
+      const bodyText = irm.body?.text || '';
+      const nfr = irm.nativeFlowResponseMessage;
+      if (nfr) {
+        const name = nfr.name || 'unknown';
+        let params = '';
+        try { params = nfr.paramsJson ? JSON.stringify(JSON.parse(nfr.paramsJson)) : ''; } catch { params = nfr.paramsJson || ''; }
+        return `[Interactive response: ${name}${params ? ` — ${params}` : ''}]${bodyText ? `\n${bodyText}` : ''}`;
+      }
+      return bodyText || '[Interactive response]';
+    }
+
+    // ── Interactive messages (bot sending buttons, lists, carousels) ──
+    if (m.interactiveMessage) {
+      return this.extractInteractiveBody(m.interactiveMessage);
+    }
+
+    // ── Buttons message (legacy format) ──
+    if (m.buttonsMessage) {
+      const bm = m.buttonsMessage;
+      const lines: string[] = [];
+      if (bm.contentText) lines.push(bm.contentText);
+      if (bm.footerText) lines.push(bm.footerText);
+      if (bm.buttons && Array.isArray(bm.buttons)) {
+        lines.push('\n--- Buttons ---');
+        for (let i = 0; i < bm.buttons.length; i++) {
+          const btn = bm.buttons[i];
+          const label = btn.buttonText?.displayText || btn.buttonId || `Option ${i + 1}`;
+          const id = btn.buttonId || `btn_${i}`;
+          lines.push(`[${i + 1}] ${label} (id: ${id})`);
+        }
+      }
+      return lines.join('\n');
+    }
+
+    // ── List message ──
+    if (m.listMessage) {
+      const lm = m.listMessage;
+      const lines: string[] = [];
+      if (lm.title) lines.push(lm.title);
+      if (lm.description) lines.push(lm.description);
+      if (lm.buttonText) lines.push(`\nTap: "${lm.buttonText}"`);
+      if (lm.sections && Array.isArray(lm.sections)) {
+        let itemIdx = 1;
+        for (const section of lm.sections) {
+          if (section.title) lines.push(`\n--- ${section.title} ---`);
+          if (section.rows && Array.isArray(section.rows)) {
+            for (const row of section.rows) {
+              const label = row.title || row.rowId || `Item ${itemIdx}`;
+              const desc = row.description ? ` — ${row.description}` : '';
+              lines.push(`[${itemIdx}] ${label}${desc} (id: ${row.rowId})`);
+              itemIdx++;
+            }
+          }
+        }
+      }
+      if (lm.footerText) lines.push(`\n${lm.footerText}`);
+      return lines.join('\n');
+    }
+
+    // ── Template message ──
+    if (m.templateMessage) {
+      const tm = m.templateMessage;
+      const hydrated = tm.hydratedTemplate || tm.hydratedFourRowTemplate;
+      if (hydrated) {
+        const lines: string[] = [];
+        if (hydrated.hydratedContentText) lines.push(hydrated.hydratedContentText);
+        if (hydrated.hydratedFooterText) lines.push(hydrated.hydratedFooterText);
+        if (hydrated.hydratedButtons && Array.isArray(hydrated.hydratedButtons)) {
+          lines.push('\n--- Buttons ---');
+          for (let i = 0; i < hydrated.hydratedButtons.length; i++) {
+            const btn = hydrated.hydratedButtons[i];
+            const label = btn.quickReplyButton?.displayText || btn.urlButton?.displayText || btn.callButton?.displayText || `Button ${i + 1}`;
+            const id = btn.quickReplyButton?.id || `tmpl_btn_${i}`;
+            lines.push(`[${i + 1}] ${label} (id: ${id})`);
+          }
+        }
+        return lines.join('\n');
+      }
+    }
+
+    return '';
+  }
+
+  /** Extract readable text from an InteractiveMessage (native flow buttons, carousels, etc.) */
+  private extractInteractiveBody(im: any): string {
+    const lines: string[] = [];
+
+    // Header
+    if (im.header) {
+      if (im.header.title) lines.push(`**${im.header.title}**`);
+      if (im.header.subtitle) lines.push(im.header.subtitle);
+    }
+
+    // Body text
+    if (im.body?.text) lines.push(im.body.text);
+
+    // Footer
+    if (im.footer?.text) lines.push(im.footer.text);
+
+    // Native flow message (modern button format)
+    if (im.nativeFlowMessage) {
+      const nfm = im.nativeFlowMessage;
+      if (nfm.buttons && Array.isArray(nfm.buttons)) {
+        lines.push('\n--- Options ---');
+        for (let i = 0; i < nfm.buttons.length; i++) {
+          const btn = nfm.buttons[i];
+          const name = btn.name || 'button';
+          let label = `Option ${i + 1}`;
+          let paramsStr = '';
+          if (btn.buttonParamsJson) {
+            try {
+              const params = JSON.parse(btn.buttonParamsJson);
+              label = params.display_text || params.title || label;
+              paramsStr = btn.buttonParamsJson;
+            } catch {
+              paramsStr = btn.buttonParamsJson;
+            }
+          }
+          lines.push(`[${i + 1}] ${label} (flow: ${name}, params: ${paramsStr})`);
+        }
+      }
+      if (nfm.messageParamsJson) {
+        try {
+          const mp = JSON.parse(nfm.messageParamsJson);
+          if (mp.header) lines.unshift(`**${mp.header}**`);
+        } catch { /* ignore */ }
+      }
+    }
+
+    // Carousel message (multiple cards)
+    if (im.carouselMessage?.cards && Array.isArray(im.carouselMessage.cards)) {
+      lines.push('\n--- Carousel ---');
+      for (let i = 0; i < im.carouselMessage.cards.length; i++) {
+        const card = im.carouselMessage.cards[i];
+        lines.push(`\nCard ${i + 1}:`);
+        lines.push(this.extractInteractiveBody(card));
+      }
+    }
+
+    // Shop/Collection (less common, but capture)
+    if (im.shopStorefrontMessage) {
+      lines.push('[Shop storefront message]');
+    }
+    if (im.collectionMessage) {
+      lines.push(`[Collection: ${im.collectionMessage.id || 'unknown'}]`);
+    }
+
+    return lines.join('\n');
   }
 
   private parseMessage(msg: any, body: string): WhatsAppMessage {
     const rawJid = msg.key.remoteJid || '';
     let from = rawJid;
+    const pushName = msg.pushName || undefined;
 
     // Resolve LID → phone number if needed (for identification only)
     if (from.endsWith('@lid')) {
       if (msg.key.participant) {
+        // Group message — participant is the actual sender's phone JID
         from = msg.key.participant;
+
+        // Also learn this LID↔phone mapping for future DM resolution
+        if (!this.lidToPhone.has(rawJid) && msg.key.participant.endsWith('@s.whatsapp.net')) {
+          this.lidToPhone.set(rawJid, msg.key.participant);
+          this.phoneToLid.set(msg.key.participant, rawJid);
+          console.log(`[WhatsApp] 📇 Learned LID mapping from group: ${rawJid} → ${msg.key.participant}`);
+          this.saveLIDMapping(rawJid, msg.key.participant).catch(() => {});
+        }
       } else {
         const resolved = this.lidToPhone.get(from);
         if (resolved) {
           console.log(`[WhatsApp] LID resolved: ${from} → ${resolved}`);
           from = resolved;
         } else {
-          console.log(`[WhatsApp] LID unresolved: ${from} (pushName=${msg.pushName || '?'})`);
+          console.log(`[WhatsApp] LID unresolved: ${from} (pushName=${pushName || '?'})`);
+          // Keep rawJid as `from` — the reply will still work via LID
+          // But log the pushName so the skill engine can use it for better context
         }
       }
     }
 
-    console.log(`[WhatsApp] ✅ Parsed: from=${from} rawJid=${rawJid} participant=${msg.key.participant || 'none'} body="${body.slice(0, 60)}"`);
+    console.log(`[WhatsApp] ✅ Parsed: from=${from} rawJid=${rawJid} participant=${msg.key.participant || 'none'} pushName=${pushName || '?'} body="${body.slice(0, 60)}"`);
     return {
       id: msg.key.id,
       from,
@@ -412,7 +684,185 @@ export class WhatsAppConnection {
       hasMedia: !!(msg.message?.imageMessage || msg.message?.videoMessage || msg.message?.audioMessage || msg.message?.documentMessage),
       quotedMessageId: msg.message?.extendedTextMessage?.contextInfo?.stanzaId,
       participant: msg.key.participant || undefined,
+      pushName,
+      interactiveOptions: this.extractInteractiveOptions(msg),
     };
+  }
+
+  /** Extract structured interactive options from a raw message for tool use */
+  private extractInteractiveOptions(msg: any): WhatsAppInteractiveOption[] | undefined {
+    const m = msg.message;
+    if (!m) return undefined;
+
+    const options: WhatsAppInteractiveOption[] = [];
+
+    // Buttons message
+    if (m.buttonsMessage?.buttons) {
+      for (const btn of m.buttonsMessage.buttons) {
+        options.push({
+          type: 'button',
+          id: btn.buttonId || '',
+          label: btn.buttonText?.displayText || '',
+        });
+      }
+    }
+
+    // List message
+    if (m.listMessage?.sections) {
+      for (const section of m.listMessage.sections) {
+        if (section.rows) {
+          for (const row of section.rows) {
+            options.push({
+              type: 'list_item',
+              id: row.rowId || '',
+              label: row.title || '',
+              description: row.description,
+              section: section.title,
+            });
+          }
+        }
+      }
+    }
+
+    // Template buttons
+    if (m.templateMessage) {
+      const hydrated = m.templateMessage.hydratedTemplate || m.templateMessage.hydratedFourRowTemplate;
+      if (hydrated?.hydratedButtons) {
+        for (const btn of hydrated.hydratedButtons) {
+          if (btn.quickReplyButton) {
+            options.push({
+              type: 'quick_reply',
+              id: btn.quickReplyButton.id || '',
+              label: btn.quickReplyButton.displayText || '',
+            });
+          } else if (btn.urlButton) {
+            options.push({
+              type: 'url_button',
+              id: '',
+              label: btn.urlButton.displayText || '',
+              url: btn.urlButton.url,
+            });
+          }
+        }
+      }
+    }
+
+    // Interactive message (native flow)
+    if (m.interactiveMessage?.nativeFlowMessage?.buttons) {
+      for (const btn of m.interactiveMessage.nativeFlowMessage.buttons) {
+        let label = 'Option';
+        let flowParams: any = {};
+        if (btn.buttonParamsJson) {
+          try {
+            flowParams = JSON.parse(btn.buttonParamsJson);
+            label = flowParams.display_text || flowParams.title || label;
+          } catch { /* ignore */ }
+        }
+        options.push({
+          type: 'native_flow',
+          id: btn.name || '',
+          label,
+          flowName: btn.name,
+          flowParams: btn.buttonParamsJson,
+        });
+      }
+    }
+
+    // Interactive message carousel
+    if (m.interactiveMessage?.carouselMessage?.cards) {
+      for (let i = 0; i < m.interactiveMessage.carouselMessage.cards.length; i++) {
+        const card = m.interactiveMessage.carouselMessage.cards[i];
+        if (card.nativeFlowMessage?.buttons) {
+          for (const btn of card.nativeFlowMessage.buttons) {
+            let label = `Card ${i + 1} Option`;
+            if (btn.buttonParamsJson) {
+              try {
+                const p = JSON.parse(btn.buttonParamsJson);
+                label = p.display_text || p.title || label;
+              } catch { /* ignore */ }
+            }
+            options.push({
+              type: 'native_flow',
+              id: btn.name || '',
+              label,
+              flowName: btn.name,
+              flowParams: btn.buttonParamsJson,
+              cardIndex: i,
+            });
+          }
+        }
+      }
+    }
+
+    return options.length > 0 ? options : undefined;
+  }
+
+  /** Send a selection response to a WhatsApp bot's interactive message */
+  async sendInteractiveResponse(
+    jid: string,
+    originalMessageId: string,
+    selection: { type: string; id: string; label?: string; flowName?: string; flowParams?: string },
+  ): Promise<WAMessage | undefined> {
+    if (!this.socket) throw new Error('Not connected to WhatsApp');
+
+    const rawMsg = this.rawMessages.get(originalMessageId);
+    const quotedMsg = rawMsg || undefined;
+
+    // For text-based bot menus (like Medcare's "type A"), just send the text
+    if (selection.type === 'text_reply') {
+      const content: AnyMessageContent = {
+        text: selection.id,
+      };
+      return this.rateLimiter.sendMessage(this.socket, jid, content);
+    }
+
+    // For button responses
+    if (selection.type === 'button') {
+      // Baileys: send buttonsResponseMessage isn't directly supported.
+      // WhatsApp Business API bots often accept plain text replies.
+      const content: AnyMessageContent = {
+        text: selection.label || selection.id,
+      };
+      return this.rateLimiter.sendMessage(this.socket, jid, content);
+    }
+
+    // For list selections
+    if (selection.type === 'list_item') {
+      const content: AnyMessageContent = {
+        text: selection.label || selection.id,
+      };
+      return this.rateLimiter.sendMessage(this.socket, jid, content);
+    }
+
+    // For quick reply buttons
+    if (selection.type === 'quick_reply') {
+      const content: AnyMessageContent = {
+        text: selection.label || selection.id,
+      };
+      return this.rateLimiter.sendMessage(this.socket, jid, content);
+    }
+
+    // For native flow (modern interactive buttons), send as text
+    // Most WhatsApp bots accept the display text as a reply
+    if (selection.type === 'native_flow') {
+      const content: AnyMessageContent = {
+        text: selection.label || selection.id,
+      };
+      return this.rateLimiter.sendMessage(this.socket, jid, content);
+    }
+
+    // Fallback: just send the label/id as text
+    const content: AnyMessageContent = {
+      text: selection.label || selection.id,
+    };
+    return this.rateLimiter.sendMessage(this.socket, jid, content);
+  }
+
+  /** Get the interactive options from a stored raw message */
+  getInteractiveOptions(messageId: string): WhatsAppInteractiveOption[] | undefined {
+    const raw = this.rawMessages.get(messageId);
+    if (!raw) return undefined;
+    return this.extractInteractiveOptions(raw);
   }
 
   private updateStatus(status: WhatsAppConnectionStatus): void {

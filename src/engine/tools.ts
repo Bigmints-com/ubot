@@ -27,20 +27,13 @@ export const CORE_ORCHESTRATOR_TOOLS: ToolDefinition[] = [
 ];
 
 /** All available tool definitions — dynamically loaded from auto-discovered modules */
-let _cachedTools: ToolDefinition[] | null = null;
-
 export async function getAgentTools(): Promise<ToolDefinition[]> {
-  if (!_cachedTools) {
-    _cachedTools = [
-      ...CORE_ORCHESTRATOR_TOOLS,
-      ...await getAllToolDefinitions(),
-    ];
-  }
-  return _cachedTools;
+  return [
+    ...CORE_ORCHESTRATOR_TOOLS,
+    ...await getAllToolDefinitions(),
+  ];
 }
 
-/** @deprecated Use getAgentTools() — kept for sync callers during migration */
-export const AGENT_TOOLS: ToolDefinition[] = CORE_ORCHESTRATOR_TOOLS;
 
 /**
  * Tools safe for visitor (non-owner) sessions.
@@ -52,6 +45,16 @@ export const AGENT_TOOLS: ToolDefinition[] = CORE_ORCHESTRATOR_TOOLS;
  */
 export const VISITOR_SAFE_TOOL_NAMES: ReadonlySet<string> = new Set([
   'ask_owner',
+  'search_messages',
+  'get_contacts',
+  'get_profile',
+  'get_conversations',
+  'save_memory',
+  'web_search',
+  'web_fetch',
+  'list_pending_approvals',
+  'gcal_list_events',
+  'wa_respond_to_bot',
 ]);
 
 /** Current tool aliases from the last routing pass */
@@ -64,7 +67,7 @@ export function getToolAliases(): Map<string, string> {
 
 /** Get the filtered tool list based on whether the caller is the owner */
 export async function getToolsForSource(isOwner: boolean): Promise<ToolDefinition[]> {
-  // Gather native tools
+  // Gather native tools (includes infrastructure + auto-discovered + custom modules)
   const nativeTools = [...await getAgentTools()];
 
   // Gather MCP tools
@@ -73,13 +76,6 @@ export async function getToolsForSource(isOwner: boolean): Promise<ToolDefinitio
     const { getMcpServerManager } = require('../capabilities/mcp/mcp-manager.js');
     const mgr = getMcpServerManager();
     mcpTools = mgr.getMcpToolDefinitions();
-  } catch {}
-
-  // Gather custom module tools
-  let customTools: ToolDefinition[] = [];
-  try {
-    const { getCustomToolDefinitions } = require('../capabilities/cli/custom-loader.js');
-    customTools = getCustomToolDefinitions();
   } catch {}
 
   // Route and deduplicate native vs MCP tools
@@ -96,8 +92,8 @@ export async function getToolsForSource(isOwner: boolean): Promise<ToolDefinitio
   // Store aliases for executor redirect
   currentAliases = result.aliases;
 
-  // Combine routed tools with custom tools
-  const allTools = [...result.tools, ...customTools];
+  // result.tools already contains native + connected MCP (no custom double-count)
+  const allTools = result.tools;
 
   // Log routing stats (only when there's something interesting)
   if (result.stats.overlapsFound > 0) {

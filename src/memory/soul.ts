@@ -179,6 +179,9 @@ export function createSoul(memoryStore: MemoryStore, workspacePath?: string): So
           const nameMatch = d.content.match(/name:\s*(.+)/i);
           if (nameMatch && nameMatch[1].trim()) {
             label = nameMatch[1].trim();
+          } else if (d.personaId.endsWith('@lid')) {
+            // LID-based contact — don't format as phone number
+            label = 'WhatsApp Contact (' + d.personaId.replace(/@.*/, '').slice(-6) + ')';
           } else if (d.personaId.includes('@')) {
             // Format JID as readable: "971569737344@s.whatsapp.net" → "+971569737344"
             label = '+' + d.personaId.replace(/@.*/, '');
