@@ -1,116 +1,173 @@
-# Ubot — Your Personal AI Assistant
+<p align="center">
+  <img src="ubot-core/web/public/ubot.svg" width="80" alt="Ubot Logo" />
+</p>
 
-> Open-source, self-hosted AI assistant for WhatsApp, Telegram, iMessage, Gmail, and more. Runs locally. Privacy-first.
+<h1 align="center">Ubot</h1>
+<p align="center"><strong>Your Personal AI Operating System</strong></p>
+<p align="center">
+  Open-source, self-hosted AI assistant that connects to your messaging apps, tools, and services.<br/>
+  Runs locally. Privacy-first. Extensible via MCP.
+</p>
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Node.js](https://img.shields.io/badge/Node.js-%E2%89%A522-green)](https://nodejs.org)
-[![TypeScript](https://img.shields.io/badge/TypeScript-strict-blue)](https://www.typescriptlang.org)
+<p align="center">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="MIT License" /></a>
+  <a href="https://nodejs.org"><img src="https://img.shields.io/badge/Node.js-%E2%89%A522-green" alt="Node.js ≥22" /></a>
+  <a href="https://www.typescriptlang.org"><img src="https://img.shields.io/badge/TypeScript-strict-blue" alt="TypeScript" /></a>
+</p>
+
+---
 
 ## What is Ubot?
 
-Ubot is a self-hosted AI assistant that connects to your messaging apps and automates your digital life through natural conversations. Tell it what you need in plain English — it'll browse the web, send emails, manage files, schedule tasks, and reply to people on your behalf.
+Ubot is a **self-hosted AI assistant** that acts as your personal operating system for digital life. Connect it to WhatsApp, Telegram, iMessage, Gmail, and more — then control everything through natural conversation. It browses the web, sends messages, manages files, schedules tasks, and replies to people on your behalf.
 
-**77 tools** across **10 modules** • **WhatsApp, Telegram & iMessage** • **Google Workspace** • **Browser automation** • **CLI Agents** • **File access** • **Extensible via MCP**
+Unlike cloud-based assistants, Ubot runs **entirely on your machine**. Your data never leaves your computer.
 
-## ✨ Features
+### Key Capabilities
 
-| Module         | Tools | What it does                                           |
-| -------------- | ----- | ------------------------------------------------------ |
-| **Messaging**  | 8     | Send, search, forward messages across channels         |
-| **Google**     | 29    | Gmail, Drive, Sheets, Docs, Contacts, Calendar, Places |
-| **Browser**    | 8     | Browse, click, type, screenshot — Puppeteer-powered    |
-| **CLI**        | 10    | Delegate coding tasks to Gemini/Claude/Codex CLI       |
-| **Files**      | 5     | Read, write, list, delete, search files & folders      |
-| **Scheduler**  | 6     | Cron jobs, reminders, auto-reply, one-time tasks       |
-| **Skills**     | 4     | Create custom automations with triggers & outcomes     |
-| **Memory**     | 3     | Store & recall memories, manage personas               |
-| **Web Search** | 1     | SearXNG + Puppeteer fallback                           |
-| **Approvals**  | 3     | Owner approval flow for sensitive actions              |
+- 🗣️ **LLM-First Architecture** — Every message goes through the LLM orchestrator. It analyzes intent, calls tools, follows skill instructions, or responds conversationally.
+- 📱 **Multi-Channel** — WhatsApp, Telegram, iMessage — all normalized into a unified message flow.
+- 🧠 **Soul System** — Evolving personality profiles for you and every contact. The bot learns and remembers.
+- ⚡ **80+ Native Tools** — Messaging, Google Workspace, file management, web search, scheduling, CLI agents, and more.
+- 🔌 **MCP Extensible** — Connect any [Model Context Protocol](https://modelcontextprotocol.io/) server to add new capabilities.
+- 🤖 **Multi-LLM** — Works with OpenAI, Anthropic, Google Gemini, Ollama (local), or any OpenAI-compatible API.
+- 🛡️ **Safety & Security** — Configurable guardrails, visitor-safe tool restrictions, approval workflows for sensitive actions.
+- 📊 **Dashboard** — Beautiful Next.js + shadcn/ui control center with real-time processing indicators.
 
-**Plus:**
+---
 
-- 🤖 **Multi-LLM** — Works with OpenAI, Anthropic, Google Gemini, and Ollama (local)
-- 🧠 **Soul System** — Evolving personality profiles for you and every contact
-- 🔌 **MCP Servers** — Extend with any [Model Context Protocol](https://modelcontextprotocol.io/) server
-- 🛡️ **Safety Rules** — Configurable guardrails for what the bot can and can't do
-- 📊 **Dashboard** — Beautiful Next.js + shadcn/ui control center
+## Tool Modules
 
-## 🚀 Quick Start
+| Module               | Description                                                        |
+| -------------------- | ------------------------------------------------------------------ |
+| **Messaging**        | Send, search, forward messages across WhatsApp, Telegram, iMessage |
+| **Google Workspace** | Gmail, Drive, Sheets, Docs, Contacts, Calendar, Places             |
+| **CLI Agents**       | Delegate coding tasks to Gemini CLI, Claude Code, or Codex         |
+| **File System**      | Read, write, list, search files & folders (sandboxed)              |
+| **Scheduler**        | Cron jobs, reminders, one-time tasks with persistent storage       |
+| **Skills**           | Custom automations with triggers, conditions & outcomes            |
+| **Memory**           | Store & recall memories, manage contact personas                   |
+| **Web Search**       | Serper API + direct fetch fallback                                 |
+| **Approvals**        | Owner approval flow for sensitive visitor actions                  |
+| **Follow-ups**       | Schedule conversation follow-ups and closure checks                |
+| **Vault**            | Secure credential storage for API keys and secrets                 |
+| **Apple**            | Calendar, Reminders, Notes integration (macOS)                     |
+
+---
+
+## Quick Start
 
 ```bash
 # Clone
 git clone https://github.com/Bigmints-com/ubot.git
 cd ubot
 
-# Install dependencies
-make deps
-
-# Build and install
+# Install dependencies + build + install
 make install
 
 # Start
 ubot start
 ```
 
-Dashboard: [http://localhost:11490](http://localhost:11490)
+Dashboard: **http://localhost:11490**
 
 ### Connect Your Channels
 
 1. Open the dashboard
-2. Go to **Settings** → add your LLM API key
+2. Go to **LLMs** → add your LLM provider (Gemini, OpenAI, Ollama, etc.)
 3. Go to **WhatsApp** → scan the QR code
 4. Go to **Telegram** → enter your bot token
 5. Go to **iMessage** → enter your BlueBubbles server URL and password
 6. Go to **Google** → connect your Google account
 
-## 🖥️ CLI
+---
 
-```bash
-ubot start           # Start on port 11490
-ubot stop            # Graceful shutdown
-ubot restart         # Stop + start
-ubot status          # Show PID, port, dashboard URL
-ubot logs            # Last 50 log lines
-ubot logs -f         # Follow logs
-ubot config          # Show current config
-ubot config edit     # Open config in $EDITOR
-ubot config set k v  # Set a config value
-ubot config get k    # Get a config value
-ubot doctor          # Health check
-ubot open            # Open dashboard in browser
-ubot version         # Version info
-```
-
-## 🛠️ Development
-
-```bash
-./start.sh           # Backend on :4081 + Next.js UI on :4080 (hot reload)
-./stop.sh            # Stop dev servers
-npx vitest           # Run tests
-```
-
-## 🏗️ Architecture
+## Architecture
 
 ```
 ubot/
-├── Makefile              # Build + install pipeline
-├── start.sh / stop.sh    # Dev mode scripts
-├── cli/                  # CLI (ubot start/stop/status/logs)
-└── ubot-core/            # Main application
+├── Makefile                  # Build + install pipeline
+├── start.sh / stop.sh        # Dev mode scripts
+└── ubot-core/                # Main application
     ├── src/
-    │   ├── api/           # REST API endpoints
-    │   ├── engine/        # AI orchestrator, LLM, prompt builder, memory
-    │   ├── tools/         # 77 tools in 10 modules
-    │   ├── channels/      # WhatsApp, Telegram & iMessage adapters
-    │   ├── integrations/  # Google Workspace, MCP servers
-    │   ├── capabilities/  # Browser, Scheduler, Skill engine, CLI agents
-    │   ├── data/          # SQLite database & config
-    │   ├── safety/        # Safety rules & guardrails
-    │   └── logger/        # Structured logging
-    └── web/               # Next.js + shadcn/ui dashboard
+    │   ├── api/              # REST API (custom HTTP router)
+    │   ├── engine/           # LLM orchestrator, tool routing, unified handler
+    │   ├── channels/         # WhatsApp (Baileys), Telegram, iMessage adapters
+    │   ├── capabilities/     # Google, Apple, CLI, web-search, filesystem
+    │   ├── agents/           # Skills engine, vault, specialized agents
+    │   ├── automation/       # Scheduler, approvals, follow-ups
+    │   ├── memory/           # Soul system, conversation store, personas
+    │   ├── data/             # SQLite database & config management
+    │   └── logger/           # Ring-buffer structured logging
+    └── web/                  # Next.js 16 + shadcn/ui dashboard
 ```
 
-## ⚙️ Configuration
+### Message Flow (LLM-First)
+
+```
+Message → Input Filters → Owner Detection → Orchestrator (LLM)
+                                              ├─ Tools & MCP
+                                              ├─ Skill context
+                                              ├─ Conversational reply
+                                              └─ Ask for details
+```
+
+All valid messages — from both the owner and visitors — go through the LLM orchestrator. Skills are injected as context, not a separate gating pipeline. See [`.agents/specs/message-flow.md`](.agents/specs/message-flow.md) for the full architectural contract.
+
+### Data Storage
+
+| What     | Where                                 |
+| -------- | ------------------------------------- |
+| Config   | `~/.ubot/config.json`                 |
+| Database | `~/.ubot/data/ubot.db` (SQLite)       |
+| Skills   | `~/.ubot/skills/<name>/SKILL.md`      |
+| Identity | `~/.ubot/data/SOUL.md`, `IDENTITY.md` |
+| Backend  | `~/.ubot/lib/` (compiled JS)          |
+| Web UI   | `~/.ubot/web/` (Next.js static)       |
+| Logs     | `~/.ubot/logs/`                       |
+
+---
+
+## CLI
+
+```bash
+ubot start             # Start on port 11490
+ubot stop              # Graceful shutdown
+ubot restart           # Stop + start
+ubot status            # Show PID, port, dashboard URL
+ubot logs              # Last 50 log lines
+ubot logs -f           # Follow logs in real-time
+ubot config            # Show current config
+ubot config edit       # Open config in $EDITOR
+ubot config set k v    # Set a config value
+ubot config get k      # Get a config value
+ubot doctor            # Health check
+ubot open              # Open dashboard in browser
+```
+
+---
+
+## Development
+
+```bash
+# Dev mode (hot reload for both backend + frontend)
+./start.sh             # Backend on :4081 + Next.js on :4080
+
+# Stop dev servers
+./stop.sh
+
+# Run tests
+cd ubot-core && npx vitest
+
+# Build + deploy to runtime
+make install           # Builds, copies to ~/.ubot/, restarts
+```
+
+> **Important**: `npm run build` only compiles to `ubot-core/dist/`. The runtime loads from `~/.ubot/lib/`. Always use `make install` to deploy changes.
+
+---
+
+## Configuration
 
 Config lives at `~/.ubot/config.json`:
 
@@ -118,35 +175,85 @@ Config lives at `~/.ubot/config.json`:
 {
   "server": { "port": 11490 },
   "database": { "path": "data/ubot.db" },
-  "llm": {
-    "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
-    "model": "gemini-2.0-flash",
-    "api_key": "YOUR_API_KEY"
+  "owner": {
+    "phone": "",
+    "telegram_id": "",
+    "telegram_username": ""
   },
-  "integrations": { "serper_api_key": "" },
+  "capabilities": {
+    "models": {
+      "default": "gemini",
+      "providers": {
+        "gemini": {
+          "baseUrl": "https://generativelanguage.googleapis.com/v1beta/openai/",
+          "model": "gemini-2.0-flash",
+          "apiKey": "YOUR_API_KEY"
+        }
+      }
+    }
+  },
   "channels": {
-    "whatsapp": { "enabled": false },
-    "telegram": { "enabled": false, "token": "" },
+    "whatsapp": { "enabled": true, "auto_reply": true },
+    "telegram": { "enabled": true, "token": "", "auto_reply": true },
     "imessage": { "enabled": false, "server_url": "", "password": "" }
   },
   "filesystem": {
     "allowed_paths": ["~/Documents", "~/Downloads", "~/Desktop"]
-  }
+  },
+  "mcp_servers": {}
 }
 ```
 
-Supports **OpenAI**, **Anthropic**, **Google Gemini**, and **Ollama** (local).
+### Supported LLM Providers
 
-## 📋 Requirements
+| Provider                  | Base URL                                                   | Notes                         |
+| ------------------------- | ---------------------------------------------------------- | ----------------------------- |
+| **Google Gemini**         | `https://generativelanguage.googleapis.com/v1beta/openai/` | Recommended. Fast + cheap.    |
+| **OpenAI**                | `https://api.openai.com/v1`                                | GPT-4o, GPT-4, etc.           |
+| **Anthropic**             | Via OpenAI-compatible proxy                                | Claude 3.5 Sonnet, etc.       |
+| **Ollama**                | `http://localhost:11434/v1`                                | Local models. Free.           |
+| **Any OpenAI-compatible** | Your provider's URL                                        | OpenRouter, Together AI, etc. |
+
+---
+
+## Skills
+
+Skills are custom automations defined as Markdown files:
+
+```yaml
+---
+name: Greeting
+description: Respond to greetings warmly
+triggers: [message]
+filter_dms_only: true
+condition: "the message is a greeting like hi, hello, hey"
+outcome: reply
+enabled: true
+---
+# Instructions
+Respond warmly and ask how you can help today.
+Mention the person's name if you know it.
+```
+
+Skills are stored in `~/.ubot/skills/<skill-name>/SKILL.md` and are injected as LLM context when their fast filters match an incoming message. The LLM decides whether and how to follow them.
+
+Create skills via the web dashboard (**Skills** page), the `create_skill` tool, or by writing the files directly.
+
+---
+
+## Requirements
 
 - **Node.js** ≥ 22 (via [nvm](https://github.com/nvm-sh/nvm))
 - **npm** (comes with Node.js)
 - **make** (pre-installed on macOS/Linux)
+- **macOS** recommended (required for iMessage & Apple integrations)
 
-## 🤝 Contributing
+---
 
-Contributions are welcome! Please feel free to submit a Pull Request. For major changes, please open an issue first to discuss what you would like to change.
+## Contributing
 
-## 📄 License
+Contributions welcome! Please open an issue first for major changes.
+
+## License
 
 MIT — Built by [Bigmints](https://bigmints.com)
