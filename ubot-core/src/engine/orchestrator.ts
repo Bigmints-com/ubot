@@ -10,12 +10,14 @@ import path from 'path';
 import OpenAI from 'openai';
 import type { 
   AgentConfig, AgentResponse, ChatMessageMetadata,
-  ToolExecutionResult, AgentDefinition, Attachment
+  ToolExecutionResult, ToolDefinition, AgentDefinition, Attachment
 } from './types.js';
 import type { ConversationStore } from '../memory/conversation.js';
 import type { MemoryStore } from '../memory/memory-store.js';
 import { type Soul, SOUL_REWRITE_PROMPT, OWNER_MERGE_PROMPT, FACT_EXTRACTION_PROMPT, SUMMARY_UPDATE_PROMPT, mergeIntoOwnerDoc, OWNER_SOUL_ID } from '../memory/soul.js';
 import { formatToolsForAPI, createToolRegistry, getToolsForSource, getToolAliases, type ToolRegistry } from './tools.js';
+import { selectToolsForMessage } from './tool-selector.js';
+import { getAllToolsWithModules } from '../tools/registry.js';
 import { loadAgentDefinitions } from './agent-loader.js';
 import { metricsCollector } from '../metrics/index.js';
 import { log } from '../logger/ring-buffer.js';
@@ -95,7 +97,7 @@ function findRecentOutboundMessages(
 
 export interface AgentOrchestrator {
   /** Process a message and return the agent's response */
-  chat(sessionId: string, message: string, source?: 'web' | 'whatsapp' | 'telegram' | 'imessage', contactName?: string, isOwner?: boolean, attachments?: Attachment[], skillContext?: string): Promise<AgentResponse>;
+  chat(sessionId: string, message: string, source?: 'web' | 'whatsapp' | 'telegram' | 'webchat', contactName?: string, isOwner?: boolean, attachments?: Attachment[], skillContext?: string): Promise<AgentResponse>;
   /** Direct LLM text generation (no tools) — for skill generation, etc. */
   generate(systemPrompt: string, userMessage: string): Promise<string>;
   /** Get the current config */
@@ -229,15 +231,7 @@ export function createAgentOrchestrator(
       if (msg.role === 'user') {
         messages.push({ role: 'user', content: msg.content });
       } else if (msg.role === 'assistant') {
-        // If this message had tool calls, annotate them inline so LLM knows what it did
-        let content = msg.content || '';
-        if (msg.metadata?.toolCall) {
-          const toolNames = msg.metadata.toolCall.toolName;
-          if (toolNames && !content.includes('[Used tools:')) {
-            content += `\n[Used tools: ${toolNames}]`;
-          }
-        }
-        messages.push({ role: 'assistant', content });
+        messages.push({ role: 'assistant', content: msg.content || '' });
       }
     }
 
@@ -279,7 +273,7 @@ export function createAgentOrchestrator(
   }
 
   /** Extract/update all three data layers from a conversation turn */
-  async function extractSoulData(sessionId: string, userMessage: string, assistantResponse: string, source?: 'web' | 'whatsapp' | 'telegram', contactName?: string, isOwner: boolean = false, toolResults: ToolExecutionResult[] = []): Promise<void> {
+  async function extractSoulData(sessionId: string, userMessage: string, assistantResponse: string, source?: 'web' | 'whatsapp' | 'telegram' | 'webchat', contactName?: string, isOwner: boolean = false, toolResults: ToolExecutionResult[] = []): Promise<void> {
     if (!userMessage || !assistantResponse) return;
 
     // Build action-aware conversation text for memory extraction
@@ -522,6 +516,7 @@ export function createAgentOrchestrator(
     messages: ChatMsg[],
     isOwner: boolean = true,
     agentId?: string,
+    preSelectedTools?: ToolDefinition[],
   ): Promise<{
     content: string;
     toolCalls: Array<{ id: string; toolName: string; arguments: Record<string, unknown> }>;
@@ -529,8 +524,15 @@ export function createAgentOrchestrator(
   }> {
     const client = createLLMClient();
     
-    // Determine allowed tools
-    let filteredTools = await getToolsForSource(isOwner);
+    // Use pre-selected tools if provided (from Phase 1 tool selection),
+    // otherwise fall back to the full tool set
+    let filteredTools: ToolDefinition[];
+    if (preSelectedTools) {
+      filteredTools = preSelectedTools;
+    } else {
+      filteredTools = await getToolsForSource(isOwner);
+    }
+
     if (agentId && agents.has(agentId)) {
       const agent = agents.get(agentId)!;
       if (agent.allowedTools && agent.allowedTools.length > 0) {
@@ -538,9 +540,10 @@ export function createAgentOrchestrator(
       }
     }
 
-    const tools = formatToolsForAPI(filteredTools);
+    const tools = filteredTools.length > 0 ? formatToolsForAPI(filteredTools) : undefined;
     log.info('Agent', `Calling LLM: ${currentConfig.llmModel} (via ${currentConfig.llmBaseUrl})`);
-    log.info('Agent', `Tools available: ${filteredTools.length} (isOwner: ${isOwner})`);
+    log.info('Agent', `Tools available: ${filteredTools.length} (isOwner: ${isOwner}${preSelectedTools ? ', phase-2 selected' : ''})`);
+
     
     try {
       const completion = await client.chat.completions.create({
@@ -548,7 +551,7 @@ export function createAgentOrchestrator(
         messages,
         temperature: currentConfig.temperature,
         max_tokens: currentConfig.maxTokens,
-        tools,
+        ...(tools ? { tools } : {}),
       });
 
       const choice = completion.choices?.[0];
@@ -597,7 +600,7 @@ export function createAgentOrchestrator(
     async chat(
       sessionId: string,
       message: string,
-      source: 'web' | 'whatsapp' | 'telegram' = 'web',
+      source: 'web' | 'whatsapp' | 'telegram' | 'webchat' = 'web',
       contactName?: string,
       isOwner?: boolean,
       attachments?: Attachment[],
@@ -663,6 +666,48 @@ export function createAgentOrchestrator(
       }
       let lastUsage: { promptTokens: number; completionTokens: number; totalTokens: number } | undefined;
 
+      // ── Phase 1: Tool Selection ──────────────────────────────
+      // For owner sessions, classify which tool modules are needed
+      // to avoid sending all 100+ tool schemas (~12k tokens) on every call.
+      // Visitor sessions already have a small filtered set, so skip Phase 1.
+      let selectedTools: ToolDefinition[] | undefined;
+
+      if (ownerFlag && !skillContext) {
+        // Skill-driven messages need full tool access (skills are automations)
+        try {
+          const client = createLLMClient();
+          const toolsWithModules = await getAllToolsWithModules();
+          // Include MCP tools under a synthetic module name
+          let mcpToolDefs: Array<{ module: string; tool: ToolDefinition }> = [];
+          try {
+            const { getMcpServerManager } = require('../capabilities/mcp/mcp-manager.js');
+            const mgr = getMcpServerManager();
+            const mcpTools = mgr.getMcpToolDefinitions() as ToolDefinition[];
+            mcpToolDefs = mcpTools.map((t: ToolDefinition) => {
+              // Derive module from tool name prefix (e.g. mcp_playwright_* → browser)
+              const mod = t.name.startsWith('mcp_playwright_') ? 'browser'
+                : t.name.startsWith('mcp_tavily_') ? 'web-search'
+                : 'mcp';
+              return { module: mod, tool: t };
+            });
+          } catch { /* MCP not available */ }
+
+          const allWithModules = [...toolsWithModules, ...mcpToolDefs];
+          const selection = await selectToolsForMessage(
+            client,
+            currentConfig.llmModel,
+            message,
+            allWithModules.map(t => ({ module: t.module, tool: t.tool })),
+            ownerFlag,
+            currentConfig.llmBaseUrl,
+          );
+          selectedTools = selection.tools;
+        } catch (err: any) {
+          log.warn('ToolSelector', `Phase 1 failed, using all tools: ${err.message}`);
+          // selectedTools stays undefined → callLLM will use full set
+        }
+      }
+
       // Agent loop with tool calling
       let iteration = 0;
       let finalContent = '';
@@ -672,7 +717,7 @@ export function createAgentOrchestrator(
         iteration++;
 
         const activeAgentId = sessionAgents.get(sessionId);
-        const llmResult = await callLLM(messages, ownerFlag, activeAgentId);
+        const llmResult = await callLLM(messages, ownerFlag, activeAgentId, selectedTools);
         lastUsage = llmResult.usage;
 
         if (llmResult.toolCalls.length === 0) {
@@ -809,6 +854,9 @@ export function createAgentOrchestrator(
           finalContent = llmResult.content || 'I completed the requested actions.';
         }
       }
+
+      // Sanitize: strip any "[Used tools: ...]" the LLM may have mimicked from history
+      finalContent = finalContent.replace(/\n?\[Used tools?:.*?\]/gi, '').trimEnd();
 
       // Store the assistant response
       const assistantMetadata: ChatMessageMetadata = {

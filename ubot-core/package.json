@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "rm -rf dist && tsc",
+    "postinstall": "bash scripts/fix-whisper-addon.sh",
     "start": "node dist/index.js",
     "clean": "rm -rf dist",
     "test": "vitest run",
@@ -20,6 +21,7 @@
   "license": "MIT",
   "dependencies": {
     "@google-cloud/local-auth": "^3.0.1",
+    "@kutalia/whisper-node-addon": "^1.1.0",
     "@modelcontextprotocol/sdk": "^1.26.0",
     "@whiskeysockets/baileys": "^7.0.0-rc.9",
     "better-sqlite3": "^12.6.2",

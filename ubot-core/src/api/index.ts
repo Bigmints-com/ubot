@@ -16,9 +16,9 @@ import { DEFAULT_WHATSAPP_CONFIG, type WhatsAppConnectionConfig } from '../chann
 import { WhatsAppConnection } from '../channels/whatsapp/connection.js';
 import { WhatsAppMessagingProvider } from '../channels/whatsapp/messaging-provider.js';
 import { TelegramConnection } from '../channels/telegram/connection.js';
+import { WebchatConnection } from '../channels/webchat/connection.js';
 import { TelegramMessagingProvider } from '../channels/telegram/messaging-provider.js';
-import { BlueBubblesConnection } from '../channels/imessage/connection.js';
-import { IMessageMessagingProvider } from '../channels/imessage/messaging-provider.js';
+
 import { MessagingRegistry } from '../channels/registry.js';
 import { createFileSkillRepository } from '../agents/skills/file-skill-repository.js';
 import type { SkillRepository } from '../agents/skills/skill-repository.js';
@@ -33,6 +33,7 @@ import { log } from '../logger/ring-buffer.js';
 import { handleIncomingMessage, type UnifiedMessage, type UnifiedDeps } from '../engine/handler.js';
 import { existsSync } from 'fs';
 import { join } from 'path';
+import { transcribeAudio, isTranscriptionAvailable } from '../capabilities/transcription/service.js';
 
 
 // Route handlers
@@ -45,6 +46,7 @@ import { handleIntegrationRoutes } from './routes/integrations.js';
 import { handleIntegrationProviderRoutes } from './routes/integrations-providers.js';
 import { handleToolsRoutes } from './routes/tools.js';
 import { handleCliRoutes } from './routes/cli.js';
+import { handleWebchatRoutes, ensureWebchatToken } from './routes/webchat.js';
 import { json, parseBody, error as apiError, type ApiContext } from './context.js';
 
 // Middleware
@@ -120,14 +122,10 @@ let tgProvider: TelegramMessagingProvider | null = null;
 const tgMessages: Array<{ from: string; to: string; body: string; timestamp: string; isFromMe: boolean }> = [];
 const MAX_TG_MESSAGES = 100;
 
-// iMessage (BlueBubbles) connection state
-let imConnection: BlueBubblesConnection | null = null;
-let imStatus: string = 'disconnected';
-let imError: string | null = null;
-let imProvider: IMessageMessagingProvider | null = null;
-
-const imMessages: Array<{ from: string; to: string; body: string; timestamp: string; isFromMe: boolean }> = [];
-const MAX_IM_MESSAGES = 100;
+// Webchat connection state
+let webchatConnection: WebchatConnection | null = null;
+let webchatStatus: string = 'disconnected';
+let webchatError: string | null = null;
 
 // Universal skill engine
 let skillRepo: SkillRepository | null = null;
@@ -264,7 +262,9 @@ function setupWhatsAppHandlers(conn: WhatsAppConnection): void {
     });
     if (waMessages.length > MAX_WA_MESSAGES) waMessages.shift();
 
-    if (!msg.body || msg.isFromMe || !agentOrchestrator) return;
+    if (msg.isFromMe || !agentOrchestrator) return;
+    // Allow audio-only messages through (they have no body but will be transcribed)
+    if (!msg.body && !msg.hasMedia) return;
 
     const jid = msg.from || '';
     const replyJid = msg.rawJid || jid;
@@ -289,6 +289,7 @@ function setupWhatsAppHandlers(conn: WhatsAppConnection): void {
           const ext = media.mimeType.startsWith('image/') ? '.jpg'
             : media.mimeType.includes('pdf') ? '.pdf'
             : media.mimeType.startsWith('video/') ? '.mp4'
+            : media.mimeType.startsWith('audio/') ? (media.mimeType.includes('ogg') ? '.ogg' : media.mimeType.includes('mp4') || media.mimeType.includes('m4a') ? '.m4a' : '.mp3')
             : '';
           const filePath = join(uploadsDir, `${id}${ext}`);
           writeFileSync(filePath, media.buffer);
@@ -318,6 +319,21 @@ function setupWhatsAppHandlers(conn: WhatsAppConnection): void {
             }
           }
 
+          // For audio: auto-transcribe using local Whisper model
+          if (media.mimeType.startsWith('audio/') && isTranscriptionAvailable()) {
+            try {
+              log.info('WhatsApp', `🎤 Transcribing audio (${media.mimeType})...`);
+              const transcription = await transcribeAudio(filePath, { language: 'en' });
+              attachment.textContent = transcription.text;
+              // Replace the empty/placeholder body with the transcribed text
+              msg.body = `[Voice message transcription]: ${transcription.text}`;
+              log.info('WhatsApp', `🎤 Transcription complete (${transcription.duration?.toFixed(1)}s): "${transcription.text.slice(0, 80)}"`);
+            } catch (err: any) {
+              log.error('WhatsApp', `Transcription failed: ${err.message}`);
+              // Keep the original body ([Media message]) if transcription fails
+            }
+          }
+
           attachments = [attachment];
           log.info('WhatsApp', `Downloaded media: ${media.mimeType} (${media.buffer.length} bytes)`);
         }
@@ -330,7 +346,7 @@ function setupWhatsAppHandlers(conn: WhatsAppConnection): void {
       channel: 'whatsapp',
       senderId: jid,
       senderName,
-      body: msg.body,
+      body: msg.body || '[Media message]',
       timestamp: msg.timestamp instanceof Date ? msg.timestamp : new Date(),
       replyFn: async (text: string) => {
         if (waConnection?.isConnected) {
@@ -433,7 +449,9 @@ function setupTelegramHandlers(conn: TelegramConnection): void {
     });
     if (tgMessages.length > MAX_TG_MESSAGES) tgMessages.shift();
 
-    if (!msg.body || msg.isFromMe || !agentOrchestrator) return;
+    if (msg.isFromMe || !agentOrchestrator) return;
+    // Allow audio-only messages through (they have no body but will be transcribed)
+    if (!msg.body && !msg.hasMedia) return;
 
     const senderChatId = String(msg.chatId);
 
@@ -453,6 +471,7 @@ function setupTelegramHandlers(conn: TelegramConnection): void {
           const id = randomUUID();
           const ext = media.mimeType.startsWith('image/') ? '.jpg'
             : media.mimeType.includes('pdf') ? '.pdf'
+            : media.mimeType.startsWith('audio/') ? (media.mimeType.includes('ogg') ? '.ogg' : media.mimeType.includes('mp4') || media.mimeType.includes('m4a') ? '.m4a' : '.mp3')
             : '';
           const filePath = join(uploadsDir, `${id}${ext}`);
           writeFileSync(filePath, media.buffer);
@@ -479,6 +498,19 @@ function setupTelegramHandlers(conn: TelegramConnection): void {
             }
           }
 
+          // For audio: auto-transcribe using local Whisper model
+          if (media.mimeType.startsWith('audio/') && isTranscriptionAvailable()) {
+            try {
+              log.info('Telegram', `🎤 Transcribing audio (${media.mimeType})...`);
+              const transcription = await transcribeAudio(filePath, { language: 'en' });
+              attachment.textContent = transcription.text;
+              msg.body = `[Voice message transcription]: ${transcription.text}`;
+              log.info('Telegram', `🎤 Transcription complete (${transcription.duration?.toFixed(1)}s): "${transcription.text.slice(0, 80)}"`);
+            } catch (err: any) {
+              log.error('Telegram', `Transcription failed: ${err.message}`);
+            }
+          }
+
           attachments = [attachment];
           log.info('Telegram', `Downloaded media: ${media.mimeType} (${media.buffer.length} bytes)`);
         }
@@ -492,7 +524,7 @@ function setupTelegramHandlers(conn: TelegramConnection): void {
       senderId: senderChatId,
       senderName: msg.from || '',
       senderUsername: (msg.fromUsername || '').toLowerCase(),
-      body: msg.body,
+      body: msg.body || '[Media message]',
       timestamp: msg.timestamp instanceof Date ? msg.timestamp : new Date(),
       replyFn: async (text: string) => {
         if (conn) {
@@ -548,102 +580,113 @@ async function autoConnectTelegram(): Promise<void> {
   }
 }
 
-// ─── iMessage (BlueBubbles) ──────────────────────────────
 
-function setupIMessageHandlers(conn: BlueBubblesConnection): void {
+// ─── Webchat Event Handlers ──────────────────────────────
+
+function setupWebchatHandlers(conn: WebchatConnection): void {
+  conn.removeAllListeners();
   conn.on('connection.update', (status) => {
-    imStatus = status;
-    log.info('iMessage', `Status: ${status}`);
+    webchatStatus = status;
+    if (status === 'connected') {
+      log.info('Webchat', `Connected to relay: ${conn.relayUrl}`);
+      // Push widget config to relay
+      const cfg = loadUbotConfig();
+      const wc = cfg.channels?.webchat || {};
+      conn.pushConfig({
+        title: wc.widget_title || 'Chat with us',
+        color: wc.widget_color || '#6366f1',
+        welcomeMessage: wc.welcome_message || 'Hi there! How can I help you today?',
+        avatarUrl: wc.avatar_url || '',
+      }).catch(() => {});
+    }
+    if (status === 'error') {
+      webchatError = 'Connection error';
+    }
   });
 
-  conn.on('message.received', (bbMsg) => {
-    const from = bbMsg.handle?.address || 'unknown';
-    const displayName = [bbMsg.handle?.firstName, bbMsg.handle?.lastName].filter(Boolean).join(' ') || from;
+  conn.on('message.received', async (msg) => {
+    if (!agentOrchestrator) return;
 
-    imMessages.push({
-      from: displayName,
-      to: 'me',
-      body: bbMsg.text || '',
-      timestamp: new Date(bbMsg.dateCreated).toISOString(),
-      isFromMe: false,
-    });
-    if (imMessages.length > MAX_IM_MESSAGES) imMessages.shift();
-
-    log.info('iMessage', `Message from ${displayName}: ${(bbMsg.text || '').slice(0, 50)}`);
-
-    // Auto-reply via agent if enabled
-    const config = loadUbotConfig();
-    if (config.channels?.imessage?.auto_reply && agentOrchestrator && imProvider) {
-      const chatGuid = bbMsg.chats?.[0]?.guid;
-      if (!chatGuid) return;
-
-      const unified: UnifiedMessage = {
-        channel: 'imessage' as any,
-        senderId: chatGuid,
-        senderName: displayName,
-        body: bbMsg.text || '',
-        timestamp: new Date(bbMsg.dateCreated),
-        replyFn: async (text: string) => {
-          if (imConnection) {
-            await imConnection.sendMessage(chatGuid, text);
-            imMessages.push({ from: 'me', to: displayName, body: text, timestamp: new Date().toISOString(), isFromMe: true });
-          }
-        },
-        extra: { rawJid: chatGuid },
-      };
-
-      const deps: UnifiedDeps = {
-        orchestrator: agentOrchestrator,
-        approvalStore,
-        eventBus,
-        skillEngine,
-        saveConfigValue,
-        relayMessage: relayApprovalResponse,
-      };
-
-      handleIncomingMessage(unified, deps).catch(err => {
-        log.error('iMessage', `Agent reply error: ${err.message}`);
-      });
+    // Build attachments from audio/image
+    const attachments: Array<{ id: string; mimeType: string; base64: string; filename: string; path: string }> = [];
+    if (msg.audio) {
+      const audioData = msg.audio.includes(',') ? msg.audio.split(',')[1] : msg.audio;
+      attachments.push({ id: `wc-audio-${Date.now()}`, mimeType: 'audio/webm', base64: audioData, filename: 'voice.webm', path: '' });
     }
+    if (msg.image) {
+      const imgData = msg.image.includes(',') ? msg.image.split(',')[1] : msg.image;
+      const mimeMatch = msg.image.match(/data:([^;]+);/);
+      const mime = mimeMatch ? mimeMatch[1] : 'image/png';
+      attachments.push({ id: `wc-img-${Date.now()}`, mimeType: mime, base64: imgData, filename: 'image.png', path: '' });
+    }
+
+    const extra: Record<string, unknown> = {};
+    if (msg.ownerKey) extra.ownerKey = msg.ownerKey;
+    if (msg.audio) extra.hasMedia = true;
+    if (msg.image) extra.hasMedia = true;
+
+    const unified: UnifiedMessage = {
+      channel: 'webchat',
+      senderId: msg.session,
+      senderName: msg.name || 'Website Visitor',
+      body: msg.message || (msg.audio ? '[Voice message]' : '') || (msg.image ? '[Image]' : ''),
+      timestamp: new Date(),
+      replyFn: async (text: string) => {
+        // Send response back to relay
+        await conn.respond(msg.id, text);
+      },
+      extra: Object.keys(extra).length ? extra : undefined,
+      attachments: attachments.length ? attachments : undefined,
+    };
+
+    const deps: UnifiedDeps = {
+      orchestrator: agentOrchestrator,
+      approvalStore,
+      eventBus,
+      skillEngine,
+      saveConfigValue,
+      relayMessage: relayApprovalResponse,
+    };
+
+    await handleIncomingMessage(unified, deps);
   });
 
   conn.on('error', (err) => {
-    imError = err.message;
-    log.error('iMessage', `Error: ${err.message}`);
+    webchatError = err.message;
+    log.error('Webchat', `Error: ${err.message}`);
   });
 }
 
-async function autoConnectIMessage(): Promise<void> {
-  const config = loadUbotConfig();
-  const imConfig = config.channels?.imessage;
-  if (!imConfig?.server_url || !imConfig?.password) {
-    console.log('[iMessage] No saved BlueBubbles config — waiting for manual connect via UI');
+async function autoConnectWebchat(): Promise<void> {
+  const cfg = loadUbotConfig();
+  const wc = cfg.channels?.webchat;
+  if (!wc?.relay_url || wc?.enabled === false) {
+    console.log('[Webchat] No relay URL configured or channel disabled — skipping');
     return;
   }
-  const savedServerUrl = imConfig.server_url;
-  const savedPassword = imConfig.password;
 
-  log.info('iMessage', 'Found saved BlueBubbles config, auto-reconnecting...');
-  imStatus = 'connecting';
+  log.info('Webchat', `Connecting to relay: ${wc.relay_url}`);
+  webchatStatus = 'connecting';
 
   try {
-    if (imConnection) {
-      try { await imConnection.disconnect(); } catch { /* ignore */ }
+    if (webchatConnection) {
+      try { await webchatConnection.disconnect(); } catch { /* ignore */ }
     }
-    imConnection = new BlueBubblesConnection({ serverUrl: savedServerUrl, password: savedPassword });
-    setupIMessageHandlers(imConnection);
-    await imConnection.connect();
-
-    imProvider = new IMessageMessagingProvider(imConnection);
-    messagingRegistry.register(imProvider);
-    log.info('iMessage', 'Messaging provider registered');
-    log.info('iMessage', 'Auto-reconnected successfully');
+    webchatConnection = new WebchatConnection({
+      relayUrl: wc.relay_url,
+      botSecret: wc.bot_secret || '',
+    });
+    setupWebchatHandlers(webchatConnection);
+    await webchatConnection.connect();
+    log.info('Webchat', 'Connected successfully');
   } catch (e: any) {
-    log.error('iMessage', `Auto-connect failed: ${e.message}`);
-    imStatus = 'disconnected';
-    imError = e.message;
+    log.error('Webchat', `Auto-connect failed: ${e.message}`);
+    webchatStatus = 'disconnected';
+    webchatError = e.message;
   }
 }
+
+
 
 // ─── Initialization ──────────────────────────────────────
 
@@ -767,6 +810,8 @@ export function initializeApi(db?: DatabaseConnection, agent?: AgentOrchestrator
       // Auto-reply
       if (cfg.channels?.whatsapp?.auto_reply !== undefined) configUpdates.autoReplyWhatsApp = cfg.channels.whatsapp.auto_reply;
       if (cfg.channels?.telegram?.auto_reply !== undefined) configUpdates.autoReplyTelegram = cfg.channels.telegram.auto_reply;
+      if (cfg.channels?.webchat?.auto_reply !== undefined) configUpdates.autoReplyWebchat = cfg.channels.webchat.auto_reply;
+      if (cfg.channels?.webchat?.owner_key) configUpdates.ownerWebchatKey = cfg.channels.webchat.owner_key;
 
       // Agent settings
       if (cfg.agent?.max_history_messages) configUpdates.maxHistoryMessages = cfg.agent.max_history_messages;
@@ -777,24 +822,37 @@ export function initializeApi(db?: DatabaseConnection, agent?: AgentOrchestrator
         const defaultKey = models.default || Object.keys(models.providers)[0] || '';
         const llmProviders: LLMProviderConfig[] = Object.entries(models.providers)
           .filter(([_, p]) => p.enabled !== false)
-          .map(([key, p]) => ({
-            id: key,
-            name: key,
-            provider: key as any,
-            baseUrl: (p.baseUrl || '') as string,
-            apiKey: (p.apiKey || '') as string,
-            model: (p.model || '') as string,
-            isDefault: key === defaultKey,
-          }));
+          .map(([key, p]) => {
+            let baseUrl = ((p.baseUrl || '') as string).trim();
+            // Auto-fix: Gemini's OpenAI-compatible endpoint requires /openai/ suffix
+            if (baseUrl.includes('generativelanguage.googleapis.com') && !baseUrl.includes('/openai')) {
+              baseUrl = baseUrl.replace(/\/?$/, '') + '/openai/';
+            }
+            return {
+              id: key,
+              name: key,
+              provider: key as any,
+              baseUrl,
+              apiKey: ((p.apiKey || '') as string).trim(),
+              model: ((p.model || '') as string).trim(),
+              isDefault: key === defaultKey,
+            };
+          });
 
         if (llmProviders.length > 0) {
           configUpdates.llmProviders = llmProviders;
           configUpdates.defaultLlmProviderId = defaultKey;
           const dp = models.providers[defaultKey];
           if (dp) {
-            configUpdates.llmBaseUrl = dp.baseUrl || '';
-            configUpdates.llmModel = dp.model || '';
-            configUpdates.llmApiKey = dp.apiKey || '';
+            let baseUrl = (dp.baseUrl || '').trim();
+            // Auto-fix: Gemini's OpenAI-compatible endpoint requires /openai/ suffix
+            if (baseUrl.includes('generativelanguage.googleapis.com') && !baseUrl.includes('/openai')) {
+              baseUrl = baseUrl.replace(/\/?$/, '') + '/openai/';
+              log.info('Config', `Auto-fixed Gemini base URL to use OpenAI-compatible endpoint`);
+            }
+            configUpdates.llmBaseUrl = baseUrl;
+            configUpdates.llmModel = (dp.model || '').trim();
+            configUpdates.llmApiKey = (dp.apiKey || '').trim();
           }
           log.info('Config', `Loaded ${llmProviders.length} model providers from config`);
         }
@@ -908,7 +966,12 @@ export function initializeApi(db?: DatabaseConnection, agent?: AgentOrchestrator
 
   autoConnectWhatsApp();
   autoConnectTelegram();
-  autoConnectIMessage();
+
+  // Ensure webchat connection token exists
+  ensureWebchatToken();
+
+  // Auto-connect webchat relay
+  autoConnectWebchat();
 }
 
 async function registerAgentTools(agent: AgentOrchestrator): Promise<void> {
@@ -989,6 +1052,7 @@ function getApiContext(): ApiContext {
       if (key === 'telegram_bot_token') return c.channels?.telegram?.token || null;
       return (c as any)[key] ?? null;
     },
+    relayMessage: relayApprovalResponse,
   };
 }
 
@@ -1190,10 +1254,7 @@ async function handleChannelRoutes(
       }
     }
 
-    // iMessage/BlueBubbles contacts
-    if (cfg.channels?.imessage?.enabled) {
-      options.contacts = [...(options.contacts || []), { value: 'imessage.contacts', label: 'iMessage Contacts' }];
-    }
+
 
     // Browser options
     options.browser = [
@@ -1223,6 +1284,14 @@ async function handleChannelRoutes(
   // ── WhatsApp QR & Connection ──────────────────────────
   if (url === '/api/whatsapp/qr' && method === 'GET') {
     json(res, { qr: waQrCode, status: waStatus, error: waError });
+    return true;
+  }
+
+  // ── Webchat Status ─────────────────────────────────────
+  if (url === '/api/webchat/status' && method === 'GET') {
+    const status = webchatConnection?.status || 'disconnected';
+    const relayUrl = webchatConnection?.relayUrl || '';
+    json(res, { status, relayUrl, error: webchatError || '' });
     return true;
   }
 
@@ -1407,97 +1476,7 @@ async function handleChannelRoutes(
     return true;
   }
 
-  // ── iMessage (BlueBubbles) ─────────────────────────────
-  if (url === '/api/imessage/status' && method === 'GET') {
-    json(res, {
-      status: imStatus,
-      error: imError,
-      serverUrl: loadUbotConfig().channels?.imessage?.server_url ? '(configured)' : null,
-    });
-    return true;
-  }
 
-  if (url === '/api/imessage/connect' && method === 'POST') {
-    const body = await parseBody(req) as any;
-    const serverUrl = body?.serverUrl;
-    const password = body?.password;
-    if (!serverUrl || !password) {
-      apiError(res, 'serverUrl and password are required', 400);
-      return true;
-    }
-
-    imError = null;
-    imStatus = 'connecting';
-
-    try {
-      if (imConnection) {
-        try { await imConnection.disconnect(); } catch { /* ignore */ }
-      }
-
-      imConnection = new BlueBubblesConnection({ serverUrl, password });
-      setupIMessageHandlers(imConnection);
-      await imConnection.connect();
-
-      // Save config under channels.imessage
-      const cfg = loadUbotConfig();
-      if (!cfg.channels) cfg.channels = {};
-      cfg.channels.imessage = { enabled: true, server_url: serverUrl, password, auto_reply: cfg.channels.imessage?.auto_reply ?? false };
-      saveUbotConfig(cfg);
-      log.info('iMessage', 'BlueBubbles config saved');
-
-      // Register messaging provider
-      if (imProvider) {
-        messagingRegistry.unregister('imessage');
-      }
-      imProvider = new IMessageMessagingProvider(imConnection);
-      messagingRegistry.register(imProvider);
-      log.info('iMessage', 'Messaging provider registered');
-
-      json(res, { status: 'connected', message: 'Connected to BlueBubbles' });
-    } catch (e: any) {
-      imStatus = 'disconnected';
-      imError = e.message;
-      apiError(res, e.message, 500);
-    }
-    return true;
-  }
-
-  if (url === '/api/imessage/disconnect' && method === 'POST') {
-    if (imConnection) {
-      try { await imConnection.disconnect(); } catch {}
-      imConnection = null;
-    }
-    if (imProvider) {
-      messagingRegistry.unregister('imessage');
-      imProvider = null;
-    }
-    imStatus = 'disconnected';
-    imError = null;
-    const cfg = loadUbotConfig();
-    if (cfg.channels?.imessage) {
-      cfg.channels.imessage = { enabled: false };
-      saveUbotConfig(cfg);
-    }
-    json(res, { status: 'disconnected' });
-    return true;
-  }
-
-  if (url === '/api/imessage/messages' && method === 'GET') {
-    json(res, { messages: [...imMessages].reverse().slice(0, 50) });
-    return true;
-  }
-
-  // BlueBubbles webhook endpoint (receives incoming messages)
-  if (url === '/api/imessage/webhook' && method === 'POST') {
-    const body = await parseBody(req) as any;
-    const event = body?.type || body?.event;
-    const data = body?.data;
-    if (imConnection && event && data) {
-      imConnection.handleWebhook(event, data);
-    }
-    json(res, { ok: true });
-    return true;
-  }
 
   return false;
 }
@@ -1546,6 +1525,25 @@ export async function handleApiRoute(
       tools: agentOrchestrator ? (() => { try { const { getAllToolDefinitions } = require('../tools/registry.js'); return getAllToolDefinitions().length; } catch { return 0; } })() : 0,
     });
     return true;
+  }
+
+  // ── Webchat routes (public, pre-auth — uses its own token validation) ──
+  if (url.startsWith('/api/webchat/')) {
+    // Permissive CORS for webchat (embedded on third-party sites)
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Webchat-Token');
+    if (method === 'OPTIONS') {
+      res.writeHead(204, {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type, X-Webchat-Token',
+        'Access-Control-Max-Age': '86400',
+      });
+      res.end();
+      return true;
+    }
+    const ctx = getApiContext();
+    if (await handleWebchatRoutes(req, res, url, method, ctx)) return true;
   }
 
   // ── Authentication ─────────────────────────────────────

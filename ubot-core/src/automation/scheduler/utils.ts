@@ -78,16 +78,42 @@ export function calculateNextRun(schedule: TaskSchedule, fromDate: Date = new Da
       if (!schedule.cronExpression) return null;
       return calculateNextCronRun(schedule.cronExpression, startDate, schedule.timezone);
 
-    case 'daily':
+    case 'daily': {
+      // Preserve original time-of-day from startDate
+      if (schedule.startDate) {
+        const next = new Date(fromDate);
+        next.setHours(schedule.startDate.getHours(), schedule.startDate.getMinutes(), schedule.startDate.getSeconds(), 0);
+        // If that time already passed today, move to tomorrow
+        if (next.getTime() <= fromDate.getTime()) {
+          next.setDate(next.getDate() + 1);
+        }
+        return next;
+      }
       return new Date(startDate.getTime() + 24 * 60 * 60 * 1000);
+    }
 
-    case 'weekly':
+    case 'weekly': {
+      if (schedule.startDate) {
+        const next = new Date(fromDate);
+        next.setHours(schedule.startDate.getHours(), schedule.startDate.getMinutes(), schedule.startDate.getSeconds(), 0);
+        // Move forward day-by-day until we hit the same weekday as startDate
+        const targetDay = schedule.startDate.getDay();
+        while (next.getDay() !== targetDay || next.getTime() <= fromDate.getTime()) {
+          next.setDate(next.getDate() + 1);
+        }
+        return next;
+      }
       return new Date(startDate.getTime() + 7 * 24 * 60 * 60 * 1000);
+    }
 
-    case 'monthly':
+    case 'monthly': {
       const nextMonth = new Date(startDate);
       nextMonth.setMonth(nextMonth.getMonth() + 1);
+      if (schedule.startDate) {
+        nextMonth.setHours(schedule.startDate.getHours(), schedule.startDate.getMinutes(), schedule.startDate.getSeconds(), 0);
+      }
       return nextMonth;
+    }
 
     default:
       return null;

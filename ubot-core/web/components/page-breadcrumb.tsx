@@ -10,7 +10,7 @@ const routeNames: Record<string, string> = {
   "/skills": "Skills",
   "/whatsapp": "WhatsApp",
   "/telegram": "Telegram",
-  "/imessage": "iMessage",
+
   "/safety": "Safety Rules",
   "/scheduler": "Scheduler",
   "/settings": "Settings",

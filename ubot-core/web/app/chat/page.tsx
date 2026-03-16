@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
@@ -12,7 +13,7 @@ import {
   Send, Trash2, Bot, User, Wrench, Sparkles, Loader2,
   Paperclip, X, FileText, Image as ImageIcon, File as FileIcon,
   ArrowDown, Globe, Smartphone, MessageCircle,
-  Send as SendIcon,
+  Send as SendIcon, Mic, MicOff, AudioLines,
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { ThreadSidebar } from "@/components/thread-sidebar";
@@ -56,7 +57,6 @@ const CHANNEL_META: Record<string, { icon: typeof Globe; label: string; color: s
   web: { icon: Globe, label: "Web", color: "text-blue-500" },
   whatsapp: { icon: Smartphone, label: "WhatsApp", color: "text-green-500" },
   telegram: { icon: SendIcon, label: "Telegram", color: "text-sky-500" },
-  imessage: { icon: MessageCircle, label: "iMessage", color: "text-indigo-500" },
 };
 
 export default function ChatPage() {
@@ -72,9 +72,18 @@ export default function ChatPage() {
   const [showScrollDown, setShowScrollDown] = useState(false);
   const [activeThreadId, setActiveThreadId] = useState<string>("");
   const [activeThreadType, setActiveThreadType] = useState<string>("web");
+  const [recording, setRecording] = useState(false);
+  const [transcribing, setTranscribing] = useState(false);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const voiceInitiatedRef = useRef(false);
+  const [speaking, setSpeaking] = useState(false);
   const [activeThreadName, setActiveThreadName] = useState<string>("");
   const [threadReady, setThreadReady] = useState(false);
   const [processingThreads, setProcessingThreads] = useState<string[]>([]);
+  const [imagePreview, setImagePreview] = useState<{ file: File; preview: string; base64: string } | null>(null);
+  const [imageCaption, setImageCaption] = useState("");
+  const captionInputRef = useRef<HTMLInputElement>(null);
 
   const isReadOnly = activeThreadType !== "web";
   // Show typing indicator if: web thread is loading locally, OR backend reports this thread is processing
@@ -276,6 +285,16 @@ export default function ChatPage() {
       }
 
       const base64 = await fileToBase64(file);
+
+      // For single image: show preview with caption
+      if (file.type.startsWith("image/") && files.length === 1) {
+        const preview = URL.createObjectURL(file);
+        setImagePreview({ file, preview, base64 });
+        setImageCaption("");
+        setTimeout(() => captionInputRef.current?.focus(), 100);
+        return;
+      }
+
       const preview = file.type.startsWith("image/")
         ? URL.createObjectURL(file)
         : undefined;
@@ -287,6 +306,26 @@ export default function ChatPage() {
       setPendingAttachments(prev => [...prev, ...newAttachments]);
       textareaRef.current?.focus();
     }
+  };
+
+  const sendImageWithCaption = () => {
+    if (!imagePreview) return;
+    const att: PendingAttachment = {
+      file: imagePreview.file,
+      preview: imagePreview.preview,
+      base64: imagePreview.base64,
+    };
+    setPendingAttachments([att]);
+    setImagePreview(null);
+    // Send immediately with caption
+    const caption = imageCaption.trim();
+    setTimeout(() => sendMessage(caption || undefined), 0);
+  };
+
+  const cancelImagePreview = () => {
+    if (imagePreview?.preview) URL.revokeObjectURL(imagePreview.preview);
+    setImagePreview(null);
+    setImageCaption("");
   };
 
   const fileToBase64 = (file: File): Promise<string> => {
@@ -312,8 +351,8 @@ export default function ChatPage() {
     });
   };
 
-  const sendMessage = async () => {
-    const trimmed = input.trim();
+  const sendMessage = async (textOverride?: string) => {
+    const trimmed = (textOverride ?? input).trim();
     if ((!trimmed && pendingAttachments.length === 0) || loading) return;
 
     messageCountRef.current += 1;
@@ -380,6 +419,14 @@ export default function ChatPage() {
           },
         },
       ]);
+
+      // Auto-speak response if voice-initiated and response is conversational
+      if (voiceInitiatedRef.current && res.content) {
+        voiceInitiatedRef.current = false;
+        if (shouldSpeak(res.content)) {
+          speakText(res.content);
+        }
+      }
     } catch (err: unknown) {
       const errorMessage = err instanceof Error ? err.message : "Unknown error";
       toast.error(`Send failed: ${errorMessage}`);
@@ -440,10 +487,148 @@ export default function ChatPage() {
     }
   };
 
+  // ── Voice Response Decision ─────────────────────────────
+  /** Decide if a response should be spoken aloud or just shown as text */
+  const shouldSpeak = (text: string): boolean => {
+    // Too long — not conversational
+    if (text.length > 800) return false;
+
+    // Contains code blocks — technical response
+    if (text.includes('```')) return false;
+
+    // Heavy markdown (many headers, lists) — structured content
+    const lineCount = text.split('\n').length;
+    if (lineCount > 15) return false;
+
+    // Dense with URLs — not suitable for voice
+    const urlCount = (text.match(/https?:\/\//g) || []).length;
+    if (urlCount > 2) return false;
+
+    // Numbered steps (>5) — too structured for voice
+    const numberedItems = (text.match(/^\d+\./gm) || []).length;
+    if (numberedItems > 5) return false;
+
+    // Error messages — don't speak
+    if (text.startsWith('⚠️')) return false;
+
+    return true;
+  };
+
+  // ── TTS Playback ───────────────────────────────────────
+  const speakText = async (text: string) => {
+    try {
+      setSpeaking(true);
+      const response = await fetch('/api/tts/speak', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+      });
+
+      if (!response.ok) {
+        // TTS not available, skip silently
+        setSpeaking(false);
+        return;
+      }
+
+      const audioBlob = await response.blob();
+      const audioUrl = URL.createObjectURL(audioBlob);
+      const audio = new Audio(audioUrl);
+
+      audio.onended = () => {
+        setSpeaking(false);
+        URL.revokeObjectURL(audioUrl);
+      };
+      audio.onerror = () => {
+        setSpeaking(false);
+        URL.revokeObjectURL(audioUrl);
+      };
+
+      await audio.play();
+    } catch {
+      setSpeaking(false);
+    }
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       sendMessage();
+    }
+  };
+
+  // ── Voice Recording ────────────────────────────────────
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream, {
+        mimeType: MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+          ? 'audio/webm;codecs=opus'
+          : 'audio/webm',
+      });
+      audioChunksRef.current = [];
+
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data.size > 0) audioChunksRef.current.push(e.data);
+      };
+
+      mediaRecorder.onstop = async () => {
+        // Stop all tracks
+        stream.getTracks().forEach(t => t.stop());
+
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        if (audioBlob.size < 100) {
+          toast.warning('Recording too short');
+          return;
+        }
+
+        // Send to transcription API
+        setTranscribing(true);
+        try {
+          const response = await fetch('/api/transcription/transcribe', {
+            method: 'POST',
+            headers: { 'Content-Type': 'audio/webm' },
+            body: audioBlob,
+          });
+          const data = await response.json();
+
+          if (data.text && data.text !== '(no speech detected)') {
+            // Mark as voice-initiated so response gets spoken
+            voiceInitiatedRef.current = true;
+            sendMessage(data.text.trim());
+          } else {
+            toast.warning('No speech detected. Try speaking louder or longer.');
+          }
+        } catch (err: any) {
+          toast.error(`Transcription failed: ${err.message}`);
+        } finally {
+          setTranscribing(false);
+        }
+      };
+
+      mediaRecorderRef.current = mediaRecorder;
+      mediaRecorder.start();
+      setRecording(true);
+    } catch (err: any) {
+      if (err.name === 'NotAllowedError') {
+        toast.error('Microphone access denied. Please allow it in browser settings.');
+      } else {
+        toast.error(`Mic error: ${err.message}`);
+      }
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.stop();
+    }
+    setRecording(false);
+  };
+
+  const toggleRecording = () => {
+    if (recording) {
+      stopRecording();
+    } else {
+      startRecording();
     }
   };
 
@@ -728,6 +913,25 @@ export default function ChatPage() {
             >
               <Paperclip className="size-4" />
             </Button>
+            <Button
+              variant={recording ? "destructive" : "ghost"}
+              size="icon"
+              className={`shrink-0 relative ${recording ? 'animate-pulse' : ''}`}
+              onClick={toggleRecording}
+              disabled={loading || transcribing}
+              title={recording ? 'Stop recording' : 'Voice input (transcribe speech)'}
+            >
+              {transcribing ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : recording ? (
+                <>
+                  <MicOff className="size-4" />
+                  <span className="absolute -top-0.5 -right-0.5 size-2 bg-red-500 rounded-full animate-ping" />
+                </>
+              ) : (
+                <Mic className="size-4" />
+              )}
+            </Button>
             <Textarea
               ref={textareaRef}
               value={input}
@@ -738,7 +942,7 @@ export default function ChatPage() {
               rows={1}
             />
             <Button
-              onClick={sendMessage}
+              onClick={() => sendMessage()}
               disabled={(!input.trim() && pendingAttachments.length === 0) || loading}
               size="icon"
               className="shrink-0"
@@ -749,6 +953,52 @@ export default function ChatPage() {
         </div>
       )}
       </div>
+
+      {/* Image Preview Modal */}
+      {imagePreview && (
+        <div className="fixed inset-0 z-50 flex flex-col bg-black/95 backdrop-blur-sm">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
+            <span className="text-sm font-medium text-white">Send Image</span>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="text-white/60 hover:text-white hover:bg-white/10"
+              onClick={cancelImagePreview}
+            >
+              <X className="size-5" />
+            </Button>
+          </div>
+          <div className="flex-1 min-h-0 flex items-center justify-center p-6">
+            <img
+              src={imagePreview.preview}
+              alt="Preview"
+              className="max-w-full max-h-full object-contain rounded-xl"
+            />
+          </div>
+          <div className="flex items-end gap-2 px-4 py-3 border-t border-white/10 bg-black/50">
+            <Input
+              ref={captionInputRef}
+              value={imageCaption}
+              onChange={(e) => setImageCaption(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  sendImageWithCaption();
+                }
+              }}
+              placeholder="Add a caption..."
+              className="flex-1 bg-white/10 border-white/20 text-white placeholder:text-white/40 focus-visible:ring-primary"
+            />
+            <Button
+              onClick={sendImageWithCaption}
+              size="icon"
+              className="shrink-0"
+            >
+              <Send className="size-4" />
+            </Button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

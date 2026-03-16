@@ -1,7 +1,7 @@
 /**
  * Agent Tools
  * Platform-agnostic tool definitions for the agent.
- * These tools work with any messaging provider (WhatsApp, Telegram, iMessage).
+ * These tools work with any messaging provider (WhatsApp, Telegram).
  */
 
 import type { ToolDefinition, ToolCallResult, ToolExecutionResult } from './types.js';

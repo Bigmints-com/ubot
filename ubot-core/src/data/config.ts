@@ -106,7 +106,18 @@ export interface UbotConfig {
   channels?: {
     whatsapp?: { enabled?: boolean; auto_reply?: boolean };
     telegram?: { enabled?: boolean; token?: string; auto_reply?: boolean };
-    imessage?: { enabled?: boolean; server_url?: string; password?: string; auto_reply?: boolean };
+    webchat?: {
+      enabled?: boolean;
+      auto_reply?: boolean;
+      connection_token?: string;
+      relay_url?: string;
+      bot_secret?: string;
+      owner_key?: string;
+      welcome_message?: string;
+      widget_title?: string;
+      widget_color?: string;
+      avatar_url?: string;
+    };
   };
 
   agent?: {

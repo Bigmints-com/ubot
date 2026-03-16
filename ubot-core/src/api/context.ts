@@ -62,6 +62,8 @@ export interface ApiContext {
   // Helpers
   saveConfigValue: (key: string, value: string) => void;
   loadConfigValue: (key: string) => string | null;
+  /** Relay a message to a session (for approval follow-ups) */
+  relayMessage?: (sessionId: string, message: string) => Promise<boolean>;
 }
 
 /** Route handler type — returns true if handled, false if not matched */

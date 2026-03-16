@@ -14,7 +14,7 @@ const MESSAGING_TOOLS: ToolDefinition[] = [
     parameters: [
       { name: 'to', type: 'string', description: 'Phone number with country code (e.g. +971501234567) or contact/group ID', required: true },
       { name: 'body', type: 'string', description: 'The message text to send', required: true },
-      { name: 'channel', type: 'string', description: 'Messaging channel (whatsapp, telegram, imessage). Defaults to the connected one.', required: false },
+      { name: 'channel', type: 'string', description: 'Messaging channel (whatsapp, telegram). Defaults to the connected one.', required: false },
     ],
   },
   {
@@ -79,7 +79,7 @@ const MESSAGING_TOOLS: ToolDefinition[] = [
   },
   {
     name: 'react_to_message',
-    description: 'React to a message with an emoji. Supported on WhatsApp (emoji), Telegram (emoji), iMessage (tapback).',
+    description: 'React to a message with an emoji. Supported on WhatsApp (emoji) and Telegram (emoji).',
     parameters: [
       { name: 'messageId', type: 'string', description: 'The ID of the message to react to', required: true },
       { name: 'emoji', type: 'string', description: 'Emoji reaction (e.g. "👍", "❤️", "😂")', required: true },
@@ -131,14 +131,17 @@ const messagingToolModule: ToolModule = {
 
     registry.register('send_message', async (args) => {
       const to = String(args.to || '');
-      const body = String(args.body || args.message || '');
+      // Defensive: small models sometimes send args as {description, type, value} objects
+      const rawBody = args.body || args.message || '';
+      const body = typeof rawBody === 'object' && rawBody !== null
+        ? String((rawBody as any).value || (rawBody as any).text || JSON.stringify(rawBody))
+        : String(rawBody);
       if (!to || !body) return { toolName: 'send_message', success: false, error: 'Missing "to" or "body" parameter', duration: 0 };
       try {
         let channel = args.channel as string | undefined;
         
         // Smart channel detection: if no channel specified and the recipient looks like
         // an international phone number, prefer WhatsApp (if connected) over other providers.
-        // This prevents messages from routing to iMessage/BlueBubbles for non-iMessage contacts.
         if (!channel && /^\+\d{10,}$/.test(to.replace(/\s/g, ''))) {
           try {
             const waProvider = mr.getProvider('whatsapp');

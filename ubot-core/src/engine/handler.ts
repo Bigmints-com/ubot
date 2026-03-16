@@ -38,7 +38,7 @@ export function isSessionProcessing(sessionId: string): boolean {
 
 // ─── Types ────────────────────────────────────────────────
 
-export type Channel = 'whatsapp' | 'telegram' | 'imessage' | 'web';
+export type Channel = 'whatsapp' | 'telegram' | 'web' | 'webchat';
 
 export interface UnifiedMessage {
   /** Which transport delivered this message */
@@ -93,6 +93,24 @@ function detectOwner(
   // Web source = always owner (Command Center)
   if (msg.channel === 'web') {
     return { isOwner: true, ownerName: '' };
+  }
+
+  // Webchat: check owner key, otherwise treat as visitor
+  if (msg.channel === 'webchat') {
+    const ownerKey = (msg.extra?.ownerKey as string) || '';
+    if (ownerKey) {
+      // Owner key is stored in the raw config file, read it at startup
+      // and pass via the extra field. For simplicity, compare against
+      // ownerWebchatKey stored in agent config.
+      const configuredKey = (config as any).ownerWebchatKey || '';
+      if (configuredKey && ownerKey === configuredKey) {
+        const soul = deps.orchestrator.getSoul();
+        const ownerDoc = soul.getDocument(OWNER_SOUL_ID);
+        const nameMatch = ownerDoc?.match(/name:\s*(.+)/i);
+        return { isOwner: true, ownerName: nameMatch ? nameMatch[1].trim() : '' };
+      }
+    }
+    return { isOwner: false, ownerName: '' };
   }
 
   // Read owner name from soul document
@@ -171,7 +189,7 @@ function resolveSessionId(msg: UnifiedMessage, isOwner: boolean): string {
   // Visitors get channel-specific sessions
   switch (msg.channel) {
     case 'telegram': return `telegram:${msg.senderId}`;
-    case 'imessage': return `imessage:${msg.senderId}`;
+    case 'webchat': return `webchat:${msg.senderId}`;
     case 'whatsapp': return msg.senderId; // WhatsApp JID is already the session
     case 'web': return 'web-console';
     default: return msg.senderId;
@@ -237,7 +255,9 @@ export async function handleIncomingMessage(
       ? config.autoReplyWhatsApp !== false
       : msg.channel === 'telegram'
         ? config.autoReplyTelegram !== false
-        : false;
+        : msg.channel === 'webchat'
+          ? config.autoReplyWebchat !== false
+          : false;
 
     if (!autoReplyEnabled) {
       return { isOwner, sessionId, response: '', handled: false };
@@ -330,17 +350,18 @@ export async function handleIncomingMessage(
         deps.approvalStore.resolve(approval.id, response);
         console.log(`[Unified] ✅ Owner responded to approval ${approval.id}`);
 
-        // Feed approval response back to the requester's session
+        // Feed approval response back to the requester's session using generate() (no tools)
         if (approval.requesterJid) {
           const reqSessionId = approval.requesterJid;
-          const reqSource = resolveChannelFromSessionId(reqSessionId);
-          const systemMessage = `[SYSTEM] The owner responded to your approval request (ID: ${approval.id}): "${response}"\n\nPlease relay this information to the visitor appropriately.`;
+          const systemPrompt = `You are composing a reply to a visitor who asked a question that required the owner's approval. Compose a natural, friendly response incorporating the owner's answer. Keep it brief and conversational. Do NOT mention "approval" or "system" or internal processes.`;
+          const userPrompt = `The visitor's original question was: "${approval.question}"\nThe owner's response is: "${response}"\n\nWrite a natural reply to send to the visitor.`;
 
-          deps.orchestrator.chat(reqSessionId, systemMessage, reqSource).then(async result => {
-            if (result.content && deps.relayMessage) {
-              const sent = await deps.relayMessage(reqSessionId, result.content);
+          deps.orchestrator.generate(systemPrompt, userPrompt).then(async (reply: string) => {
+            const finalReply = reply.trim() || response;
+            if (deps.relayMessage) {
+              const sent = await deps.relayMessage(reqSessionId, finalReply);
               console.log(`[Unified] ↩ Approval follow-up ${sent ? 'sent' : 'FAILED'} to ${reqSessionId}`);
-            } else if (result.content) {
+            } else {
               console.warn(`[Unified] ⚠️ No relayMessage function — approval response to ${reqSessionId} was NOT delivered`);
             }
           }).catch(err => console.error('[Unified] Approval follow-up failed:', err.message));
@@ -354,9 +375,22 @@ export async function handleIncomingMessage(
   // 7. Route owner messages to the orchestrator
   activeSessions.add(sessionId);
   try {
+    // Inject pending approval context so the LLM can connect the owner's reply
+    let messageToSend = msg.body;
+    if (isOwner && deps.approvalStore) {
+      const pending = deps.approvalStore.getPending();
+      if (pending.length > 0) {
+        const approvalContext = pending.slice(0, 3).map(a => {
+          const ago = Math.round((Date.now() - new Date(a.createdAt).getTime()) / 60000);
+          return `  • [${a.id}] "${a.question}" (from: ${a.context || a.requesterJid}, ${ago}m ago)`;
+        }).join('\n');
+        messageToSend = `${msg.body}\n\n[SYSTEM: There are ${pending.length} pending approval(s) awaiting your response:\n${approvalContext}\nIf the owner's message above is a response to one of these, use the respond_to_approval tool to relay it.]`;
+      }
+    }
+
     const response = await deps.orchestrator.chat(
       sessionId,
-      msg.body,
+      messageToSend,
       'web',
       msg.senderName || undefined,
       undefined,
@@ -370,6 +404,10 @@ export async function handleIncomingMessage(
     return { isOwner, sessionId, response: response.content, handled: true };
   } catch (err: any) {
     console.error(`[Unified] Chat error (${msg.channel}):`, err.message);
+    // Send error response so the message is cleared from pending queues (prevents infinite retry loops)
+    try {
+      await msg.replyFn('Sorry, I encountered an error processing your message. Please try again.');
+    } catch { /* ignore reply errors */ }
     return { isOwner, sessionId, response: '', handled: false };
   } finally {
     activeSessions.delete(sessionId);
@@ -380,7 +418,7 @@ export async function handleIncomingMessage(
 
 function resolveChannelFromSessionId(sessionId: string): Channel {
   if (sessionId.startsWith('telegram:')) return 'telegram';
-  if (sessionId.startsWith('imessage:')) return 'imessage';
+  if (sessionId.startsWith('webchat:')) return 'webchat';
   if (sessionId === 'web-console') return 'web';
   return 'whatsapp';
 }

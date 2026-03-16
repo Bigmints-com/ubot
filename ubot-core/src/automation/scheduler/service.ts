@@ -234,6 +234,13 @@ export class TaskSchedulerService {
         this.tasks.set(task.id, task);
         loaded++;
         this.logger?.info(`[Scheduler] Restored task: ${task.name} (${task.id}) → next: ${nextRunAt?.toLocaleString() || 'N/A'}`);
+
+        // Schedule the task if the scheduler is already running
+        if (this.isRunning && task.enabled) {
+          this.scheduleTask(task).catch(err =>
+            this.logger?.error(`[Scheduler] Failed to schedule restored task ${task.id}: ${err.message}`)
+          );
+        }
       }
 
       if (loaded > 0) {

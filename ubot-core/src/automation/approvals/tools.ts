@@ -29,6 +29,13 @@ const APPROVAL_TOOLS: ToolDefinition[] = [
     description: "List all pending approval requests that are waiting for the owner's response.",
     parameters: [],
   },
+  {
+    name: 'delete_approval',
+    description: 'Delete an approval request. Can delete a specific approval by ID, or delete all resolved approvals at once.',
+    parameters: [
+      { name: 'approval_id', type: 'string', description: 'The approval ID to delete. Use "all_resolved" to delete all resolved approvals.', required: true },
+    ],
+  },
 ];
 
 const approvalsToolModule: ToolModule = {
@@ -119,25 +126,28 @@ const approvalsToolModule: ToolModule = {
       store.resolve(approvalId, response);
       console.log(`[Approvals] Owner responded to approval ${approvalId}: "${response.slice(0, 80)}"`);
 
-      // Relay response to the requester
+      // Relay response to the requester — use generate() (no tools) to compose reply
       const agent = ctx.getAgent();
       if (approval.requesterJid && agent) {
         const source = approval.requesterJid.startsWith('telegram:') ? 'telegram' : 'whatsapp';
         const sessionId = approval.requesterJid;
-        const systemMessage = `[SYSTEM] The owner has responded to the pending approval request (ID: ${approvalId}). The owner's answer is: "${response}"\n\nCompose a natural, friendly reply to the visitor incorporating the owner's answer. Do NOT use send_message or any other tool — just write the reply text. It will be delivered automatically.`;
 
-        agent.chat(sessionId, systemMessage, source as any).then((result: any) => {
-          const reply = result.content || response; // fallback to raw owner response
+        // Compose a natural reply using LLM without tools (avoids re-triggering ask_owner)
+        const systemPrompt = `You are composing a reply to a visitor who asked a question that required the owner's approval. Compose a natural, friendly response incorporating the owner's answer. Keep it brief and conversational. Do NOT mention "approval" or "system" or internal processes.`;
+        const userPrompt = `The visitor's original question was: "${approval.question}"\nThe owner's response is: "${response}"\n\nWrite a natural reply to send to the visitor.`;
+
+        agent.generate(systemPrompt, userPrompt).then(async (reply: string) => {
+          const finalReply = reply.trim() || response; // fallback to raw owner response
           const tg = ctx.getTelegram();
           const wa = ctx.getWhatsApp();
           if (source === 'telegram' && tg) {
             const chatId = Number(sessionId.replace('telegram:', ''));
-            tg.sendMessage(chatId, reply);
+            if (!isNaN(chatId)) await tg.sendMessage(chatId, finalReply);
           } else if (source === 'whatsapp' && wa?.isConnected) {
             const jid = sessionId.includes('@') ? sessionId : `${sessionId.replace(/\D/g, '')}@s.whatsapp.net`;
-            wa.sendMessage(jid, { text: reply });
+            await wa.sendMessage(jid, { text: finalReply });
           }
-          console.log(`[Approvals] Relayed to ${sessionId}: ${reply.slice(0, 100)}...`);
+          console.log(`[Approvals] Relayed to ${sessionId}: ${finalReply.slice(0, 100)}...`);
         }).catch((err: any) => {
           console.error(`[Approvals] Failed to relay response to ${sessionId}:`, err.message);
         });
@@ -156,6 +166,30 @@ const approvalsToolModule: ToolModule = {
         return `• [${a.id}] "${a.question}" — from: ${a.context || a.requesterJid} (${ago}m ago)`;
       }).join('\n');
       return { toolName: 'list_pending_approvals', success: true, result: `${pending.length} pending approval(s):\n${summary}`, duration: 0 };
+    });
+
+    registry.register('delete_approval', async (args) => {
+      const store = ctx.getApprovalStore();
+      if (!store) return { toolName: 'delete_approval', success: false, error: 'Approval system not initialized', duration: 0 };
+
+      const approvalId = String(args.approval_id || '');
+      if (!approvalId) return { toolName: 'delete_approval', success: false, error: 'Missing "approval_id" parameter', duration: 0 };
+
+      if (approvalId === 'all_resolved') {
+        const all = store.getAll();
+        const resolved = all.filter((a: any) => a.status === 'resolved');
+        if (resolved.length === 0) return { toolName: 'delete_approval', success: true, result: 'No resolved approvals to delete.', duration: 0 };
+        let deleted = 0;
+        for (const a of resolved) {
+          if (store.delete(a.id)) deleted++;
+        }
+        return { toolName: 'delete_approval', success: true, result: `Deleted ${deleted} resolved approval(s).`, duration: 0 };
+      }
+
+      const deleted = store.delete(approvalId);
+      if (!deleted) return { toolName: 'delete_approval', success: false, error: `Approval not found: ${approvalId}`, duration: 0 };
+      console.log(`[Approvals] Deleted approval ${approvalId}`);
+      return { toolName: 'delete_approval', success: true, result: `Approval ${approvalId} deleted.`, duration: 0 };
     });
   },
 };

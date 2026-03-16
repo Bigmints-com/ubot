@@ -16,7 +16,7 @@ export interface ChatMessage {
 
 export interface ChatMessageMetadata {
   /** Source of the message: web UI or WhatsApp JID */
-  source?: 'web' | 'whatsapp' | 'telegram';
+  source?: 'web' | 'whatsapp' | 'telegram' | 'webchat';
   /** WhatsApp JID if source is whatsapp */
   whatsappJid?: string;
   /** Contact name if known */
@@ -36,7 +36,7 @@ export interface ChatMessageMetadata {
 export interface ConversationSession {
   id: string;
   /** 'web-console' for UI, WhatsApp JID for WhatsApp chats */
-  type: 'web' | 'whatsapp' | 'telegram';
+  type: 'web' | 'whatsapp' | 'telegram' | 'webchat';
   /** Display name for the session */
   name: string;
   createdAt: Date;
@@ -143,6 +143,10 @@ export interface AgentConfig {
   autoReplyTelegram: boolean;
   /** Contacts to auto-reply to (empty = all) */
   autoReplyContacts: string[];
+  /** Whether to auto-reply to webchat messages from website visitors */
+  autoReplyWebchat: boolean;
+  /** Secret key that identifies the owner in webchat (via ?key= URL param) */
+  ownerWebchatKey: string;
   /** Group reply policy: false = never, 'mentions_only' = only when @mentioned, true = always */
   autoReplyGroups: boolean | 'mentions_only';
   /** Bot name for mention detection in groups (e.g. 'ubot') */
@@ -252,6 +256,8 @@ Rules:
 - Be concise and helpful — avoid asking unnecessary follow-up questions
 - If a tool fails, explain the error and suggest alternatives
 - If you don't know something, say so honestly
+- **ALWAYS SHOW RESULTS**: After using tools, share the actual output/data with the user. NEVER respond with vague summaries like "I completed the requested actions" or "Done". The user needs to see what happened — show statuses, values, outputs, and results from every tool call.
+- **Prefer dedicated tools over CLI**: For WhatsApp/Telegram status, use get_connection_status. For sending messages, use send_message. For contacts, use get_contacts. NEVER use cli_run or exec to do things that dedicated tools already handle.
 - **Bias towards action**: When the owner gives a clear instruction ("send him a reminder", "tell him X", "block my calendar"), execute it immediately. Do NOT ask for confirmation, rewording, or clarification on obvious requests. Only confirm if the action is ambiguous, irreversible, or could cause real harm.
 - When sending messages on behalf of the owner, compose a natural message yourself based on context. Don't ask "what should I say?" unless the intent is genuinely unclear.
 
@@ -306,6 +312,8 @@ You have follow-up tools to ensure no conversation is left hanging. This is crit
   autoReplyWhatsApp: false,
   autoReplyTelegram: false,
   autoReplyContacts: [],
+  autoReplyWebchat: true,
+  ownerWebchatKey: '',
   autoReplyGroups: false,
   botName: 'ubot',
 };

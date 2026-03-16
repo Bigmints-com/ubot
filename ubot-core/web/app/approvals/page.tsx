@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { ShieldCheck, Clock, CheckCircle2, Send, User, MessageSquare } from "lucide-react";
+import { ShieldCheck, Clock, CheckCircle2, Send, User, MessageSquare, Trash2 } from "lucide-react";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
 
@@ -60,6 +60,28 @@ export default function ApprovalsPage() {
     } finally {
       setSubmitting((s) => ({ ...s, [approvalId]: false }));
     }
+  };
+  const handleDelete = async (approvalId: string) => {
+    try {
+      await api(`/api/approvals/${approvalId}`, { method: "DELETE" });
+      loadApprovals();
+      toast.success("Approval deleted");
+    } catch {
+      toast.error("Failed to delete");
+    }
+  };
+
+  const handleClearResolved = async () => {
+    const resolved = approvals.filter((a) => a.status === "resolved");
+    let ok = 0;
+    for (const a of resolved) {
+      try {
+        await api(`/api/approvals/${a.id}`, { method: "DELETE" });
+        ok++;
+      } catch { /* ignore */ }
+    }
+    loadApprovals();
+    toast.success(`Cleared ${ok} resolved approval(s)`);
   };
 
   const pending = approvals.filter((a) => a.status === "pending");
@@ -132,16 +154,26 @@ export default function ApprovalsPage() {
                   }
                   rows={2}
                 />
-                <Button
-                  onClick={() => handleRespond(approval.id)}
-                  disabled={
-                    submitting[approval.id] || !responses[approval.id]?.trim()
-                  }
-                  size="sm"
-                >
-                  <Send className="size-4 mr-2" />
-                  {submitting[approval.id] ? "Sending..." : "Send Response"}
-                </Button>
+                <div className="flex gap-2">
+                  <Button
+                    onClick={() => handleRespond(approval.id)}
+                    disabled={
+                      submitting[approval.id] || !responses[approval.id]?.trim()
+                    }
+                    size="sm"
+                  >
+                    <Send className="size-4 mr-2" />
+                    {submitting[approval.id] ? "Sending..." : "Send Response"}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => handleDelete(approval.id)}
+                    className="text-muted-foreground hover:text-destructive"
+                  >
+                    <Trash2 className="size-4" />
+                  </Button>
+                </div>
               </CardContent>
             </Card>
           ))}
@@ -165,6 +197,16 @@ export default function ApprovalsPage() {
             <CheckCircle2 className="size-4 text-green-500" />
             <h2 className="text-lg font-semibold">Resolved</h2>
             <Badge variant="secondary">{resolved.length}</Badge>
+            <div className="flex-1" />
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleClearResolved}
+              className="text-muted-foreground hover:text-destructive gap-1"
+            >
+              <Trash2 className="size-3" />
+              Clear All
+            </Button>
           </div>
 
           {resolved.map((approval) => (
@@ -179,9 +221,19 @@ export default function ApprovalsPage() {
                       </CardDescription>
                     )}
                   </div>
-                  <Badge variant="outline" className="text-xs">
-                    {approval.resolvedAt ? formatTime(approval.resolvedAt) : "resolved"}
-                  </Badge>
+                  <div className="flex items-center gap-2">
+                    <Badge variant="outline" className="text-xs">
+                      {approval.resolvedAt ? formatTime(approval.resolvedAt) : "resolved"}
+                    </Badge>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="size-6 text-muted-foreground hover:text-destructive"
+                      onClick={() => handleDelete(approval.id)}
+                    >
+                      <Trash2 className="size-3" />
+                    </Button>
+                  </div>
                 </div>
               </CardHeader>
               <CardContent>

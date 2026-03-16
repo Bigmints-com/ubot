@@ -37,8 +37,8 @@ async function parseBody(req: http.IncomingMessage): Promise<unknown> {
   });
 }
 
-type Category = 'models' | 'search' | 'cli';
-const VALID_CATEGORIES: Category[] = ['models', 'search', 'cli'];
+type Category = 'models' | 'search' | 'cli' | 'llm-image' | 'llm-transcript';
+const VALID_CATEGORIES: Category[] = ['models', 'search', 'cli', 'llm-image', 'llm-transcript'];
 
 // ─── Config Access ───────────────────────────────────────
 
@@ -135,7 +135,8 @@ export async function handleIntegrationProviderRoutes(
   }
 
   // ── DISCOVER models ──
-  if (url === `/api/integrations/${category}/models` && method === 'GET') {
+  const urlPath = url.split('?')[0];
+  if (urlPath === `/api/integrations/${category}/models` && method === 'GET') {
     const fullUrl = new URL(req.url || '', 'http://localhost');
     const baseUrl = fullUrl.searchParams.get('baseUrl');
     const apiKey = fullUrl.searchParams.get('apiKey') || '';
@@ -154,16 +155,46 @@ export async function handleIntegrationProviderRoutes(
         resolvedKey = section.providers?.[providerKey]?.apiKey as string || '';
       }
 
-      // Ollama uses different endpoint
+      // Ollama uses different endpoint + capability filtering
       if (providerType === 'ollama') {
         const ollamaHost = baseUrl.replace(/\/v1\/?$/, '');
         const resp = await fetch(`${ollamaHost}/api/tags`);
         if (resp.ok) {
           const data = await resp.json() as any;
-          const models = (data.models || []).map((m: any) => ({
-            id: m.name || m.model,
-            name: `${m.name}${m.details?.parameter_size ? ` (${m.details.parameter_size})` : ''}`,
-          }));
+          const allModels = (data.models || []) as any[];
+
+          // Check capabilities for each model in parallel via /api/show
+          const capChecks = await Promise.allSettled(
+            allModels.map(async (m: any) => {
+              const modelName = m.name || m.model;
+              try {
+                const showResp = await fetch(`${ollamaHost}/api/show`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ name: modelName }),
+                });
+                if (showResp.ok) {
+                  const info = await showResp.json() as any;
+                  return { model: m, capabilities: info.capabilities || [] };
+                }
+              } catch { /* ignore per-model failures */ }
+              return { model: m, capabilities: [] as string[] };
+            })
+          );
+
+          // Filter: only models that support tool calling (UBOT relies on tools)
+          const models = capChecks
+            .filter((r): r is PromiseFulfilledResult<{ model: any; capabilities: string[] }> =>
+              r.status === 'fulfilled')
+            .map(r => r.value)
+            .filter(({ capabilities }) => capabilities.includes('tools'))
+            .map(({ model: m, capabilities }) => {
+              const name = m.name || m.model;
+              const size = m.details?.parameter_size ? ` (${m.details.parameter_size})` : '';
+              const vision = capabilities.includes('vision') ? ' 👁️' : '';
+              return { id: name, name: `${name}${size}${vision}` };
+            });
+
           json(res, { models });
           return true;
         }

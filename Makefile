@@ -1,4 +1,4 @@
-.PHONY: all build build-backend build-web install uninstall clean dev help
+.PHONY: all build build-backend build-web install update uninstall clean dev help
 
 # ─── Shell & PATH (ensure nvm-managed node/npm is found) ────────────────────
 SHELL := /bin/bash
@@ -12,6 +12,9 @@ INSTALL_BIN_DIR ?= $(HOME)/.local/bin
 CORE_DIR = ubot-core
 WEB_DIR = $(CORE_DIR)/web
 CLI_DIR = cli
+
+# Marker file written after a successful first install
+INSTALL_MARKER = $(UBOT_HOME)/.installed
 
 # ─── Default ────────────────────────────────────────────────────────────────────
 all: build
@@ -33,10 +36,54 @@ build-web:
 	@cd $(WEB_DIR) && npm run build
 	@echo "   Web UI build complete."
 
-## install: Install ubot to ~/.ubot and CLI to ~/.local/bin
+## install: First-time install of ubot to ~/.ubot and CLI to ~/.local/bin
 install: build
+	@if [ -f "$(INSTALL_MARKER)" ]; then \
+		echo ""; \
+		echo "❌ Ubot is already installed at $(UBOT_HOME)"; \
+		echo "   Use 'make update' to update to the latest code."; \
+		echo "   Use 'make install-force' to reinstall from scratch (keeps data)."; \
+		echo ""; \
+		exit 1; \
+	fi
+	@$(MAKE) --no-print-directory _do_install FIRST_INSTALL=1
 	@echo ""
-	@echo "📦 Installing Ubot to $(UBOT_HOME) ..."
+	@echo "✅ Ubot installed!"
+	@echo ""
+	@echo "   Get started:  ubot start"
+	@echo "   Dashboard:    http://localhost:11490"
+	@echo "   Config:       $(UBOT_HOME)/config.json"
+
+## install-force: Reinstall even if already installed (keeps user data)
+install-force: build
+	@echo ""
+	@echo "⚠️  Force-reinstalling Ubot to $(UBOT_HOME) ..."
+	@$(MAKE) --no-print-directory _do_install FIRST_INSTALL=1
+	@echo ""
+	@echo "✅ Ubot reinstalled!"
+	@$(MAKE) --no-print-directory _post_install_info
+
+## update: Update an existing installation with the latest code
+update: build
+	@if [ ! -f "$(INSTALL_MARKER)" ]; then \
+		echo ""; \
+		echo "❌ Ubot is not installed yet."; \
+		echo "   Run 'make install' first."; \
+		echo ""; \
+		exit 1; \
+	fi
+	@echo ""
+	@echo "🔄 Updating Ubot at $(UBOT_HOME) ..."
+	@$(MAKE) --no-print-directory _do_install FIRST_INSTALL=0
+	@echo ""
+	@echo "✅ Ubot updated!"
+	@$(MAKE) --no-print-directory _post_install_info
+
+# ─── Internal: shared install/update logic ──────────────────────────────────────
+
+_do_install:
+	@echo ""
+	@echo "📦 $(if $(filter 1,$(FIRST_INSTALL)),Installing,Updating) Ubot at $(UBOT_HOME) ..."
 
 	@# ── Create directory structure ──────────────────────────────────────
 	@# User data directories (NEVER replaced by install):
@@ -51,6 +98,7 @@ install: build
 	@mkdir -p $(UBOT_HOME)/lib
 	@mkdir -p $(UBOT_HOME)/web
 	@mkdir -p $(UBOT_HOME)/data
+	@mkdir -p $(UBOT_HOME)/data/models
 	@mkdir -p $(UBOT_HOME)/logs
 	@mkdir -p $(UBOT_HOME)/sessions
 	@mkdir -p $(UBOT_HOME)/creds
@@ -77,7 +125,7 @@ install: build
 		echo "   Backed up database to data/ubot.db.bak"; \
 	fi
 
-	@# ── Application code (replaced on every install) ───────────────────
+	@# ── Application code (replaced on every install/update) ────────────
 	@# These are safe to replace — they contain only compiled code, not user data.
 
 	@# Copy compiled backend (clean copy to avoid stale files)
@@ -88,6 +136,14 @@ install: build
 	@# Copy node_modules (needed at runtime)
 	@mkdir -p $(UBOT_HOME)/node_modules
 	@cp -R $(CORE_DIR)/node_modules/* $(UBOT_HOME)/node_modules/ 2>/dev/null || true
+	@# Fix whisper addon platform naming (mac-arm64 → darwin-arm64)
+	@if [ -f $(CORE_DIR)/scripts/fix-whisper-addon.sh ]; then \
+		ADDON_DIR="$(UBOT_HOME)/node_modules/@kutalia/whisper-node-addon/dist"; \
+		if [ -d "$$ADDON_DIR" ]; then \
+			([ -d "$$ADDON_DIR/mac-arm64" ] && [ ! -e "$$ADDON_DIR/darwin-arm64" ] && ln -sf mac-arm64 "$$ADDON_DIR/darwin-arm64") || true; \
+			([ -d "$$ADDON_DIR/mac-x64" ] && [ ! -e "$$ADDON_DIR/darwin-x64" ] && ln -sf mac-x64 "$$ADDON_DIR/darwin-x64") || true; \
+		fi; \
+	fi
 	@echo "   Installed dependencies to $(UBOT_HOME)/node_modules/"
 
 	@# Copy static web UI (clean copy)
@@ -99,8 +155,6 @@ install: build
 	else \
 		echo "   ⚠️  No web export found (expected $(WEB_DIR)/out/)"; \
 	fi
-
-
 
 	@# ── Config (merge, never overwrite) ────────────────────────────────
 	@if [ ! -f $(UBOT_HOME)/config.json ]; then \
@@ -116,34 +170,11 @@ install: build
 	@chmod +x $(INSTALL_BIN_DIR)/ubot
 	@echo "   Installed CLI to $(INSTALL_BIN_DIR)/ubot"
 
-	@# ── Post-install: Check macOS permissions ────────────────
-	@echo ""
-	@if [ "$$(uname)" = "Darwin" ]; then \
-		FDA_OK=true; \
-		if ! sqlite3 "$$HOME/Library/Messages/chat.db" "SELECT 1" >/dev/null 2>&1; then \
-			FDA_OK=false; \
-		fi; \
-		if [ "$$FDA_OK" = "false" ]; then \
-			echo "⚠️  Full Disk Access not granted."; \
-			echo "   Some features (iMessage, Safari history, etc.) need this permission."; \
-			echo "   To grant it:"; \
-			echo "     1. System Settings → Privacy & Security → Full Disk Access"; \
-			echo "     2. Add your Terminal app (Terminal.app, iTerm2, Warp, etc.)"; \
-			echo "     3. Add Node.js: $$(which node)"; \
-			echo ""; \
-			printf "   Open System Settings now? [y/N] "; \
-			read -r ans; \
-			if [ "$$ans" = "y" ] || [ "$$ans" = "Y" ]; then \
-				open "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles"; \
-			fi; \
-		else \
-			echo "✅ Full Disk Access: granted"; \
-		fi; \
-	fi
+	@# ── Write install marker ───────────────────────────────────────────
+	@date -u +"%Y-%m-%dT%H:%M:%SZ" > "$(INSTALL_MARKER)"
+	@echo "   Install marker written."
 
-	@echo ""
-	@echo "✅ Ubot installed!"
-
+_post_install_info:
 	@# ── Auto-restart if server is running ──────────────────────────────
 	@if [ -f $(UBOT_HOME)/ubot.pid ] && kill -0 $$(cat $(UBOT_HOME)/ubot.pid) 2>/dev/null; then \
 		echo ""; \
@@ -151,9 +182,8 @@ install: build
 		$(INSTALL_BIN_DIR)/ubot restart; \
 	else \
 		echo ""; \
-		echo "   Get started:  ubot start"; \
+		echo "   Start with:   ubot start"; \
 	fi
-
 	@echo "   Dashboard:    http://localhost:11490"
 	@echo "   Config:       $(UBOT_HOME)/config.json"
 
