@@ -62,7 +62,7 @@ const automationItems = [
 const channelItems = [
   { title: "WhatsApp", href: "/whatsapp", icon: MessageCircle },
   { title: "Telegram", href: "/telegram", icon: Send },
-  { title: "iMessage", href: "/imessage", icon: Apple },
+  { title: "Web Chat", href: "/webchat", icon: Globe },
 ];
 
 const capabilityItems = [

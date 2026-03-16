@@ -65,7 +65,7 @@ const SCHEDULER_TOOLS: ToolDefinition[] = [
       { name: 'task', type: 'string', description: 'The task prompt for the agent. Be specific: "Search for top Dubai news, get weather for Dubai, get AAPL stock price, compose a morning brief, and send it to me on telegram."', required: true },
       { name: 'time', type: 'string', description: 'When to run: "every day at 9am", "weekdays at 8am", "tomorrow at 6pm"', required: true },
       { name: 'recurrence', type: 'string', description: 'How often: "once", "daily", "weekly", "monthly". Default: "daily"', required: false },
-      { name: 'channel', type: 'string', description: 'Delivery channel for results: "telegram", "whatsapp", "imessage". Agent will send via this channel.', required: false },
+      { name: 'channel', type: 'string', description: 'Delivery channel for results: "telegram", "whatsapp". Agent will send via this channel.', required: false },
     ],
   },
 ];

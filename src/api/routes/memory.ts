@@ -221,5 +221,21 @@ export async function handleMemoryRoutes(
     return true;
   }
 
+  if (url.match(/^\/api\/approvals\/[^/]+$/) && method === 'DELETE') {
+    if (!ctx.approvalStore) {
+      error(res, 'Approval system not initialized', 503);
+      return true;
+    }
+    const parts = url.split('/');
+    const approvalId = decodeURIComponent(parts[3]);
+    const deleted = ctx.approvalStore.delete(approvalId);
+    if (!deleted) {
+      notFound(res);
+      return true;
+    }
+    json(res, { deleted: true, approvalId });
+    return true;
+  }
+
   return false;
 }

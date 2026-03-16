@@ -183,6 +183,7 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
     const handled = await handleApiRoute(req, res, url, method);
     if (handled) return;
   }
+
   
   // Serve static files (Next.js static export)
   let filePath = url === '/' ? '/index.html' : url;

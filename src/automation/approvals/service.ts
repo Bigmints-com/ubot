@@ -111,6 +111,9 @@ export interface ApprovalStore {
 
   /** Resolve an approval with the owner's response */
   resolve(id: string, ownerResponse: string): PendingApproval | null;
+
+  /** Delete an approval by ID */
+  delete(id: string): boolean;
 }
 
 export function createApprovalStore(db: DatabaseConnection): ApprovalStore {
@@ -157,6 +160,13 @@ export function createApprovalStore(db: DatabaseConnection): ApprovalStore {
         [ownerResponse, now, id]
       );
       return this.getById(id);
+    },
+
+    delete(id: string) {
+      const existing = this.getById(id);
+      if (!existing) return false;
+      db.execute(`DELETE FROM pending_approvals WHERE id = ?`, [id]);
+      return true;
     },
   };
 }

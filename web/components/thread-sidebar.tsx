@@ -44,13 +44,13 @@ interface ThreadSidebarProps {
   onNewThread: () => void;
 }
 
-type ChannelFilter = "all" | "web" | "whatsapp" | "telegram" | "imessage";
+type ChannelFilter = "all" | "web" | "whatsapp" | "telegram";
 
 const CHANNEL_CONFIG: Record<string, { icon: typeof MessageSquare; label: string; color: string }> = {
   web: { icon: Globe, label: "Web", color: "text-blue-500" },
   whatsapp: { icon: Smartphone, label: "WhatsApp", color: "text-green-500" },
   telegram: { icon: Send, label: "Telegram", color: "text-sky-500" },
-  imessage: { icon: MessageCircle, label: "iMessage", color: "text-indigo-500" },
+
 };
 
 function timeAgo(dateStr: string): string {

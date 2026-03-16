@@ -46,9 +46,9 @@ export const conversationMigrations: Migration[] = [
 ];
 
 export interface ConversationStore {
-  createSession(id: string, type: 'web' | 'whatsapp' | 'telegram', name?: string): ConversationSession;
+  createSession(id: string, type: 'web' | 'whatsapp' | 'telegram' | 'webchat', name?: string): ConversationSession;
   getSession(id: string): ConversationSession | undefined;
-  getOrCreateSession(id: string, type: 'web' | 'whatsapp' | 'telegram', name?: string): ConversationSession;
+  getOrCreateSession(id: string, type: 'web' | 'whatsapp' | 'telegram' | 'webchat', name?: string): ConversationSession;
   listSessions(): ConversationSession[];
   addMessage(sessionId: string, role: ChatRole, content: string, metadata?: ChatMessageMetadata): ChatMessage;
   getHistory(sessionId: string, limit?: number): ChatMessage[];
@@ -96,7 +96,7 @@ export function createConversationStore(db: DatabaseConnection): ConversationSto
       };
     },
 
-    getOrCreateSession(id: string, type: 'web' | 'whatsapp' | 'telegram', name?: string): ConversationSession {
+    getOrCreateSession(id: string, type: 'web' | 'whatsapp' | 'telegram' | 'webchat', name?: string): ConversationSession {
       const existing = this.getSession(id);
       if (existing) return existing;
       return this.createSession(id, type, name);

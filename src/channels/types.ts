@@ -1,9 +1,9 @@
 /**
  * Platform-Agnostic Messaging Types
- * Any channel adapter (WhatsApp, Telegram, iMessage) implements MessagingProvider.
+ * Any channel adapter (WhatsApp, Telegram) implements MessagingProvider.
  */
 
-export type ChannelType = 'whatsapp' | 'telegram' | 'imessage';
+export type ChannelType = 'whatsapp' | 'telegram';
 export type ConnectionStatus = 'connected' | 'disconnected' | 'connecting' | 'reconnecting';
 
 /** Normalized message across all platforms */
@@ -73,7 +73,7 @@ export interface MessagingProviderEvents {
 
 /**
  * The core abstraction — any messaging channel adapter implements this.
- * WhatsApp, Telegram, iMessage all look the same to the agent.
+ * WhatsApp, Telegram all look the same to the agent.
  */
 export interface MessagingProvider {
   readonly channel: ChannelType;

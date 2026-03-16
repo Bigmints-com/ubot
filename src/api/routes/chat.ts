@@ -271,6 +271,9 @@ export async function handleChatRoutes(
       return true;
     }
     const config = ctx.agentOrchestrator.getConfig();
+    const { loadUbotConfig: loadCfg } = await import('../../data/config.js');
+    const fileCfg = loadCfg();
+    const webchat = fileCfg.channels?.webchat || {};
     json(res, {
       llmBaseUrl: config.llmBaseUrl,
       llmModel: config.llmModel,
@@ -279,10 +282,20 @@ export async function handleChatRoutes(
       maxHistoryMessages: config.maxHistoryMessages,
       autoReplyWhatsApp: config.autoReplyWhatsApp,
       autoReplyTelegram: config.autoReplyTelegram,
+      autoReplyWebchat: config.autoReplyWebchat,
       autoReplyContacts: config.autoReplyContacts,
       ownerPhone: config.ownerPhone || '',
       ownerTelegramId: config.ownerTelegramId || '',
       ownerTelegramUsername: config.ownerTelegramUsername || '',
+      webchatEnabled: webchat.enabled !== false,
+      webchatToken: webchat.connection_token || '',
+      webchatRelayUrl: webchat.relay_url || '',
+      webchatBotSecret: webchat.bot_secret || '',
+      webchatOwnerKey: webchat.owner_key || '',
+      webchatWidgetTitle: webchat.widget_title || '',
+      webchatWidgetColor: webchat.widget_color || '#6366f1',
+      webchatWelcomeMessage: webchat.welcome_message || '',
+      webchatAvatarUrl: webchat.avatar_url || '',
     });
     return true;
   }
@@ -303,7 +316,17 @@ export async function handleChatRoutes(
     if (body.ownerTelegramUsername !== undefined) { if (!cfg.owner) cfg.owner = {}; cfg.owner.telegram_username = updated.ownerTelegramUsername || ''; }
     if (body.autoReplyWhatsApp !== undefined) { if (!cfg.channels) cfg.channels = {}; if (!cfg.channels.whatsapp) cfg.channels.whatsapp = {}; cfg.channels.whatsapp.auto_reply = updated.autoReplyWhatsApp; }
     if (body.autoReplyTelegram !== undefined) { if (!cfg.channels) cfg.channels = {}; if (!cfg.channels.telegram) cfg.channels.telegram = {}; cfg.channels.telegram.auto_reply = updated.autoReplyTelegram; }
+    if (body.autoReplyWebchat !== undefined) { if (!cfg.channels) cfg.channels = {}; if (!cfg.channels.webchat) cfg.channels.webchat = {}; cfg.channels.webchat.auto_reply = updated.autoReplyWebchat; }
     if (body.maxHistoryMessages !== undefined) { if (!cfg.agent) cfg.agent = {}; cfg.agent.max_history_messages = updated.maxHistoryMessages; }
+    // Webchat-specific settings (saved directly to config.json channels.webchat)
+    if (body.webchatEnabled !== undefined) { if (!cfg.channels) cfg.channels = {}; if (!cfg.channels.webchat) cfg.channels.webchat = {}; cfg.channels.webchat.enabled = body.webchatEnabled; }
+    if (body.webchatWidgetTitle !== undefined) { if (!cfg.channels) cfg.channels = {}; if (!cfg.channels.webchat) cfg.channels.webchat = {}; cfg.channels.webchat.widget_title = body.webchatWidgetTitle; }
+    if (body.webchatWidgetColor !== undefined) { if (!cfg.channels) cfg.channels = {}; if (!cfg.channels.webchat) cfg.channels.webchat = {}; cfg.channels.webchat.widget_color = body.webchatWidgetColor; }
+    if (body.webchatWelcomeMessage !== undefined) { if (!cfg.channels) cfg.channels = {}; if (!cfg.channels.webchat) cfg.channels.webchat = {}; cfg.channels.webchat.welcome_message = body.webchatWelcomeMessage; }
+    if (body.webchatRelayUrl !== undefined) { if (!cfg.channels) cfg.channels = {}; if (!cfg.channels.webchat) cfg.channels.webchat = {}; cfg.channels.webchat.relay_url = body.webchatRelayUrl; }
+    if (body.webchatBotSecret !== undefined) { if (!cfg.channels) cfg.channels = {}; if (!cfg.channels.webchat) cfg.channels.webchat = {}; cfg.channels.webchat.bot_secret = body.webchatBotSecret; }
+    if (body.webchatOwnerKey !== undefined) { if (!cfg.channels) cfg.channels = {}; if (!cfg.channels.webchat) cfg.channels.webchat = {}; cfg.channels.webchat.owner_key = body.webchatOwnerKey; }
+    if (body.webchatAvatarUrl !== undefined) { if (!cfg.channels) cfg.channels = {}; if (!cfg.channels.webchat) cfg.channels.webchat = {}; cfg.channels.webchat.avatar_url = body.webchatAvatarUrl; }
     saveUbotConfig(cfg);
 
     json(res, {
@@ -314,6 +337,7 @@ export async function handleChatRoutes(
       maxHistoryMessages: updated.maxHistoryMessages,
       autoReplyWhatsApp: updated.autoReplyWhatsApp,
       autoReplyTelegram: updated.autoReplyTelegram,
+      autoReplyWebchat: updated.autoReplyWebchat,
       ownerPhone: updated.ownerPhone || '',
       ownerTelegramId: updated.ownerTelegramId || '',
       ownerTelegramUsername: updated.ownerTelegramUsername || '',
@@ -358,10 +382,39 @@ export async function handleChatRoutes(
         const ollamaRes = await fetch(`${ollamaHost}/api/tags`);
         if (ollamaRes.ok) {
           const data = await ollamaRes.json() as any;
-          models = (data.models || []).map((m: any) => ({
-            id: m.name || m.model,
-            name: `${m.name}${m.details?.parameter_size ? ` (${m.details.parameter_size})` : ''}`,
-          }));
+          const allModels = (data.models || []) as any[];
+
+          // Check capabilities for each model in parallel via /api/show
+          const capChecks = await Promise.allSettled(
+            allModels.map(async (m: any) => {
+              const modelName = m.name || m.model;
+              try {
+                const showResp = await fetch(`${ollamaHost}/api/show`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ name: modelName }),
+                });
+                if (showResp.ok) {
+                  const info = await showResp.json() as any;
+                  return { model: m, capabilities: info.capabilities || [] };
+                }
+              } catch { /* ignore */ }
+              return { model: m, capabilities: [] as string[] };
+            })
+          );
+
+          // Filter: only models that support tool calling
+          models = capChecks
+            .filter((r): r is PromiseFulfilledResult<{ model: any; capabilities: string[] }> =>
+              r.status === 'fulfilled')
+            .map(r => r.value)
+            .filter(({ capabilities }) => capabilities.includes('tools'))
+            .map(({ model: m, capabilities }) => {
+              const name = m.name || m.model;
+              const size = m.details?.parameter_size ? ` (${m.details.parameter_size})` : '';
+              const vision = capabilities.includes('vision') ? ' 👁️' : '';
+              return { id: name, name: `${name}${size}${vision}` };
+            });
         }
       } else {
         const normalizedUrl = baseUrl.replace(/\/+$/, '');

@@ -2,9 +2,11 @@
 
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Bot, Image, AudioLines } from "lucide-react";
+import { Bot, Image, AudioLines, Volume2 } from "lucide-react";
 import { ProviderList } from "@/components/provider-list";
-import { CapabilityTools } from "@/components/capability-tools";
+
+import { LocalTranscriptionCard } from "@/components/local-transcription-card";
+import { LocalTtsCard } from "@/components/local-tts-card";
 
 const LLM_CHAT_PRESETS = [
   { type: "gemini", label: "Gemini", baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai/", requiresApiKey: true, supportsModelDiscovery: true },
@@ -34,7 +36,7 @@ export default function LlmsPage() {
           Models
         </h1>
         <p className="text-muted-foreground">
-          Configure AI model providers for chat, image generation, and transcription
+          Configure AI model providers for chat, image generation, transcription, and text-to-speech
         </p>
       </div>
 
@@ -53,6 +55,10 @@ export default function LlmsPage() {
           <TabsTrigger value="transcript">
             <AudioLines className="size-4 mr-2" />
             Transcription
+          </TabsTrigger>
+          <TabsTrigger value="tts">
+            <Volume2 className="size-4 mr-2" />
+            Text-to-Speech
           </TabsTrigger>
         </TabsList>
 
@@ -76,18 +82,25 @@ export default function LlmsPage() {
           />
         </TabsContent>
 
-        <TabsContent value="transcript" className="mt-4">
-          <ProviderList
-            category="llm-transcript"
-            providerTypes={LLM_TRANSCRIPT_PRESETS}
-            showModel={false}
-            showBaseUrl={true}
-            emptyText="No transcription providers configured"
-          />
+        <TabsContent value="transcript" className="mt-4 space-y-6">
+          <LocalTranscriptionCard />
+
+          <div>
+            <h3 className="text-sm font-medium text-muted-foreground mb-3">Cloud Providers</h3>
+            <ProviderList
+              category="llm-transcript"
+              providerTypes={LLM_TRANSCRIPT_PRESETS}
+              showModel={false}
+              showBaseUrl={true}
+              emptyText="No cloud transcription providers configured"
+            />
+          </div>
+        </TabsContent>
+
+        <TabsContent value="tts" className="mt-4">
+          <LocalTtsCard />
         </TabsContent>
       </Tabs>
-
-      <CapabilityTools capability="models" />
     </div>
   );
 }
