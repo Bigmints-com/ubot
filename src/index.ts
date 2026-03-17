@@ -15,6 +15,8 @@ import { createAgentOrchestrator } from './engine/orchestrator.js';
 import { DEFAULT_AGENT_CONFIG } from './engine/types.js';
 import { setSerperApiKey } from './capabilities/web-search/adapters/serper.js';
 import { loadUbotConfig, type UbotConfig } from './data/config.js';
+import { FEATURES, MODE } from './lib/features.js';
+import { getHooks } from './hooks/extensions.js';
 
 // ─── UBOT_HOME resolution ──────────────────────────────────────────────────────
 const UBOT_HOME = process.env.UBOT_HOME || '';
@@ -139,11 +141,25 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
   
   const url = req.url || '/';
   const method = req.method || 'GET';
+
+  // ── Extension middleware hook — runs before all routing ──
+  const hooks = getHooks();
+  if (hooks.middleware?.onRequest) {
+    const handled = await hooks.middleware.onRequest(req, res, url, method);
+    if (handled) return;
+  }
   
   // Health check endpoint
   if (url === '/health' && method === 'GET') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ status: 'ok', timestamp: new Date().toISOString() }));
+    return;
+  }
+
+  // Feature flags endpoint — used by frontend to know available features
+  if (url === '/api/features' && method === 'GET') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ mode: MODE, features: FEATURES }));
     return;
   }
   
@@ -182,10 +198,40 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
   if (url.startsWith('/api/')) {
     const handled = await handleApiRoute(req, res, url, method);
     if (handled) return;
+
+    // Extension route hook — handle fork-specific API routes
+    if (hooks.routes?.handleRoute) {
+      const extHandled = await hooks.routes.handleRoute(req, res, url, method);
+      if (extHandled) return;
+    }
   }
 
-  
-  // Serve static files (Next.js static export)
+  // Serve frontend pages
+  if (!IS_PRODUCTION) {
+    // ── Dev mode: proxy to Next.js dev server for hot reload ──────────
+    const DEV_FRONTEND_PORT = parseInt(process.env.DEV_FRONTEND_PORT || '3015', 10);
+    const proxyReq = http.request(
+      {
+        hostname: 'localhost',
+        port: DEV_FRONTEND_PORT,
+        path: url,
+        method: method,
+        headers: { ...req.headers, host: `localhost:${DEV_FRONTEND_PORT}` },
+      },
+      (proxyRes) => {
+        res.writeHead(proxyRes.statusCode || 502, proxyRes.headers);
+        proxyRes.pipe(res, { end: true });
+      }
+    );
+    proxyReq.on('error', () => {
+      res.writeHead(502, { 'Content-Type': 'text/plain' });
+      res.end(`Frontend dev server not ready (port ${DEV_FRONTEND_PORT}). Run: cd web && npm run dev`);
+    });
+    req.pipe(proxyReq, { end: true });
+    return;
+  }
+
+  // ── Production: serve static files (Next.js static export) ─────────
   let filePath = url === '/' ? '/index.html' : url;
   
   // Security: prevent directory traversal
@@ -233,6 +279,33 @@ function createServer(): http.Server {
       res.end('Internal Server Error');
     });
   });
+
+  // In dev mode, proxy WebSocket upgrades to Next.js dev server for HMR
+  if (!IS_PRODUCTION) {
+    const net = require('net');
+    const DEV_FRONTEND_PORT = parseInt(process.env.DEV_FRONTEND_PORT || '3015', 10);
+    server.on('upgrade', (req: http.IncomingMessage, socket: any, head: Buffer) => {
+      const proxySocket = net.connect(DEV_FRONTEND_PORT, 'localhost', () => {
+        proxySocket.write(
+          `${req.method} ${req.url} HTTP/1.1\r\n` +
+          Object.entries(req.headers)
+            .map(([k, v]) => `${k}: ${v}`)
+            .join('\r\n') +
+          '\r\n\r\n'
+        );
+        if (head.length) proxySocket.write(head);
+        socket.pipe(proxySocket).pipe(socket);
+      });
+      proxySocket.on('error', () => socket.destroy());
+      socket.on('error', () => proxySocket.destroy());
+    });
+  }
+
+  // Extension server start hook
+  const hooks = getHooks();
+  if (hooks.middleware?.onServerStart) {
+    hooks.middleware.onServerStart(server);
+  }
   
   return server;
 }
@@ -246,13 +319,42 @@ function resetState(): void {
   appState.startedAt = new Date();
 }
 
+// Load extensions if available
+async function loadExtensions(): Promise<void> {
+  // Try to load ubot.extensions.ts/js from UBOT_HOME or current directory
+  const searchDirs = UBOT_HOME ? [UBOT_HOME, process.cwd()] : [process.cwd()];
+  for (const dir of searchDirs) {
+    for (const ext of ['ubot.extensions.js', 'ubot.extensions.ts']) {
+      const extPath = path.join(dir, ext);
+      if (fs.existsSync(extPath)) {
+        try {
+          const mod = await import(extPath);
+          if (mod.default && typeof mod.default === 'function') {
+            await mod.default();
+          } else if (mod.register && typeof mod.register === 'function') {
+            await mod.register();
+          }
+          console.log(`[Extensions] Loaded: ${extPath}`);
+          return;
+        } catch (err: any) {
+          console.error(`[Extensions] Failed to load ${extPath}:`, err.message);
+        }
+      }
+    }
+  }
+}
+
 // Only start server if this is the main module (not during tests)
 if (process.env.NODE_ENV !== 'test' && !process.env.VITEST) {
-  const server = createServer();
-  server.listen(PORT, () => {
-    console.log(`🚀 ${appState.name} v${appState.version} running at http://localhost:${PORT}`);
-    console.log(`📊 Health check: http://localhost:${PORT}/health`);
-    console.log(`📈 State API: http://localhost:${PORT}/api/state`);
+  // Load extensions first, then start
+  loadExtensions().then(() => {
+    const server = createServer();
+    server.listen(PORT, () => {
+      console.log(`🚀 ${appState.name} v${appState.version} running at http://localhost:${PORT}`);
+      console.log(`📊 Health check: http://localhost:${PORT}/health`);
+      console.log(`📈 State API: http://localhost:${PORT}/api/state`);
+      console.log(`[UBOT] Mode: ${MODE.toUpperCase()} | Features: WA=${FEATURES.whatsapp} TG=${FEATURES.telegram} FS=${FEATURES.filesystem} CLI=${FEATURES.cli}`);
+    });
   });
 }
 

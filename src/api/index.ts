@@ -35,6 +35,7 @@ import { existsSync } from 'fs';
 import { join } from 'path';
 import { transcribeAudio, isTranscriptionAvailable } from '../capabilities/transcription/service.js';
 
+import { FEATURES, MODE } from '../lib/features.js';
 
 // Route handlers
 import { handleChatRoutes } from './routes/chat.js';
@@ -51,6 +52,7 @@ import { json, parseBody, error as apiError, type ApiContext } from './context.j
 
 // Middleware
 import { requiresAuth, authenticate, sendUnauthorized } from './middleware/auth.js';
+import { getHooks } from '../hooks/extensions.js';
 import { ApiRateLimiter, sendRateLimited, setRateLimitHeaders } from './middleware/rate-limiter.js';
 import { logRequest, wrapResponse } from './middleware/request-logger.js';
 
@@ -964,14 +966,37 @@ export function initializeApi(db?: DatabaseConnection, agent?: AgentOrchestrator
     }
   }
 
-  autoConnectWhatsApp();
-  autoConnectTelegram();
+  // Log deployment mode
+  console.log(`[UBOT] Mode: ${MODE.toUpperCase()} | Features: WA=${FEATURES.whatsapp} TG=${FEATURES.telegram} FS=${FEATURES.filesystem} CLI=${FEATURES.cli}`);
+
+  // Gate channel auto-connect based on deployment mode and extension hooks
+  const startupHooks = getHooks().startup;
+  if (FEATURES.whatsapp && !startupHooks?.shouldSkipChannel?.('whatsapp')) {
+    autoConnectWhatsApp();
+  } else {
+    console.log('[WhatsApp] Skipped — not available in this deployment mode');
+  }
+
+  if (FEATURES.telegram && !startupHooks?.shouldSkipChannel?.('telegram')) {
+    autoConnectTelegram();
+  } else {
+    console.log('[Telegram] Skipped — not available in this deployment mode');
+  }
 
   // Ensure webchat connection token exists
   ensureWebchatToken();
 
-  // Auto-connect webchat relay
-  autoConnectWebchat();
+  // Auto-connect webchat relay (available in all modes)
+  if (!startupHooks?.shouldSkipChannel?.('webchat')) {
+    autoConnectWebchat();
+  }
+
+  // Extension startup hook
+  if (startupHooks?.onInitialize && agent) {
+    startupHooks.onInitialize({ db, agent, workspacePath }).catch((err: any) => {
+      console.error('[Hooks] Startup hook failed:', err.message);
+    });
+  }
 }
 
 async function registerAgentTools(agent: AgentOrchestrator): Promise<void> {
@@ -1548,12 +1573,35 @@ export async function handleApiRoute(
 
   // ── Authentication ─────────────────────────────────────
   if (requiresAuth(method, url)) {
-    const authResult = authenticate(req);
-    if (!authResult.authenticated) {
-      sendUnauthorized(res, authResult.error || 'Unauthorized');
-      return true;
+    // Try extension auth hook first (e.g., SSO in cloud deployments)
+    const authHook = getHooks().auth;
+    if (authHook) {
+      const hookResult = await authHook.authenticate(req);
+      if (hookResult !== null) {
+        // Hook handled auth
+        if (!hookResult.authenticated) {
+          sendUnauthorized(res, hookResult.error || 'Unauthorized');
+          return true;
+        }
+        clientName = hookResult.clientName;
+      } else {
+        // Hook returned null — fall through to default auth
+        const authResult = authenticate(req);
+        if (!authResult.authenticated) {
+          sendUnauthorized(res, authResult.error || 'Unauthorized');
+          return true;
+        }
+        clientName = authResult.clientName;
+      }
+    } else {
+      // No hook — use default API key auth
+      const authResult = authenticate(req);
+      if (!authResult.authenticated) {
+        sendUnauthorized(res, authResult.error || 'Unauthorized');
+        return true;
+      }
+      clientName = authResult.clientName;
     }
-    clientName = authResult.clientName;
   }
 
   // ── Rate limiting ──────────────────────────────────────
