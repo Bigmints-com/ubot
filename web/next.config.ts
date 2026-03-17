@@ -12,6 +12,13 @@ const nextConfig: NextConfig = {
     proxyTimeout: 5 * 60 * 1000, // 5 minutes
   },
 
+  // Fix Turbopack root detection — without this, it picks up the parent
+  // ubot-core/package-lock.json and resolves pages relative to the wrong dir
+  turbopack: {
+    root: __dirname,
+  },
+
+
   // Rewrites only work in dev mode (not with static export)
   ...(!isProd
     ? {
