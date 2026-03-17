@@ -14,6 +14,8 @@ import fs from 'fs';
 import path from 'path';
 import type { ToolModule, ToolRegistry, ToolContext, ToolDefinition } from './types.js';
 import { loadAllCustomModules, getLoadedModules, getLoadedToolModules, setCoreToolNames } from '../capabilities/cli/custom-loader.js';
+import { FEATURES, type FeatureName } from '../lib/features.js';
+import { getHooks } from '../hooks/extensions.js';
 
 // Infrastructure tool modules (not auto-discovered — these are core plumbing)
 import messagingTools from '../channels/tools.js';
@@ -29,8 +31,44 @@ const INFRASTRUCTURE_MODULES: ToolModule[] = [
 // Directories to scan for plug-and-play modules
 const SCAN_DIRS = ['capabilities', 'agents', 'automation'];
 
-// Browser is disabled — MCP Playwright is preferred
-const DISABLED_MODULES = new Set(['browser']);
+// Always disabled modules
+const ALWAYS_DISABLED = new Set(['browser']);
+
+// Map capability directory names → feature flag names
+const CAPABILITY_FEATURE_MAP: Record<string, FeatureName> = {
+  apple: 'appleServices',
+  filesystem: 'filesystem',
+  cli: 'cli',
+  transcription: 'localWhisper',
+  tts: 'localTts',
+  // models: always enabled (model management is core)
+  // google: always enabled
+  // 'web-search': always enabled
+  // mcp: always enabled
+};
+
+/**
+ * Build the set of disabled module directory names based on the current
+ * UBOT_MODE, feature flags, and extension hooks.
+ */
+function getDisabledModules(): Set<string> {
+  const disabled = new Set(ALWAYS_DISABLED);
+  for (const [dirName, feature] of Object.entries(CAPABILITY_FEATURE_MAP)) {
+    if (!FEATURES[feature]) {
+      disabled.add(dirName);
+    }
+  }
+  // Extension hook can add more disabled modules
+  const hooks = getHooks();
+  if (hooks.toolRegistry?.getDisabledModules) {
+    for (const mod of hooks.toolRegistry.getDisabledModules()) {
+      disabled.add(mod);
+    }
+  }
+  return disabled;
+}
+
+const DISABLED_MODULES = getDisabledModules();
 
 let _discoveredModules: ToolModule[] | null = null;
 
