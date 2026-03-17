@@ -82,7 +82,19 @@ function getCustomDir(subdir: 'modules' | 'staging' | 'templates'): string {
 }
 
 /**
- * Discover all custom module directories that contain an index.ts file.
+ * Find the index file for a module directory (prefers .js in production, .ts in dev).
+ */
+function findModuleIndex(base: string, name: string): string | null {
+  const jsPath = path.join(base, name, 'index.js');
+  const tsPath = path.join(base, name, 'index.ts');
+  // Prefer .js (production/compiled), fall back to .ts (dev/tsx)
+  if (existsSync(jsPath)) return jsPath;
+  if (existsSync(tsPath)) return tsPath;
+  return null;
+}
+
+/**
+ * Discover all custom module directories that contain an index.ts or index.js file.
  */
 export function discoverModules(dir: 'modules' | 'staging' = 'modules'): string[] {
   const base = getCustomDir(dir);
@@ -90,10 +102,7 @@ export function discoverModules(dir: 'modules' | 'staging' = 'modules'): string[
 
   return readdirSync(base, { withFileTypes: true })
     .filter(d => d.isDirectory())
-    .filter(d => {
-      const indexPath = path.join(base, d.name, 'index.ts');
-      return existsSync(indexPath);
-    })
+    .filter(d => findModuleIndex(base, d.name) !== null)
     .map(d => d.name);
 }
 
@@ -106,17 +115,22 @@ export async function loadModule(
   dir: 'modules' | 'staging' = 'modules',
 ): Promise<{ module: ToolModule | null; errors: string[] }> {
   const base = getCustomDir(dir);
-  const indexPath = path.join(base, moduleName, 'index.ts');
+  const indexPath = findModuleIndex(base, moduleName);
 
-  if (!existsSync(indexPath)) {
-    return { module: null, errors: [`Module "${moduleName}" not found at ${indexPath}`] };
+  if (!indexPath) {
+    return { module: null, errors: [`Module "${moduleName}" not found (no index.ts or index.js) at ${path.join(base, moduleName)}`] };
   }
 
   try {
     // Use cache-busting query param for hot-reload
     const cacheBuster = `?t=${Date.now()}`;
     const imported = await import(`${indexPath}${cacheBuster}`);
-    const mod = imported.default || imported;
+    // Handle CJS→ESM interop: import() of CJS `exports.default = X` produces
+    // { default: { default: X } }. Unwrap until we get the actual ToolModule.
+    let mod = imported.default || imported;
+    if (mod && mod.default && typeof mod.default === 'object') {
+      mod = mod.default;
+    }
 
     const validation = validateToolModule(mod, moduleName);
     if (!validation.valid) {

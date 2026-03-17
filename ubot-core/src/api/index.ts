@@ -48,6 +48,7 @@ import { handleIntegrationProviderRoutes } from './routes/integrations-providers
 import { handleToolsRoutes } from './routes/tools.js';
 import { handleCliRoutes } from './routes/cli.js';
 import { handleWebchatRoutes, ensureWebchatToken } from './routes/webchat.js';
+import { handleModulesRoutes } from './routes/modules.js';
 import { json, parseBody, error as apiError, type ApiContext } from './context.js';
 
 // Middleware
@@ -1640,6 +1641,7 @@ export async function handleApiRoute(
   if (await handleToolsRoutes(req, res, url, method, ctx)) return true;
   if (await handleCliRoutes(req, res, url, method, ctx)) return true;
   if (await handleVaultRoutes(req, res, url, method, ctx)) return true;
+  if (await handleModulesRoutes(req, res, url, method, ctx)) return true;
 
   return false;
 }
