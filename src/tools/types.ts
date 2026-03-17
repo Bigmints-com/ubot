@@ -73,6 +73,14 @@ export interface ToolModule {
 
   /** Register executor functions with the tool registry */
   register(registry: ToolRegistry, ctx: ToolContext): void;
+
+  /** Optional UI metadata to inject into the dashboard sidebar */
+  ui?: {
+    title: string;
+    icon: string;      // e.g. "Sparkles", "Database"
+    href: string;      // e.g. "/xtara"
+    group?: string;    // e.g. "Capabilities" (default)
+  };
 }
 
 /**

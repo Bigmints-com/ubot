@@ -60,3 +60,5 @@ test-pair.js
 next.config.js
 postcss.config.js
 /app/
+web/app/xtara/
+custom/modules/
