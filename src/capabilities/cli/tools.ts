@@ -115,8 +115,27 @@ const cliToolModule: ToolModule = {
         const rawPrompt = String(args.prompt || '');
         if (!rawPrompt) return toolResult('cli_run', false, 'Missing "prompt" parameter');
 
-        // Inject UBOT ToolModule context into the CLI agent's prompt
-        const toolModuleContext = `
+        // Load the full AGENTS.md guide if available, otherwise use inline fallback
+        const { readFileSync, existsSync } = await import('fs');
+        const path = await import('path');
+        const ubotRoot = process.env.UBOT_HOME || process.cwd();
+        const agentsGuide = path.join(ubotRoot, 'custom', 'AGENTS.md');
+
+        let toolModuleContext: string;
+
+        if (existsSync(agentsGuide)) {
+          const guide = readFileSync(agentsGuide, 'utf-8');
+          toolModuleContext = `
+IMPORTANT: You are building a UBOT custom tool module, NOT a standalone application.
+Read and follow the build guide below EXACTLY.
+
+${guide}
+
+Now build this capability:
+`;
+        } else {
+          // Fallback: minimal inline context
+          toolModuleContext = `
 IMPORTANT: You are building a UBOT custom tool module, NOT a standalone application.
 
 Your output MUST be a single TypeScript file at: index.ts (in the current directory)
@@ -126,6 +145,12 @@ The file must export a default object matching this interface:
     name: string;                    // Module name (e.g. "weather")
     tools: ToolDefinition[];         // Tool definitions for the LLM
     register(registry, ctx): void;   // Register tool executors
+    ui?: {                           // Optional: auto-inject sidebar menu item
+      title: string;                 // Sidebar label
+      icon: string;                  // Lucide icon name (e.g. "Sparkles", "Globe")
+      href: string;                  // Frontend route (e.g. "/my-app")
+      group?: string;                // Sidebar group (default: "Capabilities")
+    };
   }
 
   interface ToolDefinition {
@@ -143,6 +168,7 @@ If you need API keys, read them from process.env.
 
 Now build this capability:
 `;
+        }
         const prompt = toolModuleContext + rawPrompt;
 
         const projectName = args.project_name ? String(args.project_name) : undefined;
