@@ -94,6 +94,18 @@ const followupToolModule: ToolModule = {
         return { toolName: 'schedule_followup', success: false, error: 'Missing required parameters: session_id, contact_id, and reason are required', duration: 0 };
       }
 
+      // ⛔ Hard guard: prevent re-entrant follow-up loops
+      // If called from within a follow-up or sub-agent session, refuse
+      if (sessionId.startsWith('followup-') || sessionId.startsWith('sub-')) {
+        console.warn(`[FollowUp] ⛔ Blocked schedule_followup from re-entrant session: ${sessionId}`);
+        return {
+          toolName: 'schedule_followup',
+          success: false,
+          error: 'Cannot schedule follow-ups from within a follow-up or sub-agent session. This would cause infinite loops. Complete the current task instead.',
+          duration: 0,
+        };
+      }
+
       // Parse the follow-up time
       const followUpAt = chrono.parseDate(timeStr, new Date()) || new Date(timeStr);
       if (!followUpAt || isNaN(followUpAt.getTime())) {

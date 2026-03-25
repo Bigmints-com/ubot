@@ -53,6 +53,9 @@ install: build
 	@echo "   Get started:  ubot start"
 	@echo "   Dashboard:    http://localhost:11490"
 	@echo "   Config:       $(UBOT_HOME)/config.json"
+	@echo ""
+	@echo "   🔐 Login with the username and password you set above."
+	@echo "      To change later: edit server.access_username/access_password in config.json"
 
 ## install-force: Reinstall even if already installed (keeps user data)
 install-force: build
@@ -162,6 +165,29 @@ _do_install:
 		echo "   Created default config at $(UBOT_HOME)/config.json"; \
 	else \
 		python3 $(CLI_DIR)/merge-config.py $(UBOT_HOME)/config.json $(CLI_DIR)/default-config.json; \
+	fi
+
+	@# ── Access credentials (first install only) ─────────────────────────
+	@if [ "$(FIRST_INSTALL)" = "1" ]; then \
+		echo ""; \
+		echo "🔐 Set dashboard login credentials"; \
+		echo "   This protects your UBOT dashboard and API from unauthorized access."; \
+		echo ""; \
+		printf "   Username (default: admin): "; \
+		read ACCESS_USER; \
+		if [ -z "$$ACCESS_USER" ]; then ACCESS_USER="admin"; fi; \
+		printf "   Password (press Enter to auto-generate one): "; \
+		read ACCESS_PWD; \
+		if [ -z "$$ACCESS_PWD" ]; then \
+			ACCESS_PWD=$$(python3 -c "import secrets,string; print(''.join(secrets.choice(string.ascii_letters+string.digits) for _ in range(16)))"); \
+			echo "   ✨ Generated password: $$ACCESS_PWD"; \
+		fi; \
+		python3 -c "import json,sys; \
+f=open('$(UBOT_HOME)/config.json'); c=json.load(f); f.close(); \
+s=c.setdefault('server',{}); s['access_username']=sys.argv[1]; s['access_password']=sys.argv[2]; \
+f=open('$(UBOT_HOME)/config.json','w'); json.dump(c,f,indent=4); f.write('\n'); f.close()" "$$ACCESS_USER" "$$ACCESS_PWD"; \
+		echo "   🔒 Login: $$ACCESS_USER / $$ACCESS_PWD"; \
+		echo ""; \
 	fi
 
 	@# Install CLI to PATH

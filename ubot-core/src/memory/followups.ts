@@ -110,7 +110,7 @@ export interface FollowUpStore {
   /** Cancel a follow-up */
   cancel(id: string, reason?: string): boolean;
   /** Mark a follow-up as expired */
-  expire(id: string): boolean;
+  expire(id: string, reason?: string): boolean;
   /** Increment attempts and optionally reschedule */
   recordAttempt(id: string, newFollowUpAt?: Date): boolean;
   /** Delete a follow-up */
@@ -262,11 +262,11 @@ export function createFollowUpStore(db: DatabaseConnection): FollowUpStore {
       return !!row;
     },
 
-    expire(id: string): boolean {
+    expire(id: string, reason?: string): boolean {
       const now = new Date().toISOString();
       db.execute(
         'UPDATE follow_ups SET status = ?, completed_at = ?, result = ? WHERE id = ? AND status = ?',
-        ['expired', now, 'Max attempts reached', id, 'pending']
+        ['expired', now, reason || 'Max attempts reached', id, 'pending']
       );
       const row = db.queryOne<any>('SELECT id FROM follow_ups WHERE id = ? AND status = ?', [id, 'expired']);
       return !!row;

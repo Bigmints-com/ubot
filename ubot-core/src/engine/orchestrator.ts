@@ -10,8 +10,10 @@ import path from 'path';
 import OpenAI from 'openai';
 import type { 
   AgentConfig, AgentResponse, ChatMessageMetadata,
-  ToolExecutionResult, ToolDefinition, AgentDefinition, Attachment
+  ToolExecutionResult, ToolDefinition, AgentDefinition, Attachment,
+  ModelPurpose, LLMProviderConfig
 } from './types.js';
+import { getModelForPurpose } from './types.js';
 import type { ConversationStore } from '../memory/conversation.js';
 import type { MemoryStore } from '../memory/memory-store.js';
 import { type Soul, SOUL_REWRITE_PROMPT, OWNER_MERGE_PROMPT, FACT_EXTRACTION_PROMPT, SUMMARY_UPDATE_PROMPT, mergeIntoOwnerDoc, OWNER_SOUL_ID } from '../memory/soul.js';
@@ -23,6 +25,8 @@ import { metricsCollector } from '../metrics/index.js';
 import { log } from '../logger/ring-buffer.js';
 import { logCapability } from '../capabilities/cli/capability-log.js';
 import { LoopDetector } from './loop-detector.js';
+import { getVertexAccessToken } from './vertex-auth.js';
+import { getMetering } from './metering.js';
 
 /**
  * Find recent outbound messages sent TO a specific contact by the owner.
@@ -180,6 +184,76 @@ export function createAgentOrchestrator(
     });
   }
 
+  /**
+   * Create an OpenAI client routed to the best provider for a given purpose.
+   * Falls back to the default provider if no routing is configured.
+   * Vertex AI uses OAuth2 tokens instead of static API keys.
+   */
+  async function getClientForPurpose(purpose: ModelPurpose): Promise<{ client: OpenAI; model: string; providerId: string }> {
+    const routing = currentConfig.modelRouting || {};
+    const routedProviderId = routing[purpose];
+
+    if (routedProviderId) {
+      const provider = currentConfig.llmProviders.find(p => p.id === routedProviderId);
+      if (provider) {
+        let baseUrl = provider.baseUrl;
+        let apiKey = provider.apiKey;
+
+        // Vertex AI: generate OAuth2 token from service account
+        if (routedProviderId === 'vertex' || provider.provider === 'vertex') {
+          const token = await getVertexAccessToken();
+          if (token) {
+            apiKey = token;
+          } else {
+            console.warn('[Orchestrator] Failed to get Vertex access token, falling back to default');
+            return { client: createLLMClient(), model: currentConfig.llmModel, providerId: currentConfig.defaultLlmProviderId };
+          }
+        }
+
+        // Auto-fix: Gemini's OpenAI-compatible endpoint requires /openai/ suffix
+        if (baseUrl.includes('generativelanguage.googleapis.com') && !baseUrl.includes('/openai')) {
+          baseUrl = baseUrl.replace(/\/?$/, '') + '/openai/';
+        }
+
+        // Use per-purpose model from config, falling back to catalog defaults, then provider.model
+        const purposeModel = getModelForPurpose(routedProviderId, purpose, provider.models) || provider.model;
+
+        return {
+          client: new OpenAI({ apiKey, baseURL: baseUrl }),
+          model: purposeModel,
+          providerId: provider.id,
+        };
+      }
+    }
+
+    // Fallback to default provider — still use catalog if available
+    const defaultProvider = currentConfig.llmProviders.find(p => p.id === currentConfig.defaultLlmProviderId);
+    const defaultProviderId = defaultProvider?.provider || currentConfig.defaultLlmProviderId;
+    const catalogModel = getModelForPurpose(defaultProviderId, purpose, defaultProvider?.models);
+
+    // For Vertex default provider, generate access token
+    if (defaultProvider && (defaultProviderId === 'vertex' || defaultProvider.provider === 'vertex')) {
+      const token = await getVertexAccessToken();
+      if (token) {
+        let baseUrl = defaultProvider.baseUrl;
+        if (baseUrl.includes('generativelanguage.googleapis.com') && !baseUrl.includes('/openai')) {
+          baseUrl = baseUrl.replace(/\/?$/, '') + '/openai/';
+        }
+        return {
+          client: new OpenAI({ apiKey: token, baseURL: baseUrl }),
+          model: catalogModel || defaultProvider.model,
+          providerId: defaultProvider.id,
+        };
+      }
+    }
+
+    return {
+      client: createLLMClient(),
+      model: catalogModel || currentConfig.llmModel,
+      providerId: currentConfig.defaultLlmProviderId,
+    };
+  }
+
   function buildSystemPrompt(agentId?: string): string {
     let basePrompt = currentConfig.systemPrompt;
     
@@ -286,7 +360,7 @@ export function createAgentOrchestrator(
     }
 
     try {
-      const client = createLLMClient();
+      const { client, model: extractionModel } = await getClientForPurpose('extraction');
 
       if (isOwner) {
         // ── OWNER: persona merge + fact extraction + summary ──
@@ -299,7 +373,7 @@ export function createAgentOrchestrator(
           (() => {
             const prompt = `CURRENT OWNER PROFILE:\n${currentDoc}\n\nOWNER'S MESSAGE:\n${userMessage}`;
             return client.chat.completions.create({
-              model: currentConfig.llmModel,
+              model: extractionModel,
               messages: [
                 { role: 'system', content: OWNER_MERGE_PROMPT },
                 { role: 'user', content: prompt },
@@ -311,7 +385,7 @@ export function createAgentOrchestrator(
 
           // Layer 2: Structured facts (personal details)
           client.chat.completions.create({
-            model: currentConfig.llmModel,
+            model: extractionModel,
             messages: [
               { role: 'system', content: FACT_EXTRACTION_PROMPT },
               { role: 'user', content: `User: ${userMessage}` },
@@ -325,7 +399,7 @@ export function createAgentOrchestrator(
             const existingSummary = memoryStore.getMemories(OWNER_SOUL_ID, 'summary')
               .find(m => m.key === 'chat_digest');
             return client.chat.completions.create({
-              model: currentConfig.llmModel,
+              model: extractionModel,
               messages: [
                 { role: 'system', content: SUMMARY_UPDATE_PROMPT },
                 { role: 'user', content: existingSummary
@@ -421,7 +495,7 @@ export function createAgentOrchestrator(
         const [personaResult, factsResult, summaryResult] = await Promise.allSettled([
           // Layer 1: Persona (qualitative personality profile)
           client.chat.completions.create({
-            model: currentConfig.llmModel,
+            model: extractionModel,
             messages: [
               { role: 'system', content: SOUL_REWRITE_PROMPT },
               { role: 'user', content: currentDoc
@@ -435,7 +509,7 @@ export function createAgentOrchestrator(
 
           // Layer 2: Structured facts (personal details as JSON)
           client.chat.completions.create({
-            model: currentConfig.llmModel,
+            model: extractionModel,
             messages: [
               { role: 'system', content: FACT_EXTRACTION_PROMPT },
               { role: 'user', content: conversationText },
@@ -449,7 +523,7 @@ export function createAgentOrchestrator(
             const existingSummary = memoryStore.getMemories(personaId, 'summary')
               .find(m => m.key === 'chat_digest');
             return client.chat.completions.create({
-              model: currentConfig.llmModel,
+              model: extractionModel,
               messages: [
                 { role: 'system', content: SUMMARY_UPDATE_PROMPT },
                 { role: 'user', content: existingSummary
@@ -517,12 +591,14 @@ export function createAgentOrchestrator(
     isOwner: boolean = true,
     agentId?: string,
     preSelectedTools?: ToolDefinition[],
+    purpose: ModelPurpose = 'chat',
   ): Promise<{
     content: string;
     toolCalls: Array<{ id: string; toolName: string; arguments: Record<string, unknown> }>;
     usage?: { promptTokens: number; completionTokens: number; totalTokens: number };
+    model?: string;
   }> {
-    const client = createLLMClient();
+    const { client, model: routedModel, providerId } = await getClientForPurpose(purpose);
     
     // Use pre-selected tools if provided (from Phase 1 tool selection),
     // otherwise fall back to the full tool set
@@ -541,13 +617,13 @@ export function createAgentOrchestrator(
     }
 
     const tools = filteredTools.length > 0 ? formatToolsForAPI(filteredTools) : undefined;
-    log.info('Agent', `Calling LLM: ${currentConfig.llmModel} (via ${currentConfig.llmBaseUrl})`);
+    log.info('Agent', `Calling LLM: ${routedModel} [${purpose}] (via ${providerId})`);
     log.info('Agent', `Tools available: ${filteredTools.length} (isOwner: ${isOwner}${preSelectedTools ? ', phase-2 selected' : ''})`);
 
     
     try {
       const completion = await client.chat.completions.create({
-        model: currentConfig.llmModel,
+        model: routedModel,
         messages,
         temperature: currentConfig.temperature,
         max_tokens: currentConfig.maxTokens,
@@ -585,13 +661,21 @@ export function createAgentOrchestrator(
       } : undefined;
 
       log.info('Agent', `LLM response: ${content.length} chars text, ${toolCalls.length} tool calls`);
-      if (toolCalls.length > 0) {
+      if (toolCalls.length > 0 && purpose === 'chat') {
         log.info('Agent', `Tool calls: ${toolCalls.map(tc => `${tc.toolName}(${JSON.stringify(tc.arguments)})`).join(', ')}`);
       }
 
-      return { content, toolCalls, usage };
+      // Record metering
+      try {
+        const meter = getMetering();
+        if (meter && usage) {
+          meter.record(routedModel, purpose, providerId, usage.promptTokens, usage.completionTokens);
+        }
+      } catch { /* metering should never block LLM calls */ }
+
+      return { content, toolCalls, usage, model: routedModel };
     } catch (err: any) {
-      log.error('Agent', `LLM call failed: ${err.message}`);
+      log.error('Agent', `LLM call failed [${purpose}/${routedModel}]: ${err.message}`);
       throw new Error(`LLM call failed: ${err.message}`);
     }
   }
@@ -693,6 +777,15 @@ export function createAgentOrchestrator(
           } catch { /* MCP not available */ }
 
           const allWithModules = [...toolsWithModules, ...mcpToolDefs];
+
+          // Use purpose-based routing for the router model if configured
+          const routerRouting = currentConfig.modelRouting?.router;
+          let routerOverride: { client: OpenAI; model: string } | undefined;
+          if (routerRouting) {
+            const { client: rClient, model: rModel } = await getClientForPurpose('router');
+            routerOverride = { client: rClient, model: rModel };
+          }
+
           const selection = await selectToolsForMessage(
             client,
             currentConfig.llmModel,
@@ -700,6 +793,7 @@ export function createAgentOrchestrator(
             allWithModules.map(t => ({ module: t.module, tool: t.tool })),
             ownerFlag,
             currentConfig.llmBaseUrl,
+            routerOverride,
           );
           selectedTools = selection.tools;
         } catch (err: any) {
@@ -711,14 +805,16 @@ export function createAgentOrchestrator(
       // Agent loop with tool calling
       let iteration = 0;
       let finalContent = '';
+      let lastModel = currentConfig.llmModel;
       const loopDetector = new LoopDetector();
 
       while (iteration < currentConfig.maxToolIterations) {
         iteration++;
 
         const activeAgentId = sessionAgents.get(sessionId);
-        const llmResult = await callLLM(messages, ownerFlag, activeAgentId, selectedTools);
+        const llmResult = await callLLM(messages, ownerFlag, activeAgentId, selectedTools, 'chat');
         lastUsage = llmResult.usage;
+        lastModel = llmResult.model || currentConfig.llmModel;
 
         if (llmResult.toolCalls.length === 0) {
           // No tool calls — check if this is an "I can't" response
@@ -814,12 +910,10 @@ export function createAgentOrchestrator(
           metricsCollector.recordTool(toolCall.toolName, result.success);
 
           // Add tool result as a "tool" role message (OpenAI format)
-          const toolResultContent = result.success 
-            ? (result.result || 'Success') 
-            : `Error: ${result.error}`;
-          if (result.success) {
-            log.info('Agent', `Tool result for ${toolCall.toolName}: ${toolResultContent.slice(0, 200)}`);
-          } else {
+          const toolResultContent = result.success
+            ? (result.result || 'Completed (no details returned).')
+            : `❌ TOOL FAILED: ${toolCall.toolName}\nError: ${result.error}\nIMPORTANT: This tool call FAILED — do NOT tell the user it succeeded. Report the actual error.`;
+          if (!result.success) {
             log.error('Agent', `Tool failed: ${toolCall.toolName} — ${result.error}`);
           }
           messages.push({
@@ -866,7 +960,7 @@ export function createAgentOrchestrator(
           arguments: {},
         } : undefined,
         usage: lastUsage,
-        model: currentConfig.llmModel,
+        model: lastModel,
       };
       conversationStore.addMessage(sessionId, 'assistant', finalContent, assistantMetadata);
 
@@ -882,17 +976,17 @@ export function createAgentOrchestrator(
         content: finalContent,
         toolCalls: toolResults,
         usage: lastUsage,
-        model: currentConfig.llmModel,
+        model: lastModel,
         duration: Date.now() - startTime,
         attachments,
       };
     },
 
     async generate(systemPrompt: string, userMessage: string): Promise<string> {
-      const client = createLLMClient();
+      const { client, model: genModel } = await getClientForPurpose('generation');
       try {
         const completion = await client.chat.completions.create({
-          model: currentConfig.llmModel,
+          model: genModel,
           messages: [
             { role: 'system', content: systemPrompt },
             { role: 'user', content: userMessage },
@@ -903,7 +997,7 @@ export function createAgentOrchestrator(
         });
         return completion.choices[0]?.message?.content || '';
       } catch (err: any) {
-        log.error('Agent', `Generate call failed: ${err.message}`);
+        log.error('Agent', `Generate call failed [generation/${genModel}]: ${err.message}`);
         throw new Error(`LLM generate failed: ${err.message}`);
       }
     },

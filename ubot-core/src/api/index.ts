@@ -861,6 +861,22 @@ export function initializeApi(db?: DatabaseConnection, agent?: AgentOrchestrator
         }
       }
 
+      // Purpose-based model routing from defaults section
+      // Maps purpose names (chat, router, extraction, generation) to provider IDs
+      if (cfg.defaults) {
+        const validPurposes = ['chat', 'router', 'extraction', 'generation'];
+        const modelRouting: Record<string, string> = {};
+        for (const [purpose, providerId] of Object.entries(cfg.defaults)) {
+          if (validPurposes.includes(purpose) && typeof providerId === 'string') {
+            modelRouting[purpose] = providerId;
+          }
+        }
+        if (Object.keys(modelRouting).length > 0) {
+          configUpdates.modelRouting = modelRouting;
+          log.info('Config', `Model routing: ${Object.entries(modelRouting).map(([p, m]) => `${p}→${m}`).join(', ')}`);
+        }
+      }
+
       if (Object.keys(configUpdates).length > 0) {
         agent.updateConfig(configUpdates);
         log.info('Config', `Applied settings: ${Object.keys(configUpdates).join(', ')}`);
@@ -1295,6 +1311,86 @@ async function handleChannelRoutes(
   }
 
   // ── WhatsApp Config ───────────────────────────────────
+  if (url === '/api/config/model-routing' && method === 'GET') {
+    const cfg = loadUbotConfig();
+    const routing = cfg.defaults || {};
+    // Only return model-purpose keys
+    const validPurposes = ['chat', 'router', 'extraction', 'generation'];
+    const modelRouting: Record<string, string> = {};
+    for (const [k, v] of Object.entries(routing)) {
+      if (validPurposes.includes(k)) modelRouting[k] = v;
+    }
+
+    // Build provider options from capabilities.models
+    const models = cfg.capabilities?.models;
+    const providers: Array<{ id: string; name: string; model: string }> = [];
+    if (models?.providers) {
+      for (const [key, p] of Object.entries(models.providers)) {
+        if (p.enabled !== false) {
+          providers.push({ id: key, name: key, model: (p.model || '') as string });
+        }
+      }
+    }
+
+    json(res, { routing: modelRouting, providers });
+    return true;
+  }
+
+  if (url === '/api/config/model-routing' && method === 'PUT') {
+    const body = await parseBody(req) as { routing: Record<string, string> };
+    if (!body.routing) {
+      json(res, { error: 'routing object is required' }, 400);
+      return true;
+    }
+
+    const cfg = loadUbotConfig();
+    if (!cfg.defaults) cfg.defaults = {};
+
+    // Use canonical purpose list from types
+    const { ALL_PURPOSES } = await import('../engine/types.js');
+    const validPurposes = ALL_PURPOSES as string[];
+    for (const purpose of validPurposes) {
+      if (body.routing[purpose] !== undefined) {
+        if (body.routing[purpose] === '' || body.routing[purpose] === null) {
+          delete cfg.defaults[purpose];
+        } else {
+          cfg.defaults[purpose] = body.routing[purpose];
+        }
+      }
+    }
+
+    saveUbotConfig(cfg);
+
+    // Sync to agent orchestrator
+    if (agentOrchestrator) {
+      const modelRouting: Record<string, string> = {};
+      for (const [k, v] of Object.entries(cfg.defaults)) {
+        if (validPurposes.includes(k) && typeof v === 'string') {
+          modelRouting[k] = v;
+        }
+      }
+      agentOrchestrator.updateConfig({ modelRouting });
+    }
+
+    json(res, { saved: true });
+    return true;
+  }
+
+  // ── Metering ──────────────────────────────────────────
+  if (url.startsWith('/api/metering/usage') && method === 'GET') {
+    const { getMetering } = await import('../engine/metering.js');
+    const metering = getMetering();
+    if (!metering) {
+      json(res, { error: 'Metering not initialized' }, 500);
+      return true;
+    }
+    const params = new URL(url, 'http://localhost').searchParams;
+    const period = (params.get('period') || '30d') as 'today' | '7d' | '30d' | 'all';
+    const summary = metering.getSummary(period);
+    json(res, summary);
+    return true;
+  }
+
   if (url === '/api/whatsapp/config' && method === 'GET') {
     json(res, { config: whatsappConfig, status: waStatus });
     return true;

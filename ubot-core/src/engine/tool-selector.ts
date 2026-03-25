@@ -18,6 +18,9 @@ const ALWAYS_INCLUDE_MODULES = new Set([
   'approvals',   // ask_owner — secretary behavior
   'personas',    // save_memory, get_profile — soul system
   'followups',   // conversation continuity
+  'web-fetch',   // always need URL fetching as fallback
+  'web-search',  // always need web search capability (includes tavily MCP)
+  'browser',     // playwright MCP — always available for browsing
 ]);
 
 /** Static one-liner descriptions per module — used in the compact catalog */
@@ -68,7 +71,9 @@ Rules:
 - Return ONLY a JSON array of module names, e.g. ["messaging", "google"] or []
 - Return [] for conversational messages (greetings, questions, chat, opinions)
 - Only include modules that are actually needed
-- If unsure, include the module`;
+- If unsure, include the module
+- If the user mentions websites, URLs, browsing, or checking a site, include "browser"
+- If the user mentions a custom tool/integration, also include "browser" as fallback`;
 
 export interface ToolSelectionResult {
   tools: ToolDefinition[];
@@ -201,6 +206,7 @@ export async function selectToolsForMessage(
   allToolsWithModules: Array<{ module: string; tool: ToolDefinition }>,
   isOwner: boolean,
   baseUrl?: string,
+  routerOverride?: { client: OpenAI; model: string },
 ): Promise<ToolSelectionResult> {
   const startTime = Date.now();
 
@@ -211,11 +217,15 @@ export async function selectToolsForMessage(
     name: t.name, description: t.description, parameters: t.parameters,
   }))).length;
 
-  // Detect the best small router model
+  // Use purpose-based router override if provided, otherwise auto-detect
   let routerModel = model;
   let routerClient = client;
 
-  if (baseUrl) {
+  if (routerOverride) {
+    routerModel = routerOverride.model;
+    routerClient = routerOverride.client;
+    log.info('ToolSelector', `Using purpose-routed router model: ${routerModel} (main: ${model})`);
+  } else if (baseUrl) {
     const detectedRouter = await detectRouterModel(baseUrl, model);
     if (detectedRouter && detectedRouter !== model) {
       routerModel = detectedRouter;

@@ -74,6 +74,15 @@ async function processFollowUps(deps: FollowUpCheckerDeps): Promise<void> {
 async function processOneFollowUp(followUp: FollowUp, deps: FollowUpCheckerDeps): Promise<void> {
   console.log(`[FollowUpChecker] Processing follow-up ${followUp.id}: "${followUp.reason}" for ${followUp.contactId}`);
 
+  // Safety: auto-expire stale follow-ups to prevent infinite loops
+  const ageMs = Date.now() - new Date(followUp.createdAt).getTime();
+  const maxAgeMs = 48 * 60 * 60 * 1000; // 48 hours
+  if (followUp.attempts >= 3 && ageMs > maxAgeMs) {
+    deps.followUpStore.expire(followUp.id, `Auto-expired: ${followUp.attempts} attempts over ${Math.round(ageMs / 3600000)}h`);
+    console.log(`[FollowUpChecker] Auto-expired stale follow-up ${followUp.id} (${followUp.attempts} attempts, ${Math.round(ageMs / 3600000)}h old)`);
+    return;
+  }
+
   // Build the agent prompt with full context
   const prompt = buildFollowUpPrompt(followUp);
   const sessionId = `followup-${followUp.id}-${Date.now()}`;
@@ -122,6 +131,11 @@ async function processOneFollowUp(followUp: FollowUp, deps: FollowUpCheckerDeps)
 function buildFollowUpPrompt(followUp: FollowUp): string {
   return `You are following up on a conversation that needs closure.
 
+## ⚠️ CRITICAL: NO NEW FOLLOW-UPS
+You are inside a follow-up session. You MUST NOT call schedule_followup or create any new follow-ups.
+This is an automated follow-up execution — creating new follow-ups from here causes infinite loops.
+Your ONLY options are: send a message, mark as [NO_ACTION_NEEDED], or [RESCHEDULE].
+
 ## Follow-Up Details
 - **Follow-Up ID:** ${followUp.id}
 - **Contact:** ${followUp.contactId} (via ${followUp.channel})
@@ -140,6 +154,7 @@ ${followUp.context}
 3. If you need more time (e.g., owner still hasn't responded to the original ask_owner), respond with [RESCHEDULE] and explain why.
 4. Otherwise, compose and send an appropriate follow-up message to the contact via ${followUp.channel} using the send_message tool.
 5. After sending, use complete_followup with follow-up ID "${followUp.id}" to mark it as done.
+6. DO NOT call schedule_followup. This session is restricted.
 
 ## Follow-Up Message Guidelines
 - Be natural and conversational — don't make it obvious this is an automated follow-up

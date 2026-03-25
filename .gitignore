@@ -16,6 +16,7 @@ public/css/output.css
 # ── Runtime data ──────────────────────────────
 sessions/
 data/
+workspace/
 *.db
 *.db-shm
 *.db-wal

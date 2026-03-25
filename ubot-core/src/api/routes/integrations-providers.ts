@@ -14,6 +14,8 @@
 import type { ApiContext } from '../context.js';
 import type { ProviderConfig, ProvidersSection } from '../../data/config.js';
 import { loadUbotConfig, saveUbotConfig } from '../../data/config.js';
+import { saveVertexCredentials, loadVertexCredentials, getVertexBaseUrl } from '../../engine/vertex-auth.js';
+import { DEFAULT_PROVIDER_MODELS, ALL_PURPOSES } from '../../engine/types.js';
 import http from 'http';
 
 // ─── Helpers ─────────────────────────────────────────────
@@ -87,6 +89,35 @@ export async function handleIntegrationProviderRoutes(
 ): Promise<boolean> {
 
   if (!url.startsWith('/api/integrations/')) return false;
+
+  // ── VERTEX CREDENTIALS upload (special route) ──
+  if (url === '/api/integrations/vertex/credentials' && method === 'POST') {
+    const body = await parseBody(req) as { serviceAccountJson?: string };
+    if (!body.serviceAccountJson) {
+      error(res, 'serviceAccountJson is required');
+      return true;
+    }
+
+    const result = saveVertexCredentials(body.serviceAccountJson);
+    if (!result.success) {
+      error(res, result.error || 'Failed to save credentials');
+      return true;
+    }
+
+    json(res, { success: true, projectId: result.projectId });
+    return true;
+  }
+
+  if (url === '/api/integrations/vertex/credentials' && method === 'GET') {
+    const creds = loadVertexCredentials();
+    json(res, {
+      configured: !!creds,
+      projectId: creds?.project_id || null,
+      clientEmail: creds?.client_email || null,
+    });
+    return true;
+  }
+
   const category = parseCategory(url);
   if (!category) return false;
 
@@ -113,13 +144,33 @@ export async function handleIntegrationProviderRoutes(
     if (!section.providers) section.providers = {};
 
     const key = body.key.toLowerCase().replace(/[^a-z0-9_-]/g, '-');
-    section.providers[key] = {
+    const providerEntry: ProviderConfig = {
       enabled: body.enabled !== false,
       baseUrl: body.baseUrl || undefined,
       apiKey: body.apiKey || undefined,
       model: body.model || undefined,
       timeout: body.timeout || undefined,
     };
+
+    // Vertex AI: store project/region, auto-generate base URL
+    if (key === 'vertex') {
+      const vertexBody = body as any;
+      if (vertexBody.projectId) providerEntry.projectId = vertexBody.projectId;
+      if (vertexBody.region) providerEntry.region = vertexBody.region;
+      if (vertexBody.projectId) {
+        providerEntry.baseUrl = getVertexBaseUrl(vertexBody.projectId, vertexBody.region || 'us-central1');
+      }
+      // For Vertex, apiKey is not used — token is generated from service account
+      providerEntry.authType = 'vertex-sa';
+    }
+
+    section.providers[key] = providerEntry;
+
+    // Auto-populate per-purpose models from defaults
+    const defaultModels = DEFAULT_PROVIDER_MODELS[key];
+    if (defaultModels && !providerEntry.models) {
+      providerEntry.models = { ...defaultModels };
+    }
 
     // First provider becomes default
     if (!section.default || Object.keys(section.providers).length === 1) {
@@ -322,7 +373,16 @@ function syncModelsToAgent(ctx: ApiContext): void {
         apiKey: (p.apiKey || '') as string,
         model: (p.model || '') as string,
         isDefault: key === defaultKey,
+        models: (p.models || DEFAULT_PROVIDER_MODELS[key] || {}) as any,
       }));
+
+    // Also sync routing from config defaults
+    const routing: Record<string, string> = {};
+    if (cfg.defaults) {
+      for (const [k, v] of Object.entries(cfg.defaults)) {
+        if (typeof v === 'string') routing[k] = v;
+      }
+    }
 
     ctx.agentOrchestrator.updateConfig({
       llmProviders: oldProviders,
@@ -330,6 +390,7 @@ function syncModelsToAgent(ctx: ApiContext): void {
       llmBaseUrl: (defaultProvider.baseUrl || '') as string,
       llmModel: (defaultProvider.model || '') as string,
       llmApiKey: (defaultProvider.apiKey || '') as string,
+      modelRouting: routing,
     });
   }
 }
