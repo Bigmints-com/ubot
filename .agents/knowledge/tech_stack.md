@@ -19,16 +19,21 @@ Ubot is built on a modern, asynchronous, and modular stack designed for high per
 Ubot uses a provider-based architecture with a **Unified Message Handler** (`handler.ts`):
 
 - **WhatsApp**: Integrated via **Baileys** (raw socket-based WhatsApp Web protocol). Supports interactive messages (buttons, lists, carousels), LID resolution, rate limiting, and media handling.
+  - Session stored in `~/.ubot/sessions/ubot-session/`; scan QR via dashboard to authenticate.
 - **Telegram**: Handled via **node-telegram-bot-api**, supporting the standard bot API.
 - **iMessage**: Connected via **BlueBubbles**, a macOS app that exposes iMessage over a local REST API.
+- **Webchat**: Poll-outbound relay via a **Cloud Run** Node.js service (`ubot-core/webchat-relay/`). UBOT polls the relay rather than exposing a public port.
 - **Unified Event Bus**: All adapters normalize into `UnifiedMessage` → `SkillEvent` objects, enabling platform-agnostic processing.
 
 ## 4. AI & LLM Integration
 
-- **OpenAI-Compatible API**: Supports any provider that implements the OpenAI chat completions API (Gemini, Ollama, OpenAI, Anthropic).
-- **Native Tool Calling**: Uses structured function calling (not text parsing). Tools are formatted via `formatToolsForAPI()` and sent as the `tools` parameter.
-- **MCP (Model Context Protocol)**: Connects to external tool servers. MCP connections are configured per-instance in `config.json` under `mcp_servers`. When connected, their tools appear automatically and are deduplicated by `tool-router.ts`.
-- **Tool Routing**: `tool-router.ts` handles native vs MCP deduplication with alias mapping.
+- **OpenAI-Compatible API**: Supports any provider that implements the OpenAI chat completions API.
+- **Vertex AI (Primary)**: Google Cloud Vertex AI via global endpoint. Uses **service account JWT auth** (`vertex-auth.ts`) — not static API keys. Active project: `saveaday-ai` (gen-lang-client-0951453139). Models: Gemini 2.5 Flash / Pro / Flash-Lite.
+- **Per-Purpose Model Routing**: Each task type (`chat`, `router`, `generation`, `vision`) can be assigned a different model. Configured in `capabilities.models.providers.<id>.models`.
+- **Usage Metering** (`src/engine/metering.ts`): Records prompt/completion tokens per model and purpose.
+- **Native Tool Calling**: Uses structured function calling. Tools are formatted via `formatToolsForAPI()` and sent as the `tools` parameter.
+- **Tool Selector** (`src/engine/tool-selector.ts`): Uses a fast `router`-purpose model to classify messages and select a relevant tool subset. Falls back to all tools on failure.
+- **MCP (Model Context Protocol)**: Connects to external tool servers configured in `config.json` under `mcp_servers`. Active: Playwright (22 tools), Tavily (5 tools), PDF Reader (1 tool).
 
 ## 5. Tool Architecture
 
@@ -38,6 +43,8 @@ Ubot uses a provider-based architecture with a **Unified Message Handler** (`han
 
 ## 6. Deployment
 
-- **Production**: Compiled TypeScript → `~/.ubot/lib/`, run with `node index.js`.
+- **Local**: Compiled TypeScript → `~/.ubot/lib/`, managed via `ubot` CLI (`ubot start/stop/restart/logs`). Use `make update` after changes.
+- **Remote VPS**: `rsync dist/ ubot-server:/root/.ubot/lib/` + `ssh ubot-server 'ubot restart'`. See [deployment_remote.md](deployment_remote.md).
 - **Development**: `npm run dev` with tsx for hot-reloading.
-- **Config**: `~/.ubot/config.json` with sections for server, llm, channels, filesystem, mcp_servers, owner, and integrations.
+- **Config**: `~/.ubot/config.json` with sections for `server`, `capabilities.models`, `channels`, `filesystem`, `mcp_servers`, `owner`, and `integrations`.
+- **Webchat Relay**: Separate Cloud Run service. Deploy with `cd ubot-core && ./deploy-relay.sh`.

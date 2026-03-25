@@ -4,10 +4,11 @@ The "Interface" of Ubot. The Connectivity layer manages the bridge between Ubot 
 
 ## Core Components
 
-- **Messaging Adapters**: Pluggable modules for three channels, each with their own connection file:
+- **Messaging Adapters**: Pluggable modules for four channels, each with their own connection file:
   - WhatsApp → `channels/whatsapp/connection.ts` (Baileys, raw socket protocol)
   - Telegram → `channels/telegram/connection.ts` (node-telegram-bot-api)
   - iMessage → `channels/imessage/index.ts` (BlueBubbles REST API)
+  - **Webchat** → `channels/webchat/connection.ts` (Cloud Run relay via long-poll)
 - **Provider Registry**: A central registry that maps channel names to their respective provider instances.
 - **Standardized Event Flow**: Incoming raw messages are normalized into `UnifiedMessage` objects via a single handler (`engine/handler.ts`).
 
@@ -51,4 +52,15 @@ All outbound WhatsApp messages go through `WhatsAppRateLimiter`:
 
 ## Multi-Channel Support
 
-A single Ubot instance can listen on WhatsApp, Telegram, and iMessage simultaneously, routing events to the same orchestrator while maintaining separate conversation stores per platform.
+A single Ubot instance can listen on WhatsApp, Telegram, iMessage, and Webchat simultaneously, routing events to the same orchestrator while maintaining separate conversation stores per platform.
+
+## Webchat Relay Channel
+
+The webchat relay uses a **poll-outbound** architecture (UBOT polls a public Cloud Run relay — no inbound ports needed). See [webchat_relay.md](webchat_relay.md) for full details.
+
+Key config:
+```json
+{ "channels": { "webchat": { "enabled": true, "relay_url": "https://...", "auto_reply": true } } }
+```
+
+> **`auto_reply` must be `true`** or visitor messages will be received but never processed by the LLM.

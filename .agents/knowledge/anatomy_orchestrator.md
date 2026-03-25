@@ -19,14 +19,17 @@ The "How" of Ubot. The Orchestrator is the central brain that manages the lifecy
 3. **Tool Execution Loop**: If the LLM returns tool calls, execute them via `ToolRegistry`, feed results back, and re-call the LLM until no more tool calls.
 4. **`extractSoulData()`**: After the conversation turn, extracts identity facts, contact updates, and chat summaries for long-term memory.
 
-## Tool Routing
+## LLM Provider & Auth
 
-The orchestrator integrates with `tool-router.ts` for native vs MCP deduplication:
+- **Provider selection**: Driven by `defaultLlmProviderId` in `config.json`. Provider configs live under `capabilities.models.providers`.
+- **Vertex AI auth** (`src/engine/vertex-auth.ts`): When `authType === 'vertex-sa'`, the orchestrator calls `getVertexAccessToken()` which signs a JWT with the service account key and exchanges it for a short-lived OAuth2 bearer token (cached 55 min).
+- **Per-purpose model routing**: `getModelForPurpose(provider, purpose)` selects the model for a given task (`chat`, `router`, `generation`, `vision`). Priority: per-purpose override → provider default → hardcoded seed in `DEFAULT_PROVIDER_MODELS`.
+- **Usage metering** (`src/engine/metering.ts`): Every LLM call records prompt/completion token counts by model and purpose.
 
-- Native tools from auto-discovered modules
-- MCP tools from connected external servers
-- Alias mapping when MCP replaces a native tool
-- Disconnected server filtering (MCP tools from offline servers are excluded)
+## Tool Classification & Fallback
+
+`tool-selector.ts` uses a fast lightweight model (`router` purpose) to classify each message and select a relevant subset of tools, reducing token usage. If classification fails (e.g., 401 from provider), it falls back to **all tools** rather than failing silently.
+
 
 ## Multi-Agent Switching
 

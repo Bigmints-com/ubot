@@ -8,7 +8,7 @@ Technical documentation for the Ubot agentic operating system. All content is de
 
 - **[Principles: Core Values](file:///Users/pretheesh/Projects/ubot/.agents/knowledge/principles_core.md)**
 - **[Principles: Architectural Pillars](file:///Users/pretheesh/Projects/ubot/.agents/knowledge/principles_architectural.md)**
-- **[Technical Stack & Runtime](file:///Users/pretheesh/Projects/ubot/.agents/knowledge/tech_stack.md)**
+- **[Technical Stack & Runtime](file:///Users/pretheesh/Projects/ubot/.agents/knowledge/tech_stack.md)** *(updated March 2026: Vertex AI, webchat, metering)*
 - **[Safety & Guardrails](file:///Users/pretheesh/Projects/ubot/.agents/knowledge/safety_guardrails.md)**
 - **[Security Threat Model](file:///Users/pretheesh/Projects/ubot/.agents/knowledge/threat_model.md)**
 - **[Compliance & Privacy](file:///Users/pretheesh/Projects/ubot/.agents/knowledge/compliance_privacy.md)**
@@ -19,9 +19,9 @@ The six layers of a Ubot instance:
 
 1.  **[Soul (Identity Layer)](file:///Users/pretheesh/Projects/ubot/.agents/knowledge/anatomy_soul.md)**
 2.  **[Sandbox (Security Layer)](file:///Users/pretheesh/Projects/ubot/.agents/knowledge/anatomy_sandbox.md)**
-3.  **[Orchestrator (Decision Engine)](file:///Users/pretheesh/Projects/ubot/.agents/knowledge/anatomy_orchestrator.md)**
+3.  **[Orchestrator (Decision Engine)](file:///Users/pretheesh/Projects/ubot/.agents/knowledge/anatomy_orchestrator.md)** *(updated March 2026: Vertex auth, per-purpose routing, metering, tool-selector fallback)*
 4.  **[Skills (Workflow Engine)](file:///Users/pretheesh/Projects/ubot/.agents/knowledge/anatomy_skills.md)**
-5.  **[Connectivity (Interface Layer)](file:///Users/pretheesh/Projects/ubot/.agents/knowledge/anatomy_connectivity.md)**
+5.  **[Connectivity (Interface Layer)](file:///Users/pretheesh/Projects/ubot/.agents/knowledge/anatomy_connectivity.md)** *(updated March 2026: webchat relay channel)*
 6.  **[Tools (Registry & MCP)](file:///Users/pretheesh/Projects/ubot/.agents/knowledge/anatomy_tools.md)**
 
 ## 📋 Registries & Reference
@@ -34,6 +34,11 @@ The six layers of a Ubot instance:
 - **[Performance Characteristics](file:///Users/pretheesh/Projects/ubot/.agents/knowledge/performance_metrics.md)**
 - **[Technical Glossary](file:///Users/pretheesh/Projects/ubot/.agents/knowledge/glossary.md)**
 
+## 🤖 AI & Model Routing *(New March 2026)*
+
+- **[Model Routing & Vertex AI](file:///Users/pretheesh/Projects/ubot/.agents/knowledge/model_routing.md)** — Per-purpose model routing, Vertex SA auth, Gemini 2.5 migration, metering
+- **[Webchat Relay Architecture](file:///Users/pretheesh/Projects/ubot/.agents/knowledge/webchat_relay.md)** — Cloud Run relay, poll loop, in-flight deduplication, embed widget
+
 ## 🏛 Strategic & Whitepaper Context
 
 - **[Comparative Architecture](file:///Users/pretheesh/Projects/ubot/.agents/knowledge/competitive_landscape.md)**
@@ -44,10 +49,11 @@ The six layers of a Ubot instance:
 
 ## 🛠 Operation & Development
 
-- **[Developer Guide: Extensibility](file:///Users/pretheesh/Projects/ubot/.agents/knowledge/dev_guide.md)** — Build, deploy, add tools/skills
+- **[Developer Guide: Extensibility](file:///Users/pretheesh/Projects/ubot/.agents/knowledge/dev_guide.md)** — Build, deploy, add tools/skills *(updated March 2026: make update, remote deploy)*
+- **[Remote Server Deployment](file:///Users/pretheesh/Projects/ubot/.agents/knowledge/deployment_remote.md)** — VPS setup, SSH alias, port config, common issues *(New March 2026)*
 - **[Maintenance & Operations Guide](file:///Users/pretheesh/Projects/ubot/.agents/knowledge/operations_guide.md)** — Debugging, monitoring, common issues
 - **[Project Nexus History](file:///Users/pretheesh/Projects/ubot/.agents/knowledge/nexus_evolution.md)**
 
 ---
 
-_Last updated: 2026-03-06. This KB is the technical source of truth for Ubot._
+_Last updated: 2026-03-26. This KB is the technical source of truth for Ubot._

@@ -82,13 +82,36 @@ If a skill needs to call a tool during visitor sessions, add the tool name to `V
 
 ## 5. Build & Deploy
 
+### Local deploy (recommended)
+```bash
+cd /path/to/ubot
+make update          # Build + copy to ~/.ubot/lib/ + restart
+```
+
+### Manual local deploy
 ```bash
 cd ubot-core
-npm run build                          # Compiles TypeScript to dist/
-cp -R dist/* ~/.ubot/lib/             # Deploy to production
-kill $(pgrep -f "node.*ubot/lib")     # Stop old process
-UBOT_HOME=~/.ubot node ~/.ubot/lib/index.js  # Start new process
+npm run build                             # Compiles TypeScript to dist/
+# make update copies dist/ → ~/.ubot/lib/ and restarts automatically
 ```
+
+### Remote VPS deploy
+
+```bash
+# Build locally first
+npm run build --prefix ubot-core
+
+# Sync compiled lib (fast — only 4MB)
+rsync -az ubot-core/dist/ ubot-server:/root/.ubot/lib/
+
+# Sync config/creds if changed
+rsync -az ~/.ubot/config.json ~/.ubot/vertex-credentials.json ubot-server:/root/.ubot/
+
+# Restart on server
+ssh ubot-server "export PATH=\$PATH:/root/.local/bin && ubot restart"
+```
+
+See [deployment_remote.md](deployment_remote.md) for full server setup guide.
 
 ## 6. Maintenance Rule
 
