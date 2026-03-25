@@ -10,6 +10,7 @@ import { defaultMigrations } from './data/database/migrations.js';
 import { createConversationStore, conversationMigrations } from './memory/conversation.js';
 import { createMemoryStore, memoryMigrations } from './memory/memory-store.js';
 import { createFollowUpStore, followUpMigrations } from './memory/followups.js';
+import { initMetering } from './engine/metering.js';
 import { createSoul } from './memory/soul.js';
 import { createAgentOrchestrator } from './engine/orchestrator.js';
 import { DEFAULT_AGENT_CONFIG } from './engine/types.js';
@@ -57,6 +58,9 @@ const db = createConnection({
   migrations: [...defaultMigrations, ...conversationMigrations, ...memoryMigrations, ...followUpMigrations],
   autoMigrate: true,
 });
+
+// Initialize LLM usage metering
+initMetering(db);
 
 // Initialize agent — read LLM config from config.json
 const WORKSPACE_PATH = UBOT_HOME 
@@ -136,6 +140,44 @@ function serveStatic(filePath: string): Promise<{ content: Buffer; contentType: 
   });
 }
 
+import crypto from 'crypto';
+
+// ─── Session store for access gate ────────────────────────────────────────────
+const activeSessions = new Map<string, { createdAt: number }>();
+const SESSION_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+const SESSION_COOKIE_NAME = 'ubot_session';
+
+function createSession(): string {
+  const token = crypto.randomBytes(32).toString('hex');
+  activeSessions.set(token, { createdAt: Date.now() });
+  return token;
+}
+
+function validateSession(token: string): boolean {
+  const session = activeSessions.get(token);
+  if (!session) return false;
+  if (Date.now() - session.createdAt > SESSION_MAX_AGE_MS) {
+    activeSessions.delete(token);
+    return false;
+  }
+  return true;
+}
+
+function getSessionFromCookie(req: http.IncomingMessage): string | null {
+  const cookies = req.headers.cookie || '';
+  const match = cookies.split(';').map(c => c.trim()).find(c => c.startsWith(`${SESSION_COOKIE_NAME}=`));
+  return match ? match.split('=')[1] : null;
+}
+
+function setSessionCookie(res: http.ServerResponse, token: string): void {
+  const maxAge = SESSION_MAX_AGE_MS / 1000;
+  res.setHeader('Set-Cookie', `${SESSION_COOKIE_NAME}=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}`);
+}
+
+function clearSessionCookie(res: http.ServerResponse): void {
+  res.setHeader('Set-Cookie', `${SESSION_COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`);
+}
+
 async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
   appState.requestCount++;
   
@@ -147,6 +189,102 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
   if (hooks.middleware?.onRequest) {
     const handled = await hooks.middleware.onRequest(req, res, url, method);
     if (handled) return;
+  }
+
+  // ── Server-level access gate ──────────────────────────────
+  // If server.access_password is set in config.json, require authentication
+  // for API requests. Frontend pages are always served (AuthGate handles login UI).
+  const accessPassword = ubotConfig.server?.access_password;
+  const accessUsername = ubotConfig.server?.access_username || 'admin';
+  
+  if (accessPassword && method !== 'OPTIONS') {
+    // Only gate API endpoints — frontend pages/assets must always load
+    // so the AuthGate component can render the login form
+    const isApiRoute = url.startsWith('/api/');
+    const isPublicApi = url === '/api/health' 
+      || url.startsWith('/api/webchat/')
+      || url.startsWith('/api/auth/');
+    
+    if (isApiRoute && !isPublicApi) {
+      const authHeader = req.headers['authorization'] || '';
+      let authorized = false;
+      
+      // Check 1: Valid session cookie
+      const sessionToken = getSessionFromCookie(req);
+      if (sessionToken && validateSession(sessionToken)) {
+        authorized = true;
+      }
+      
+      // Check 2: Valid Bearer API key (for programmatic access)
+      if (!authorized && authHeader.startsWith('Bearer ')) {
+        const { authenticate: apiAuth } = await import('./api/middleware/auth.js');
+        const result = apiAuth(req);
+        if (result.authenticated && result.clientName !== 'default (no keys configured)') {
+          authorized = true;
+        }
+      }
+      
+      if (!authorized) {
+        res.writeHead(401, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Unauthorized' }));
+        return;
+      }
+    }
+  }
+
+  // ── Auth endpoints (login / logout / status) ──────────────
+  if (url === '/api/auth/status' && method === 'GET') {
+    const requiresAuth = !!accessPassword;
+    if (!requiresAuth) {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ authenticated: true, authRequired: false }));
+      return;
+    }
+    const token = getSessionFromCookie(req);
+    const valid = token ? validateSession(token) : false;
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ authenticated: valid, authRequired: true }));
+    return;
+  }
+
+  if (url === '/api/auth/login' && method === 'POST') {
+    if (!accessPassword) {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ success: true, message: 'No auth required' }));
+      return;
+    }
+    
+    const body = await new Promise<string>((resolve) => {
+      let data = '';
+      req.on('data', chunk => { data += chunk; });
+      req.on('end', () => resolve(data));
+    });
+    
+    try {
+      const { username, password } = JSON.parse(body);
+      if (username === accessUsername && password === accessPassword) {
+        const token = createSession();
+        setSessionCookie(res, token);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: true }));
+      } else {
+        res.writeHead(401, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: false, error: 'Invalid username or password' }));
+      }
+    } catch {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ success: false, error: 'Invalid request body' }));
+    }
+    return;
+  }
+
+  if (url === '/api/auth/logout' && method === 'POST') {
+    const token = getSessionFromCookie(req);
+    if (token) activeSessions.delete(token);
+    clearSessionCookie(res);
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ success: true }));
+    return;
   }
   
   // Health check endpoint

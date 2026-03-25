@@ -1,5 +1,7 @@
 "use client";
 
+import { useEffect, useState } from "react";
+
 import {
   LayoutDashboard,
   MessageSquare,
@@ -22,11 +24,15 @@ import {
   Activity,
   Search,
   Calendar,
-  Zap,
+  Sparkles,
   type LucideIcon,
+  Zap,
+  LogOut,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { api } from "@/lib/api";
+import { useAuth } from "@/hooks/use-auth";
 
 import {
   Sidebar,
@@ -157,8 +163,31 @@ const monitorItems: NavItem[] = [
 export function AppSidebar() {
   const pathname = usePathname();
   const { features, isSaaS, isCloud, mode } = useFeatures();
+  const { authRequired, logout } = useAuth();
 
   const ctx = { mode, features, isCloud, isSaaS };
+
+  const [dynamicModules, setDynamicModules] = useState<NavItem[]>([]);
+
+  useEffect(() => {
+    api<{ modules: any[] }>('/api/modules')
+      .then(data => {
+        if (data.modules && Array.isArray(data.modules)) {
+          const ICONS: Record<string, LucideIcon> = {
+            Sparkles, Bot, Globe, FolderOpen, Plug, Search, Calendar, Apple, Terminal, Zap
+          };
+          const items: NavItem[] = data.modules
+            .filter((m: any) => m.ui)
+            .map((m: any) => ({
+              title: m.ui.title,
+              href: m.ui.href,
+              icon: ICONS[m.ui.icon] || Plug,
+            }));
+          setDynamicModules(items);
+        }
+      })
+      .catch(console.error);
+  }, []);
 
   /** Filter items based on feature flags */
   const filterItems = (items: NavItem[]) =>
@@ -205,7 +234,7 @@ export function AppSidebar() {
       .flatMap(e => e.groups);
 
   const filteredChannels = filterItems(channelItems);
-  const filteredCapabilities = filterItems(getGroupItems('Capabilities', capabilityItems));
+  const filteredCapabilities = filterItems(getGroupItems('Capabilities', [...capabilityItems, ...dynamicModules]));
 
   return (
     <Sidebar collapsible="icon">
@@ -320,6 +349,14 @@ export function AppSidebar() {
               </Link>
             </SidebarMenuButton>
           </SidebarMenuItem>
+          {authRequired && (
+            <SidebarMenuItem>
+              <SidebarMenuButton tooltip="Sign out" onClick={() => logout()}>
+                <LogOut />
+                <span>Sign out</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          )}
           <SidebarMenuItem>
             <SidebarMenuButton size="sm" className="text-xs text-muted-foreground">
               <span>v1.0.0{isSaaS ? " · SaaS" : mode === "cloud" ? " · Cloud" : ""}</span>

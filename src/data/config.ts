@@ -10,6 +10,7 @@ export interface ProviderConfig {
   baseUrl?: string;
   apiKey?: string;
   model?: string;
+  models?: Record<string, string>;  // per-purpose model assignments
   timeout?: number;
   [key: string]: unknown;  // provider-specific extras
 }
@@ -94,7 +95,7 @@ export interface CapabilitiesConfig {
 
 export interface UbotConfig {
   meta?: { version?: string };
-  server?: { port?: number };
+  server?: { port?: number; access_username?: string; access_password?: string };
   database?: { path?: string };
 
   owner?: {

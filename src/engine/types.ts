@@ -97,16 +97,111 @@ export interface LLMProviderConfig {
   /** Display name, e.g. "Gemini Flash" */
   name: string;
   /** Provider type */
-  provider: 'openai' | 'gemini' | 'ollama' | 'custom';
+  provider: 'openai' | 'gemini' | 'openrouter' | 'vertex' | 'ollama' | 'custom';
   /** API base URL */
   baseUrl: string;
   /** API key (empty for Ollama) */
   apiKey: string;
-  /** Model name */
+  /** Default model name (legacy, used as fallback) */
   model: string;
   /** Whether this is the default provider */
   isDefault: boolean;
+  /** Per-purpose model assignments — stored in config, editable by user */
+  models?: Partial<Record<ModelPurpose, string>>;
 }
+
+/**
+ * Each LLM call in the orchestrator is tagged with a purpose.
+ * The model routing table maps each purpose to a specific provider,
+ * enabling cost-optimization (cheap models for background tasks,
+ * powerful models for user-facing chat).
+ */
+export type ModelPurpose =
+  | 'chat'              // Primary user-facing conversation — needs best quality
+  | 'router'            // Tool module classification — needs speed, not quality
+  | 'extraction'        // Soul data extraction (persona, facts, summary) — structured output
+  | 'generation'        // Skill generation, onboarding analysis — creative tasks
+  | 'image_generation'  // Image creation (DALL-E, Imagen, etc.)
+  | 'transcription'     // Audio → text (Whisper, Gemini, etc.)
+  | 'tts';              // Text → speech
+
+/** All valid purpose keys */
+export const ALL_PURPOSES: ModelPurpose[] = [
+  'chat', 'router', 'extraction', 'generation',
+  'image_generation', 'transcription', 'tts',
+];
+
+/**
+ * Per-provider, per-purpose default models.
+ * When a provider is selected for a purpose, this catalog determines
+ * which specific model to use. Allows cheap models for background
+ * tasks and powerful models for user-facing chat.
+ */
+/**
+ * Default per-provider, per-purpose models.
+ * Used ONLY to initialize defaults when a provider is first added.
+ * Actual models are stored on each provider's `models` field in config.json.
+ */
+export const DEFAULT_PROVIDER_MODELS: Record<string, Partial<Record<ModelPurpose, string>>> = {
+  gemini: {
+    chat:             'gemini-2.5-flash',
+    router:           'gemini-2.5-flash-lite',
+    extraction:       'gemini-2.5-flash-lite',
+    generation:       'gemini-2.5-pro',
+    image_generation: 'imagen-3.0-generate-001',  // Imagen 3 via Gemini API
+    transcription:    'gemini-2.5-flash',
+    tts:              'gemini-2.5-flash',
+  },
+  vertex: {
+    chat:             'google/gemini-2.5-flash',
+    router:           'google/gemini-2.5-flash-lite',
+    extraction:       'google/gemini-2.5-flash-lite',
+    generation:       'google/gemini-2.5-pro',
+    image_generation: 'google/imagen-3.0-generate-001',
+    transcription:    'google/gemini-2.5-flash',
+    tts:              'google/gemini-2.5-flash',
+  },
+  openai: {
+    chat:             'gpt-4.1',             // Latest flagship (Mar 2026)
+    router:           'gpt-4.1-mini',        // Fastest + cheapest OpenAI
+    extraction:       'gpt-4.1-mini',
+    generation:       'gpt-4.1',
+    image_generation: 'dall-e-3',            // Still best DALL-E on API
+    transcription:    'whisper-1',           // No newer API equivalent yet
+    tts:              'tts-1-hd',            // Better quality than tts-1
+  },
+  openrouter: {
+    chat:             'google/gemini-2.5-flash',              // Best value on OR
+    router:           'google/gemini-2.5-flash-lite-preview',  // Cheapest fast router
+    extraction:       'google/gemini-2.5-flash-lite-preview',
+    generation:       'anthropic/claude-3-5-haiku',            // Best non-Google quality/cost
+    image_generation: 'openai/dall-e-3',
+    transcription:    'openai/whisper-1',
+    tts:              'openai/tts-1-hd',
+  },
+  ollama: {
+    chat:             'llama3.3',      // Best local model (Dec 2024, 7B equiv quality)
+    router:           'llama3.2:3b',   // Lightest for fast routing
+    extraction:       'llama3.2:3b',
+    generation:       'llama3.3',
+    transcription:    'whisper',
+  },
+};
+
+/** Get the model for a provider+purpose, reading from provider config first, then defaults */
+export function getModelForPurpose(providerId: string, purpose: ModelPurpose, providerModels?: Partial<Record<ModelPurpose, string>>): string | undefined {
+  // 1. Provider's own config (user-editable, stored in config.json)
+  if (providerModels?.[purpose]) return providerModels[purpose];
+  // 2. Default catalog
+  return DEFAULT_PROVIDER_MODELS[providerId]?.[purpose];
+}
+
+/**
+ * Purpose-based model routing configuration.
+ * Maps each ModelPurpose to a provider ID from llmProviders[].
+ * Unset purposes fallback to the default provider.
+ */
+export type ModelRouting = Partial<Record<ModelPurpose, string>>;
 
 export interface AgentConfig {
   /** Ollama / OpenAI API base URL (derived from active provider) */
@@ -119,6 +214,8 @@ export interface AgentConfig {
   llmProviders: LLMProviderConfig[];
   /** ID of the active/default LLM provider */
   defaultLlmProviderId: string;
+  /** Purpose-based model routing — maps each call type to a provider ID */
+  modelRouting: ModelRouting;
   /** Owner's name — used to identify the owner in conversations */
   ownerName: string;
   /** Owner's phone number (e.g. +971569737344) — used to route approval requests */
@@ -196,6 +293,7 @@ export const DEFAULT_AGENT_CONFIG: AgentConfig = {
   llmApiKey: DEFAULT_LLM_PROVIDER.apiKey,
   llmProviders: [DEFAULT_LLM_PROVIDER],
   defaultLlmProviderId: DEFAULT_LLM_PROVIDER_ID,
+  modelRouting: {},  // Empty = all purposes use the default provider
   ownerName: '',
   ownerPhone: '',
   systemPrompt: `You are Ubot, a personal AI assistant. You help users automate tasks through WhatsApp and other messaging platforms.
@@ -251,12 +349,19 @@ Use cli_delete_module to clean up failed or unwanted custom modules.
 
 {{tools}}
 
+## Action Completion — MANDATORY
+These rules are NON-NEGOTIABLE. Every action must produce a visible outcome:
+- **NEVER narrate intentions**. Do NOT say "Let me fetch/check/look up..." as a standalone response. If you need to fetch, check, or look up something, CALL THE TOOL in this same turn. The user must see the RESULT, not your plan.
+- **Every turn must be complete**. Do NOT split work across turns. Complete ALL actions in a SINGLE turn. If you call a tool, include its results in your response.
+- **No empty promises**. If you cannot complete an action (tool missing, error, timeout), say so explicitly and clearly. NEVER promise to do something "later" or "next" — there is no later.
+- **Tool failures must be reported**. If a tool call fails, tell the user what went wrong. Do NOT silently move on.
+- **Show actual data**. After using tools, share the actual output/data. NEVER respond with vague summaries like "I completed the requested actions" or "Done".
+
 Rules:
 - Use tools when the user's request requires an action
 - Be concise and helpful — avoid asking unnecessary follow-up questions
 - If a tool fails, explain the error and suggest alternatives
 - If you don't know something, say so honestly
-- **ALWAYS SHOW RESULTS**: After using tools, share the actual output/data with the user. NEVER respond with vague summaries like "I completed the requested actions" or "Done". The user needs to see what happened — show statuses, values, outputs, and results from every tool call.
 - **Prefer dedicated tools over CLI**: For WhatsApp/Telegram status, use get_connection_status. For sending messages, use send_message. For contacts, use get_contacts. NEVER use cli_run or exec to do things that dedicated tools already handle.
 - **Bias towards action**: When the owner gives a clear instruction ("send him a reminder", "tell him X", "block my calendar"), execute it immediately. Do NOT ask for confirmation, rewording, or clarification on obvious requests. Only confirm if the action is ambiguous, irreversible, or could cause real harm.
 - When sending messages on behalf of the owner, compose a natural message yourself based on context. Don't ask "what should I say?" unless the intent is genuinely unclear.
@@ -281,30 +386,30 @@ You are the owner's personal secretary. Handle most conversations autonomously, 
 
 **IMPORTANT**: When escalating, you MUST call the ask_owner tool function. Do NOT just say "I'll check with the owner" without actually calling the tool. The tool creates the approval request that the owner can respond to.
 
-## Conversation Continuity — EVERY conversation MUST reach closure
-You have follow-up tools to ensure no conversation is left hanging. This is critical for being a reliable assistant.
+## Conversation Continuity — Follow-ups (USE SPARINGLY)
+You have follow-up tools for conversations that CANNOT be completed in a single turn. Use them carefully.
 
 ### When to use schedule_followup:
-- **After ask_owner**: ALWAYS schedule a follow-up when you escalate to the owner. The visitor is waiting for a response.
-- **Unresolved requests**: If you can't fully resolve a visitor's question right now, schedule a follow-up to check back.
-- **Promises made**: If you tell someone "I'll get back to you" or "I'll check on that", you MUST back it up with a schedule_followup.
-- **Pending actions**: If an action depends on something happening first (e.g., owner approval, external event), schedule a follow-up.
+- **After ask_owner**: Schedule a follow-up ONLY when you escalate to the owner AND the visitor is actively waiting for a response.
+- **Genuine pending actions**: When an action depends on something happening first (e.g., owner approval).
 
-### When to use get_conversation_status:
-- **Returning contacts**: When a contact writes in, check if there are pending follow-ups for them. Address unfinished business first.
-- **Before closing**: Before ending a complex conversation, check status to ensure nothing is missed.
+### When NOT to use schedule_followup:
+- **Normal conversations** — most conversations do NOT need follow-ups. Complete them in the current turn.
+- **Owner conversations** — NEVER schedule follow-ups for the owner talking to you directly.
+- **When you're inside a follow-up session** — NEVER create new follow-ups from within a follow-up. This causes infinite loops.
+- **Vague promises** — Don't say "I'll check" and schedule a follow-up. Instead, CHECK NOW using tools.
+- **Already resolved** — If you just answered the question, don't schedule a follow-up "just in case".
 
 ### When to use complete_followup:
-- **Issue resolved**: When the reason for a follow-up no longer exists (owner responded, question answered, etc.)
-- **Contact returns**: If a contact writes back and the pending issue is resolved in the new conversation.
+- When the reason for a follow-up no longer exists (owner responded, question answered, etc.)
+- When a contact writes back and the pending issue is resolved.
 
 ### Rules:
-- NEVER let a conversation die without either resolving it OR scheduling a follow-up.
-- NEVER say "I'll check with the owner" without BOTH calling ask_owner AND scheduling a follow-up.
-- When a follow-up fires and you're composing a message, be natural — don't say "this is an automated follow-up".
-- Treat pending follow-ups as your to-do list. They represent your commitments.`,
+- **Prefer resolution over follow-ups.** Try to resolve everything in the current turn FIRST.
+- **Maximum 1 follow-up per conversation.** Never schedule multiple follow-ups for the same visitor interaction.
+- When a follow-up fires, be natural — don't say "this is an automated follow-up".`,
   maxHistoryMessages: 50,
-  maxToolIterations: 6,
+  maxToolIterations: 10,
   temperature: 0.7,
   maxTokens: 2048,
   ownerTelegramId: '',

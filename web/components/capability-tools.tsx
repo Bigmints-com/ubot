@@ -94,7 +94,8 @@ export function CapabilityTools({ capability, modules }: CapabilityToolsProps) {
   const [enabled, setEnabled] = useState(true);
   const [toggling, setToggling] = useState(false);
 
-  const targetModules = modules || CAPABILITY_MODULES[capability] || [];
+  // Fallback to the capability string itself for dynamically loaded custom modules
+  const targetModules = modules || CAPABILITY_MODULES[capability] || [capability];
 
   const loadTools = useCallback(async () => {
     setLoading(true);
@@ -105,7 +106,8 @@ export function CapabilityTools({ capability, modules }: CapabilityToolsProps) {
       // Filter to only tools belonging to this capability's modules
       const filtered = all.filter((t) => {
         if (capability === "mcp") return t.module.startsWith("mcp:");
-        return targetModules.includes(t.module);
+        // Check exact match or custom:<module> syntax
+        return targetModules.includes(t.module) || targetModules.includes(t.module.replace('custom:', ''));
       });
 
       setTools(filtered);
