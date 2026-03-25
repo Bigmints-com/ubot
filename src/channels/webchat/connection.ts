@@ -49,6 +49,8 @@ export class WebchatConnection {
   private pollAbortController: AbortController | null = null;
   private running = false;
   private _reconnectAttempts = 0;
+  /** Track message IDs currently being processed to avoid re-dispatching */
+  private inFlightMessageIds = new Set<string>();
 
   constructor(config: WebchatConfig) {
     this.config = config;
@@ -103,6 +105,8 @@ export class WebchatConnection {
 
   /** Send a response for a pending message back to the relay */
   async respond(messageId: string, response: string): Promise<void> {
+    // Remove from in-flight set so it won't be re-delivered
+    this.inFlightMessageIds.delete(messageId);
     const url = `${this.config.relayUrl}/api/bot/reply`;
     try {
       const res = await fetch(url, {
@@ -162,9 +166,15 @@ export class WebchatConnection {
         const data = await res.json() as { messages?: WebchatMessage[] };
         if (data.messages && data.messages.length > 0) {
           for (const msg of data.messages) {
+            // Skip messages already being processed (prevents re-delivery while LLM is running)
+            if (this.inFlightMessageIds.has(msg.id)) continue;
+            this.inFlightMessageIds.add(msg.id);
             console.log(`[Webchat] 📩 session=${msg.session} name=${msg.name} body="${msg.message.slice(0, 60)}"`);
             this.emit('message.received', msg);
           }
+        } else {
+          // No messages — small delay before next poll to avoid tight loop
+          await new Promise(r => setTimeout(r, 500));
         }
 
         // Reset reconnect counter on success
