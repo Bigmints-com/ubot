@@ -23,6 +23,8 @@ import { getAllToolsWithModules } from '../tools/registry.js';
 import { loadAgentDefinitions } from './agent-loader.js';
 import { metricsCollector } from '../metrics/index.js';
 import { log } from '../logger/ring-buffer.js';
+import { MiddlewarePipeline } from './middleware.js';
+import { LoggingMiddleware } from './middlewares/logging-middleware.js';
 import { logCapability } from '../capabilities/cli/capability-log.js';
 import { LoopDetector } from './loop-detector.js';
 import { getVertexAccessToken } from './vertex-auth.js';
@@ -147,6 +149,8 @@ export function createAgentOrchestrator(
 ): AgentOrchestrator {
   let currentConfig = { ...config };
   const toolRegistry = createToolRegistry();
+  const middlewarePipeline = new MiddlewarePipeline();
+  middlewarePipeline.use(new LoggingMiddleware());
   
   // Register core orchestrator tools
   toolRegistry.register('list_agents', async () => {
@@ -930,7 +934,18 @@ export function createAgentOrchestrator(
           }
 
           const argsPreview = JSON.stringify(toolCall.arguments).slice(0, 200);
-          log.info('Agent', `Executing: ${resolvedToolName}(${argsPreview})`);
+          
+          const middlewareCtx = {
+            messages: messages.map(m => ({ role: m.role, content: m.content as string })),
+            toolName: resolvedToolName,
+            toolArgs: toolCall.arguments,
+            toolCallId: toolCall.id,
+            sessionId,
+            iteration,
+            maxIterations: currentConfig.maxToolIterations
+          };
+
+          await middlewarePipeline.runBeforeTool(middlewareCtx);
 
           // Circuit breaker check — skip execution if tool group is opened
           const circuitBreaker = getCircuitBreaker();
@@ -945,6 +960,8 @@ export function createAgentOrchestrator(
             log.warn('Agent', `⚡ ${resolvedToolName} blocked by circuit breaker`);
             const rawToolContent = `❌ TOOL FAILED: ${toolCall.toolName}\nError: ${circuitError}\nIMPORTANT: This tool call FAILED — do NOT tell the user it succeeded. Report the actual error.`;
             messages.push({ role: 'tool', tool_call_id: toolCall.id, content: rawToolContent } as ChatMsg);
+            
+            await middlewarePipeline.runAfterTool(middlewareCtx, cbResult);
             continue;
           }
 
@@ -984,13 +1001,7 @@ export function createAgentOrchestrator(
             circuitBreaker.recordFailure(resolvedToolName, result.error || 'unknown');
           }
 
-          // Concise structured log
-          const dur = result.duration ?? 0;
-          if (result.success) {
-            log.info('Agent', `✓ ${resolvedToolName} (${dur}ms)`);
-          } else {
-            log.error('Agent', `✗ ${resolvedToolName} (${dur}ms): ${result.error}`);
-          }
+          await middlewarePipeline.runAfterTool(middlewareCtx, result);
 
           // Add tool result as a "tool" role message (OpenAI format)
           const rawToolContent = result.success
@@ -1044,15 +1055,7 @@ export function createAgentOrchestrator(
       }
 
       // ── Turn summary ──────────────────────────────────────
-      if (toolResults.length > 0) {
-        const succeeded = toolResults.filter(t => t.success).length;
-        const failed = toolResults.filter(t => !t.success).length;
-        log.info('Agent', `Turn complete: ${iteration} iterations, ${toolResults.length} tool calls (${succeeded} ✓, ${failed} ✗)`);
-        if (failed > 0) {
-          const failures = toolResults.filter(t => !t.success).map(t => `${t.toolName}: ${t.error}`);
-          log.warn('Agent', `Failed tools: ${failures.join('; ')}`);
-        }
-      }
+      await middlewarePipeline.runAfterTurn({ iterations: iteration, toolResults, sessionId });
 
       // Sanitize: strip any "[Used tools: ...]" the LLM may have mimicked from history
       finalContent = finalContent.replace(/\n?\[Used tools?:.*?\]/gi, '').trimEnd();
