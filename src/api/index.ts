@@ -1072,6 +1072,14 @@ async function registerAgentTools(agent: AgentOrchestrator): Promise<void> {
     registry,
   );
   mcpManager.connectAll().catch(err => console.error('[MCP] connectAll failed:', err));
+
+  // Start Chrome CDP health monitor if Playwright is configured
+  const hasPlaywright = mcpManager.getServers().some(s => s.name === 'playwright');
+  if (hasPlaywright) {
+    import('../capabilities/mcp/health-monitor.js').then(({ startHealthMonitor }) => {
+      startHealthMonitor(60_000); // check every 60 seconds
+    }).catch(() => {}); // silently ignore if module not available
+  }
 }
 
 // ─── Build API Context ───────────────────────────────────
