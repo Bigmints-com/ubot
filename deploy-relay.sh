@@ -76,9 +76,9 @@ gcloud run deploy "$SERVICE_NAME" \
   --set-env-vars "BOT_SECRET=$BOT_SECRET" \
   --memory 256Mi \
   --cpu 1 \
-  --min-instances 0 \
+  --min-instances 1 \
   --max-instances 2 \
-  --timeout 60 \
+  --timeout 300 \
   --port 8080
 
 # ── Get URL ───────────────────────────────────────────────────────────────
