@@ -24,23 +24,11 @@ import { loadAgentDefinitions } from './agent-loader.js';
 import { metricsCollector } from '../metrics/index.js';
 import { log } from '../logger/ring-buffer.js';
 import { MiddlewarePipeline } from './middleware.js';
-import { LoggingMiddleware } from './middlewares/logging-middleware.js';
+import { RetryMiddleware, CircuitBreakerMiddleware, LoggingMiddleware } from './middlewares/index.js';
 import { logCapability } from '../capabilities/cli/capability-log.js';
 import { LoopDetector } from './loop-detector.js';
 import { getVertexAccessToken } from './vertex-auth.js';
 import { getMetering } from './metering.js';
-import { getCircuitBreaker } from './circuit-breaker.js';
-
-/** Check if a tool error is transient (worth retrying) vs permanent */
-function isTransientError(error: string): boolean {
-  const transientPatterns = [
-    'timeout', 'timed out', 'ETIMEDOUT', 'ECONNREFUSED', 'ECONNRESET',
-    'ENETUNREACH', 'EHOSTUNREACH', '-32001', 'network', 'socket hang up',
-    'EPIPE', 'EAI_AGAIN', 'fetch failed', 'aborted',
-  ];
-  const lower = error.toLowerCase();
-  return transientPatterns.some(p => lower.includes(p.toLowerCase()));
-}
 
 /**
  * Find recent outbound messages sent TO a specific contact by the owner.
@@ -149,8 +137,6 @@ export function createAgentOrchestrator(
 ): AgentOrchestrator {
   let currentConfig = { ...config };
   const toolRegistry = createToolRegistry();
-  const middlewarePipeline = new MiddlewarePipeline();
-  middlewarePipeline.use(new LoggingMiddleware());
   
   // Register core orchestrator tools
   toolRegistry.register('list_agents', async () => {
@@ -708,6 +694,12 @@ export function createAgentOrchestrator(
     ): Promise<AgentResponse> {
       const startTime = Date.now();
       const toolResults: ToolExecutionResult[] = [];
+      const pipeline = new MiddlewarePipeline()
+        .use(new LoggingMiddleware())
+        .use(new CircuitBreakerMiddleware())
+        .use(new RetryMiddleware(async (name, args) => 
+          toolRegistry.execute({ toolName: name, arguments: args, rawText: '' })
+        ));
 
       // Track incoming message
       metricsCollector.recordMessage(source || 'web', 'in');
@@ -933,8 +925,6 @@ export function createAgentOrchestrator(
             log.info('ToolRouter', `Alias: ${toolCall.toolName} → ${resolvedToolName}`);
           }
 
-          const argsPreview = JSON.stringify(toolCall.arguments).slice(0, 200);
-          
           const middlewareCtx = {
             messages: messages.map(m => ({ role: m.role, content: m.content as string })),
             toolName: resolvedToolName,
@@ -945,71 +935,31 @@ export function createAgentOrchestrator(
             maxIterations: currentConfig.maxToolIterations
           };
 
-          await middlewarePipeline.runBeforeTool(middlewareCtx);
+          const beforeResult = await pipeline.runBeforeTool(middlewareCtx);
+          let result: ToolExecutionResult;
 
-          // Circuit breaker check — skip execution if tool group is opened
-          const circuitBreaker = getCircuitBreaker();
-          const circuitError = circuitBreaker.isOpen(resolvedToolName);
-          if (circuitError) {
-            const cbResult: ToolExecutionResult = {
-              toolName: resolvedToolName, success: false,
-              error: circuitError, duration: 0,
-            };
-            toolResults.push(cbResult);
-            metricsCollector.recordTool(toolCall.toolName, false);
-            log.warn('Agent', `⚡ ${resolvedToolName} blocked by circuit breaker`);
-            const rawToolContent = `❌ TOOL FAILED: ${toolCall.toolName}\nError: ${circuitError}\nIMPORTANT: This tool call FAILED — do NOT tell the user it succeeded. Report the actual error.`;
-            messages.push({ role: 'tool', tool_call_id: toolCall.id, content: rawToolContent } as ChatMsg);
-            
-            await middlewarePipeline.runAfterTool(middlewareCtx, cbResult);
-            continue;
-          }
+          if (beforeResult?.skipExecution) {
+            result = beforeResult.skipExecution;
+          } else {
+            result = await toolRegistry.execute({
+              toolName: resolvedToolName,
+              arguments: toolCall.arguments,
+              rawText: '',
+            });
 
-          // Execute with auto-retry for transient failures
-          let result = await toolRegistry.execute({
-            toolName: resolvedToolName,
-            arguments: toolCall.arguments,
-            rawText: '',
-          });
-
-          // Retry transient failures with exponential backoff (2s, 4s)
-          if (!result.success && isTransientError(result.error || '')) {
-            const MAX_RETRIES = 2;
-            for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-              const backoff = Math.pow(2, attempt) * 1000; // 2s, 4s
-              log.warn('Agent', `Retrying ${resolvedToolName} (attempt ${attempt}/${MAX_RETRIES}): ${result.error}`);
-              await new Promise(r => setTimeout(r, backoff));
-              result = await toolRegistry.execute({
-                toolName: resolvedToolName,
-                arguments: toolCall.arguments,
-                rawText: '',
-              });
-              if (result.success) {
-                log.info('Agent', `Retry succeeded for ${resolvedToolName} on attempt ${attempt}`);
-                break;
-              }
+            const afterResult = await pipeline.runAfterTool(middlewareCtx, result);
+            if (afterResult?.skipExecution) {
+              result = afterResult.skipExecution;
             }
           }
 
           toolResults.push(result);
-
-          // Track tool usage + circuit breaker
           metricsCollector.recordTool(toolCall.toolName, result.success);
-          if (result.success) {
-            circuitBreaker.recordSuccess(resolvedToolName);
-          } else {
-            circuitBreaker.recordFailure(resolvedToolName, result.error || 'unknown');
-          }
-
-          await middlewarePipeline.runAfterTool(middlewareCtx, result);
 
           // Add tool result as a "tool" role message (OpenAI format)
           const rawToolContent = result.success
             ? (result.result || 'Completed (no details returned).')
             : `❌ TOOL FAILED: ${toolCall.toolName}\nError: ${result.error}\nIMPORTANT: This tool call FAILED — do NOT tell the user it succeeded. Report the actual error.`;
-          if (!result.success) {
-            log.error('Agent', `Tool failed: ${toolCall.toolName} — ${result.error}`);
-          }
 
           // ── Token guard: truncate large tool results ──────────────
           // browser_snapshot returns full DOM accessibility trees (10k+ tokens).
@@ -1055,7 +1005,7 @@ export function createAgentOrchestrator(
       }
 
       // ── Turn summary ──────────────────────────────────────
-      await middlewarePipeline.runAfterTurn({ iterations: iteration, toolResults, sessionId });
+      await pipeline.runAfterTurn({ iterations: iteration, toolResults, sessionId });
 
       // Sanitize: strip any "[Used tools: ...]" the LLM may have mimicked from history
       finalContent = finalContent.replace(/\n?\[Used tools?:.*?\]/gi, '').trimEnd();
