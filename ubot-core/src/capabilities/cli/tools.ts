@@ -70,9 +70,9 @@ const CLI_TOOLS: ToolDefinition[] = [
   },
   {
     name: 'cli_triage',
-    description: 'ALWAYS call this BEFORE cli_run. Evaluates whether a capability request is feasible, checks if existing tools already handle it, and routes to the right track (skill pipeline vs custom tool vs reject). Returns a verdict with reasoning.',
+    description: 'ONLY use this when the user explicitly asks to BUILD or ADD a new capability/tool/integration that does not yet exist. Do NOT call this for tasks you can already perform with existing tools (web browsing, email, calendar, messaging, etc). Call this BEFORE cli_run to evaluate feasibility.',
     parameters: [
-      { name: 'request', type: 'string', description: 'The capability request to evaluate (e.g. "add weather checking", "auto-reply to emails")', required: true },
+      { name: 'request', type: 'string', description: 'The NEW capability to build (e.g. "add weather checking tool", "build a crypto price tracker")', required: true },
     ],
   },
   {

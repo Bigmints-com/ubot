@@ -45,12 +45,18 @@ cd /Users/pretheesh/Projects/ubot && npm run build --prefix ubot-core
 rsync -az /Users/pretheesh/Projects/ubot/ubot-core/dist/ ubot-server:/root/.ubot/lib/
 ```
 
-3. Sync config and credentials (if changed):
+3. Sync credentials only — **DO NOT sync config.json to remote**:
    // turbo
 
 ```bash
-rsync -az ~/.ubot/config.json ~/.ubot/vertex-credentials.json ubot-server:/root/.ubot/
+rsync -az ~/.ubot/vertex-credentials.json ubot-server:/root/.ubot/
 ```
+
+> **⚠️ WARNING — Config drift is intentional:**
+> The remote `config.json` has `--cdp-endpoint http://localhost:9222` in the Playwright MCP args
+> (to connect to the persistent headless Chrome on the server), and `server.port: 11490`.
+> The local config uses a different port and no CDP endpoint.
+> **Never overwrite remote config.json with the local one** or Playwright will break (sandboxing error).
 
 4. Restart on remote:
    // turbo

@@ -14,7 +14,7 @@ const SKILLS_TOOLS: ToolDefinition[] = [
   },
   {
     name: 'create_skill',
-    description: 'Create a new skill (automated pipeline). Each skill has: TRIGGER (what event activates it), PROCESSOR (instructions or multi-stage pipeline), OUTCOME (what to do with the result). For simple skills, provide instructions. For multi-stage pipelines, provide stages as JSON.',
+    description: 'Create a RECURRING automation that triggers automatically on events. ONLY use this when the user explicitly asks for something that should happen AUTOMATICALLY in the future (e.g. "whenever someone messages...", "every morning...", "when I get an email from X..."). NEVER use this for one-off tasks like "post this article" or "send this email" — for those, use the appropriate tools directly (browser, gmail, etc).',
     parameters: [
       { name: 'name', type: 'string', description: 'Skill name', required: true },
       { name: 'description', type: 'string', description: 'What the skill does', required: true },

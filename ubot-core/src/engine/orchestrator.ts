@@ -935,6 +935,8 @@ export function createAgentOrchestrator(
           if (!result.success) {
             log.error('Agent', `Tool failed: ${toolCall.toolName} — ${result.error}`);
           }
+          // Log tool result for debugging (first 1000 chars)
+          log.info('Agent', `Tool result [${resolvedToolName}]: success=${result.success}, ${rawToolContent.slice(0, 1000)}`);
 
           // ── Token guard: truncate large tool results ──────────────
           // browser_snapshot returns full DOM accessibility trees (10k+ tokens).
@@ -1014,21 +1016,37 @@ export function createAgentOrchestrator(
 
     async generate(systemPrompt: string, userMessage: string): Promise<string> {
       const { client, model: genModel } = await getClientForPurpose('generation');
+      // Vertex rejects empty string content — use a space as placeholder
+      const safeUserMessage = userMessage || ' ';
       try {
         const completion = await client.chat.completions.create({
           model: genModel,
           messages: [
             { role: 'system', content: systemPrompt },
-            { role: 'user', content: userMessage },
+            { role: 'user', content: safeUserMessage },
           ],
           temperature: currentConfig.temperature,
           max_tokens: currentConfig.maxTokens,
-          // No tools — pure text generation
         });
         return completion.choices[0]?.message?.content || '';
       } catch (err: any) {
-        log.error('Agent', `Generate call failed [generation/${genModel}]: ${err.message}`);
-        throw new Error(`LLM generate failed: ${err.message}`);
+        log.error('Agent', `Generate call failed [generation/${genModel}]: ${err.message} — falling back to chat model`);
+        try {
+          const { client: fallbackClient, model: fallbackModel } = await getClientForPurpose('chat');
+          const fallback = await fallbackClient.chat.completions.create({
+            model: fallbackModel,
+            messages: [
+              { role: 'system', content: systemPrompt },
+              { role: 'user', content: safeUserMessage },
+            ],
+            temperature: currentConfig.temperature,
+            max_tokens: currentConfig.maxTokens,
+          });
+          return fallback.choices[0]?.message?.content || '';
+        } catch (fallbackErr: any) {
+          log.error('Agent', `Generate fallback also failed [chat]: ${fallbackErr.message}`);
+          throw new Error(`LLM generate failed: ${err.message}`);
+        }
       }
     },
 
