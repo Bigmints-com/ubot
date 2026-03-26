@@ -2,14 +2,10 @@
 name: Group Reply (Contacts)
 description: Reply to messages from specific trusted contacts in WhatsApp groups
 triggers: [whatsapp:message]
-filter_groups_only: true
-filter_contacts:
-  # Add the phone numbers (without +) of contacts you want to respond to in groups
-  # Example: ["971501234567", "971509876543"]
-  []
 condition: the message is a genuine question, request, or statement directed at or relevant to the owner — not casual banter or conversation between other group members
+filter_groups_only: true
 outcome: reply
-enabled: false
+enabled: true
 ---
 
 # Group Reply — Specific Contacts
@@ -20,7 +16,7 @@ Reply to messages from trusted contacts in WhatsApp groups.
 1. Add phone numbers to `filter_contacts` in the frontmatter above (without the + prefix)
 2. Set `enabled: true`
 
-Without `filter_contacts` populated, this skill fires for every group message from everyone.
+Without `filter_contacts` populated, this skill fires for every group message from everyone — which is almost certainly not what you want.
 
 ## Start with context
 

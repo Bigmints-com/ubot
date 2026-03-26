@@ -628,6 +628,13 @@ function setupWebchatHandlers(conn: WebchatConnection): void {
     if (msg.audio) extra.hasMedia = true;
     if (msg.image) extra.hasMedia = true;
 
+    // Send typing keepalive every 20s to prevent relay from timing out
+    // during long agentic tasks (Playwright browsing, web search, etc.)
+    let replied = false;
+    const typingInterval = setInterval(() => {
+      if (!replied) conn.sendTyping(msg.id).catch(() => {});
+    }, 20000);
+
     const unified: UnifiedMessage = {
       channel: 'webchat',
       senderId: msg.session,
@@ -635,6 +642,8 @@ function setupWebchatHandlers(conn: WebchatConnection): void {
       body: msg.message || (msg.audio ? '[Voice message]' : '') || (msg.image ? '[Image]' : ''),
       timestamp: new Date(),
       replyFn: async (text: string) => {
+        replied = true;
+        clearInterval(typingInterval);
         // Send response back to relay
         await conn.respond(msg.id, text);
       },
@@ -651,8 +660,14 @@ function setupWebchatHandlers(conn: WebchatConnection): void {
       relayMessage: relayApprovalResponse,
     };
 
-    await handleIncomingMessage(unified, deps);
+    try {
+      await handleIncomingMessage(unified, deps);
+    } finally {
+      replied = true;
+      clearInterval(typingInterval);
+    }
   });
+
 
   conn.on('error', (err) => {
     webchatError = err.message;

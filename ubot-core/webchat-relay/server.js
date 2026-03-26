@@ -25,7 +25,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 
-const VERSION = '1.1.0'; // Force rebuild
+const VERSION = '1.2.0'; // Extended timeout + typing indicators
 const crypto = require('crypto');
 
 const PORT = process.env.PORT || 8080;
@@ -231,7 +231,7 @@ async function handleRequest(req, res) {
       const timer = setTimeout(() => {
         pendingMessages.delete(messageId);
         resolve({ response: "I'm taking a bit longer than usual. Please try again in a moment.", timeout: true });
-      }, 45000); // 45s timeout
+      }, 180000); // 180s timeout — agentic tasks (Playwright, web browsing) can take 2+ min
 
       pendingMessages.set(messageId, {
         id: messageId,
@@ -332,6 +332,40 @@ async function handleRequest(req, res) {
     return;
   }
 
+  // UBOT sends a typing indicator to reset the pending message timer
+  // and keep the visitor connection alive during long agentic tasks.
+  if (pathname === '/api/bot/typing' && method === 'POST') {
+    if (!validateBotSecret(req)) {
+      jsonResponse(res, { error: 'Invalid bot secret' }, 401);
+      return;
+    }
+
+    const body = await parseBody(req);
+    const messageId = body.messageId;
+
+    if (!messageId) {
+      jsonResponse(res, { error: 'messageId is required' }, 400);
+      return;
+    }
+
+    const pending = pendingMessages.get(messageId);
+    if (!pending) {
+      // Already replied or timed out — not an error
+      jsonResponse(res, { ok: true, status: 'already_resolved' });
+      return;
+    }
+
+    // Reset the timeout to give another 120s for complex tasks
+    clearTimeout(pending.timer);
+    pending.timer = setTimeout(() => {
+      pendingMessages.delete(messageId);
+      pending.resolve({ response: "I'm still working on this. Please check back in a moment.", timeout: true });
+    }, 120000);
+
+    jsonResponse(res, { ok: true });
+    return;
+  }
+
   // UBOT sends response for a pending message
   if (pathname === '/api/bot/reply' && method === 'POST') {
     if (!validateBotSecret(req)) {
@@ -383,6 +417,7 @@ async function handleRequest(req, res) {
   if (pathname === '/health') {
     jsonResponse(res, {
       status: 'ok',
+      version: VERSION,
       pending: pendingMessages.size,
       sessions: conversationHistory.size,
     });

@@ -127,6 +127,28 @@ export class WebchatConnection {
     }
   }
 
+  /**
+   * Send a typing indicator for a pending message.
+   * This resets the relay's 120s hold timer so the visitor doesn't
+   * see a timeout while a long agentic task is still running.
+   */
+  async sendTyping(messageId: string): Promise<void> {
+    const url = `${this.config.relayUrl}/api/bot/typing`;
+    try {
+      await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Bot-Secret': this.config.botSecret || '',
+        },
+        body: JSON.stringify({ messageId }),
+        signal: AbortSignal.timeout(5000),
+      });
+    } catch {
+      // Non-fatal — typing indicators are best-effort
+    }
+  }
+
   /** Push widget config to the relay */
   async pushConfig(config: { title?: string; color?: string; welcomeMessage?: string; avatarUrl?: string }): Promise<void> {
     const url = `${this.config.relayUrl}/api/bot/config`;

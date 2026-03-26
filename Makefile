@@ -147,6 +147,8 @@ _do_install:
 			([ -d "$$ADDON_DIR/mac-x64" ] && [ ! -e "$$ADDON_DIR/darwin-x64" ] && ln -sf mac-x64 "$$ADDON_DIR/darwin-x64") || true; \
 		fi; \
 	fi
+	@# Rebuild native modules for the current Node.js version (prevents ERR_DLOPEN_FAILED)
+	@cd $(UBOT_HOME) && npm rebuild 2>/dev/null || true
 	@echo "   Installed dependencies to $(UBOT_HOME)/node_modules/"
 
 	@# Copy static web UI (clean copy)
