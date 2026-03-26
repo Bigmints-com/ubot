@@ -759,7 +759,9 @@ export function createAgentOrchestrator(
       if (ownerFlag && !skillContext) {
         // Skill-driven messages need full tool access (skills are automations)
         try {
-          const client = createLLMClient();
+          // Use getClientForPurpose('router') so Vertex AI gets a fresh OAuth2 token.
+          // createLLMClient() uses the static llmApiKey which is empty for Vertex → 401.
+          const { client: chatClient, model: chatModel } = await getClientForPurpose('router');
           const toolsWithModules = await getAllToolsWithModules();
           // Include MCP tools under a synthetic module name
           let mcpToolDefs: Array<{ module: string; tool: ToolDefinition }> = [];
@@ -778,24 +780,41 @@ export function createAgentOrchestrator(
 
           const allWithModules = [...toolsWithModules, ...mcpToolDefs];
 
-          // Use purpose-based routing for the router model if configured
+          // Use purpose-based routing for the router model if configured.
+          // Default: pass chatClient as the routerOverride so Vertex tokens are always used.
+          // This prevents the tool selector from falling back to createLLMClient() which
+          // uses a static/empty API key and causes 401 errors with Vertex AI.
+          let routerOverride: { client: OpenAI; model: string } = { client: chatClient, model: chatModel };
           const routerRouting = currentConfig.modelRouting?.router;
-          let routerOverride: { client: OpenAI; model: string } | undefined;
           if (routerRouting) {
             const { client: rClient, model: rModel } = await getClientForPurpose('router');
             routerOverride = { client: rClient, model: rModel };
           }
 
           const selection = await selectToolsForMessage(
-            client,
-            currentConfig.llmModel,
+            chatClient,
+            chatModel,
             message,
             allWithModules.map(t => ({ module: t.module, tool: t.tool })),
             ownerFlag,
-            currentConfig.llmBaseUrl,
+            undefined, // don't pass llmBaseUrl — we already handle auth via routerOverride
             routerOverride,
           );
           selectedTools = selection.tools;
+
+          // Meter Phase 1 (tool selection) separately so usage dashboard shows 'router' cost
+          try {
+            const meter = getMetering();
+            if (meter && !selection.skipped) {
+              // Estimate: compact catalog (~300 tokens) + message (~50) + response (~50) = ~400 prompt, 50 completion
+              const catalogTokens = Math.round(JSON.stringify(allWithModules.map(t => t.module)).length / 4);
+              meter.record(routerOverride.model, 'router', 'vertex', catalogTokens + 100, 50);
+            }
+          } catch { /* metering never blocks */ }
+
+          if (!selection.skipped) {
+            log.info('ToolSelector', `Selected ${selectedTools.length} tools (saved ~${selection.tokensSaved} tokens)`);
+          }
         } catch (err: any) {
           log.warn('ToolSelector', `Phase 1 failed, using all tools: ${err.message}`);
           // selectedTools stays undefined → callLLM will use full set
@@ -910,12 +929,23 @@ export function createAgentOrchestrator(
           metricsCollector.recordTool(toolCall.toolName, result.success);
 
           // Add tool result as a "tool" role message (OpenAI format)
-          const toolResultContent = result.success
+          const rawToolContent = result.success
             ? (result.result || 'Completed (no details returned).')
             : `❌ TOOL FAILED: ${toolCall.toolName}\nError: ${result.error}\nIMPORTANT: This tool call FAILED — do NOT tell the user it succeeded. Report the actual error.`;
           if (!result.success) {
             log.error('Agent', `Tool failed: ${toolCall.toolName} — ${result.error}`);
           }
+
+          // ── Token guard: truncate large tool results ──────────────
+          // browser_snapshot returns full DOM accessibility trees (10k+ tokens).
+          // Other tools (web_fetch, cli) can also return large content.
+          // Cap to prevent context explosion across multi-step agent turns.
+          const isBrowserTool = resolvedToolName.startsWith('mcp_playwright_');
+          const MAX_TOOL_CHARS = isBrowserTool ? 6000 : 3000;
+          const toolResultContent = rawToolContent.length > MAX_TOOL_CHARS
+            ? rawToolContent.slice(0, MAX_TOOL_CHARS) + `\n\n[...truncated ${rawToolContent.length - MAX_TOOL_CHARS} chars to save tokens]`
+            : rawToolContent;
+
           messages.push({
             role: 'tool',
             tool_call_id: toolCall.id,

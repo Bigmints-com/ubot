@@ -34,8 +34,8 @@ export class LoopDetector {
     criticalThreshold?: number;
   }) {
     this.historySize = opts?.historySize ?? 30;
-    this.warningThreshold = opts?.warningThreshold ?? 3;
-    this.criticalThreshold = opts?.criticalThreshold ?? 5;
+    this.warningThreshold = opts?.warningThreshold ?? 2;
+    this.criticalThreshold = opts?.criticalThreshold ?? 3;
   }
 
   /**
@@ -102,6 +102,18 @@ export class LoopDetector {
         reason: `Tool "${last.toolName}" called ${count} times with the same arguments. Stopping to avoid a loop.`,
         severity: 'warning',
       };
+    }
+
+    // Special case: browser_snapshot is expensive (DOM dumps).
+    // If it's been called 2+ times in a row let the LLM know to stop over-snapshotting.
+    if (last.toolName.includes('browser_snapshot') || last.toolName.includes('browser_get_snapshot')) {
+      if (count >= 2) {
+        return {
+          shouldStop: true,
+          reason: `Tool "${last.toolName}" called ${count} times consecutively. Snapshots are expensive — only take one after each user action, not repeatedly.`,
+          severity: 'warning',
+        };
+      }
     }
 
     return { shouldStop: false, reason: '', severity: 'warning' };

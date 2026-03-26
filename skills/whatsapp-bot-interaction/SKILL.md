@@ -38,7 +38,7 @@ Before doing ANYTHING:
 2. **Match intent to menu option** — find the option that matches what the owner asked for
 3. **Send ONLY the selection key** — the letter, number, or exact text the bot expects. NOT the whole label.
 4. **Use `wa_respond_to_bot`** to send the choice
-   - `to`: the sender's JID, phone number, or rawJid from event data. Any format works.
+   - `to`: the sender's JID, phone number, or rawJid from event data. Any format works (e.g. "+97143020600", "97143020600@s.whatsapp.net", etc.)
    - `response`: the EXACT key the bot expects — just the letter or number, NOT the full description
 5. **DO NOT reply as a secretary** — you are interacting WITH the bot, not replying to a human
 6. **DO NOT use send_message** — use `wa_respond_to_bot` instead
@@ -74,11 +74,18 @@ Lab Results, type *R*
 ```
 Type BOOK to book appointment
 Type CANCEL to cancel
+Type HELP for help
 ```
 
 ✅ Send: `wa_respond_to_bot(to=jid, response="BOOK")` — the exact keyword
+❌ Wrong: `wa_respond_to_bot(to=jid, response="book appointment")`
 
 ### Yes/No or Hi prompts
+
+```
+Please type 'Hi' to start
+Type YES to confirm
+```
 
 ✅ Send: `wa_respond_to_bot(to=jid, response="Hi")` or `wa_respond_to_bot(to=jid, response="YES")`
 
@@ -104,7 +111,7 @@ This restarts the bot's menu flow. Once the bot sends its main menu, THEN match 
 
 Bots often have multi-step menus. After selecting the first option, the bot will present more choices. Continue matching the owner's intent through each step:
 
-- If the bot asks for a name → provide the name the owner specified
+- If owner said "book with Dr. Vinod Tamilrahani at 10 AM Monday" and the bot asks for doctor name → type the doctor name
 - If the bot asks for date/time → provide the date/time the owner specified
 - If the bot asks for something you don't know → THEN use ask_owner
 
@@ -114,5 +121,5 @@ Bots often have multi-step menus. After selecting the first option, the bot will
 - **Send the exact key** — "A" not "Book an appointment (A)". "1" not "1. General Consultation".
 - **Don't loop** — if the bot keeps sending the same menu after your response, try a different format or use ask_owner to escalate.
 - **Be exact** — bots are literal. Send exactly what they expect, not variations.
-- **Silent outcome** — this skill uses `wa_respond_to_bot` directly, not the normal reply mechanism.
+- **Silent outcome** — this skill uses `wa_respond_to_bot` directly, the response is NOT sent via the normal reply mechanism.
 - **Never display used tools** — never show tool usage in any output.
