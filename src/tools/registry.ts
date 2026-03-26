@@ -21,11 +21,13 @@ import { getHooks } from '../hooks/extensions.js';
 import messagingTools from '../channels/tools.js';
 import memoryTools from '../memory/tools.js';
 import sessionsTools from '../engine/session-tools.js';
+import todoToolModule from '../engine/todo-tools.js';
 
 const INFRASTRUCTURE_MODULES: ToolModule[] = [
   messagingTools,
   memoryTools,
   sessionsTools,
+  todoToolModule,
 ];
 
 // Directories to scan for plug-and-play modules

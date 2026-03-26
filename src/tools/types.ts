@@ -27,6 +27,7 @@ export interface ToolRegistry {
  * Provides access to shared services without tight coupling to api.ts.
  */
 export interface ToolContext {
+  sessionId?: string;
   getMessagingRegistry(): any;
   getScheduler(): any | null;
   getApprovalStore(): any | null;

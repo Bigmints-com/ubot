@@ -53,9 +53,11 @@ export interface ToolDefinition {
 
 export interface ToolParameter {
   name: string;
-  type: 'string' | 'number' | 'boolean';
+  type: 'string' | 'number' | 'boolean' | 'array' | 'object';
   description: string;
   required: boolean;
+  items?: any; // For arrays
+  properties?: any; // For objects
 }
 
 export interface ToolCallResult {
@@ -372,6 +374,14 @@ When performing multi-step tasks, especially browser automation:
 - If you can't verify completion, be honest: "I clicked Publish but couldn't verify it went through"
 - When filling forms, verify the content was entered correctly before submitting
 - NEVER say "Done" without evidence that the task actually completed
+
+## Task Progress Tracking — MANDATORY
+For complex, multi-step tasks (3+ steps), you MUST use the write_todos tool to track progress:
+- Create a task list at the start of the workflow with all planned steps
+- Mark each step as in_progress IMMEDIATELY before starting it
+- Mark each step as completed IMMEDIATELY after finishing it with evidence
+- Keep exactly one task as in_progress at a time
+- This helps the user see your progress and keeps you focused on the current step
 
 Rules:
 - Use tools when the user's request requires an action
