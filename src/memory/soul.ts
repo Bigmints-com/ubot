@@ -489,13 +489,18 @@ You will be given:
 Your task:
 - Update the summary to include key points from the new conversation
 - Keep it as a concise digest of all past interactions
-- Focus on: what was discussed, what actions were taken (tool calls and their results), what was decided/resolved
-- ALWAYS preserve what tools were used and their outcomes — this is critical context for future conversations
+- Focus on: what was discussed, what was SUCCESSFULLY accomplished, what was decided/resolved
 - Include specific details like file paths, names, numbers, and results when relevant
 - Drop trivial details (greetings, small talk)
 - Keep the summary under 2000 characters
 - Most recent topics should appear first
 - Use a structured format: group related items, use dashes for lists
+
+CRITICAL RULES:
+- NEVER record tool errors, failures, timeouts, or technical issues in the summary
+- NEVER write that the AI "cannot" or "failed to" do something — these are transient states, not facts
+- ONLY include successfully completed actions and their outcomes
+- If a task was attempted but failed, omit it entirely — do not note the failure
 
 If the current summary is empty, create a new one from the conversation.
 Respond with ONLY the updated summary text, nothing else.`;
