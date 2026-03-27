@@ -52,6 +52,7 @@ import { handleToolsRoutes } from './routes/tools.js';
 import { handleCliRoutes } from './routes/cli.js';
 import { handleWebchatRoutes, ensureWebchatToken } from './routes/webchat.js';
 import { handleModulesRoutes } from './routes/modules.js';
+import { getPromptExperiments } from '../engine/prompt-experiment.js';
 import { json, parseBody, error as apiError, type ApiContext } from './context.js';
 
 // Middleware
@@ -1810,9 +1811,44 @@ export async function handleApiRoute(
   if (await handleIntegrationProviderRoutes(req, res, url, method, ctx)) return true;
   if (await handleIntegrationRoutes(req, res, url, method, ctx)) return true;
   if (await handleToolsRoutes(req, res, url, method, ctx)) return true;
+async function handleExperimentRoutes(req: http.IncomingMessage, res: http.ServerResponse, url: string, method: string): Promise<boolean> {
+  const experiments = getPromptExperiments();
+  if (!experiments) return false;
+
+  if (url === '/api/experiments' && method === 'GET') {
+    json(res, experiments.getAllExperiments());
+    return true;
+  }
+
+  if (url === '/api/experiments' && method === 'POST') {
+    const body = await parseBody(req) as any;
+    experiments.createExperiment(body);
+    json(res, { success: true });
+    return true;
+  }
+
+  const resultsMatch = url.match(/^\/api\/experiments\/([^\/]+)\/results$/);
+  if (resultsMatch && method === 'GET') {
+    const id = resultsMatch[1];
+    json(res, experiments.getResults(id));
+    return true;
+  }
+
+  const deactivateMatch = url.match(/^\/api\/experiments\/([^\/]+)\/deactivate$/);
+  if (deactivateMatch && method === 'POST') {
+    const id = deactivateMatch[1];
+    experiments.deactivateExperiment(id);
+    json(res, { success: true });
+    return true;
+  }
+
+  return false;
+}
+
   if (await handleCliRoutes(req, res, url, method, ctx)) return true;
   if (await handleVaultRoutes(req, res, url, method, ctx)) return true;
   if (await handleModulesRoutes(req, res, url, method, ctx)) return true;
+  if (await handleExperimentRoutes(req, res, url, method)) return true;
 
   return false;
 }

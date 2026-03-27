@@ -14,6 +14,7 @@ import { todoMigrations } from './engine/todo-store.js';
 import { asyncJobMigrations } from './api/job-store.js';
 import { spawnedSessionMigrations } from './engine/spawned-session-store.js';
 import { planMigrations } from './engine/plan-store.js';
+import { initPromptExperiments } from './engine/prompt-experiment.js';
 import { initMetering } from './engine/metering.js';
 import { createSoul } from './memory/soul.js';
 import { createAgentOrchestrator } from './engine/orchestrator.js';
@@ -71,6 +72,8 @@ const db = createConnection({
   ],
   autoMigrate: true,
 });
+
+initPromptExperiments(db);
 
 // Initialize LLM usage metering
 initMetering(db);
