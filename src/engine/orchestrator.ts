@@ -36,6 +36,7 @@ import { filterStaleErrors } from './message-filter.js';
 import { runSubagent } from './subagent-runner.js';
 import { createTaskPlan, getExecutionOrder, type TaskPlan, type TaskStep } from './task-planner.js';
 import { saveTaskPlan, updateStepStatus, updatePlanStatus, getTaskPlan } from './plan-store.js';
+import { getPromptExperiments } from './prompt-experiment.js';
 
 /**
  * Find recent outbound messages sent TO a specific contact by the owner.
@@ -886,6 +887,25 @@ export function createAgentOrchestrator(
       // Build the messages array with history (pass isOwner for soul prompt framing)
       let messages = buildMessages(sessionId, message, ownerFlag, attachments);
 
+      // ── Prompt Experiment A/B Testing ───────────────────────
+      const experiments = getPromptExperiments();
+      let activeExperiment = null;
+      let assignedVariant = null;
+      if (experiments) {
+        activeExperiment = experiments.getActiveExperiment();
+        if (activeExperiment) {
+          assignedVariant = experiments.assignVariant(sessionId, activeExperiment);
+          const systemMsg = messages.find(m => m.role === 'system');
+          if (systemMsg) {
+            if (assignedVariant.isPartial) {
+              systemMsg.content += '\n\n' + assignedVariant.promptOverride;
+            } else {
+              systemMsg.content = assignedVariant.promptOverride;
+            }
+          }
+        }
+      }
+
       // If skill context is provided, inject it as a system directive right before the user message.
       // This keeps skill instructions out of conversation history while giving the LLM context.
       if (skillContext) {
@@ -1216,12 +1236,27 @@ export function createAgentOrchestrator(
         console.error('[Soul] Background extraction failed:', err.message);
       });
 
+      const duration = Date.now() - startTime;
+
+      // ── Record Experiment Results ─────────────────────────
+      if (experiments && activeExperiment && assignedVariant) {
+        experiments.recordResult({
+          experimentId: activeExperiment.id,
+          variantId: assignedVariant.id,
+          sessionId,
+          toolCalls: toolResults.length,
+          toolSuccesses: toolResults.filter(r => r.success).length,
+          toolFailures: toolResults.filter(r => !r.success).length,
+          responseTimeMs: duration
+        });
+      }
+
       return {
         content: finalContent,
         toolCalls: toolResults,
         usage: lastUsage,
         model: lastModel,
-        duration: Date.now() - startTime,
+        duration,
         attachments,
       };
     },
