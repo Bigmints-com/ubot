@@ -1036,6 +1036,7 @@ async function registerAgentTools(agent: AgentOrchestrator): Promise<void> {
   const registry = agent.getToolRegistry();
 
   const toolContext = {
+    getDatabase: () => coreDb,
     getMessagingRegistry: () => messagingRegistry,
     getScheduler: () => scheduler,
     getApprovalStore: () => approvalStore,
@@ -1657,18 +1658,41 @@ export async function handleApiRoute(
 
   // ── Health check (unauthenticated) ─────────────────────
   if (url === '/api/health' && method === 'GET') {
-    const uptime = process.uptime();
-    json(res, {
+    const { getHealthStatus } = await import('../capabilities/mcp/health-monitor.js');
+    const { getAllToolDefinitions } = await import('../tools/registry.js');
+    
+    const cdpHealth = getHealthStatus();
+    const toolDefs = await getAllToolDefinitions().catch(() => []);
+    const mem = process.memoryUsage();
+    
+    const health = {
       status: 'ok',
-      uptime: Math.floor(uptime),
-      version: '1.0.0',
+      server: {
+        uptime: Math.floor(process.uptime()),
+        version: '1.0.0',
+        pid: process.pid,
+      },
+      cdp: cdpHealth,
+      mcp: {
+        connected: mcpManager ? mcpManager.getServers().filter(s => s.status === 'connected').length : 0,
+        total: mcpManager ? mcpManager.getServers().length : 0,
+      },
+      memory: {
+        rss: mem.rss,
+        heapUsed: mem.heapUsed,
+        heapTotal: mem.heapTotal,
+      },
       channels: {
         whatsapp: waStatus,
         telegram: tgStatus,
       },
-      llm: agentOrchestrator ? 'online' : 'offline',
-      tools: agentOrchestrator ? (() => { try { const { getAllToolDefinitions } = require('../tools/registry.js'); return getAllToolDefinitions().length; } catch { return 0; } })() : 0,
-    });
+      tools: {
+        registered: toolDefs.length,
+      }
+    };
+
+    const isHealthy = !!agentOrchestrator;
+    json(res, health, isHealthy ? 200 : 503);
     return true;
   }
 

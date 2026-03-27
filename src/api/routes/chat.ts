@@ -8,6 +8,8 @@ import { getProcessingSessions } from '../../engine/handler.js';
 
 // ─── Async Job Store ──────────────────────────────────────
 // Tracks async chat jobs so API clients can poll for results
+// NOTE: These are currently in-memory and lost on restart.
+// For Phase 2 persistence, these could be moved to SQLite, but they are short-lived (5 min TTL).
 const asyncJobs = new Map<string, {
   status: 'processing' | 'completed' | 'failed';
   sessionId: string;
