@@ -72,7 +72,10 @@ export function requiresAuth(method: string, url: string): boolean {
 }
 
 /**
- * Authenticate a request by checking the Authorization header.
+ * Authenticate a request by checking:
+ * 1. Authorization: Bearer <key> header (for API consumers)
+ * 2. ubot_session cookie (for dashboard users)
+ * 
  * Returns the auth result with client identity if valid.
  */
 export function authenticate(req: http.IncomingMessage): AuthResult {
@@ -83,27 +86,52 @@ export function authenticate(req: http.IncomingMessage): AuthResult {
     return { authenticated: true, clientName: 'default (no keys configured)' };
   }
 
+  // Method 1: Bearer token (API consumers)
   const authHeader = req.headers['authorization'];
-  if (!authHeader) {
-    return { authenticated: false, error: 'Missing Authorization header. Add api.keys to config.json or send Bearer token.' };
+  if (authHeader) {
+    const parts = authHeader.split(' ');
+    if (parts.length !== 2 || parts[0].toLowerCase() !== 'bearer') {
+      return { authenticated: false, error: 'Invalid Authorization format. Expected: Bearer <key>' };
+    }
+
+    const token = parts[1];
+    const matched = keys.find(k => k.key === token);
+    if (!matched) {
+      return { authenticated: false, error: 'Invalid API key' };
+    }
+
+    return {
+      authenticated: true,
+      clientName: matched.name,
+      scopes: matched.scopes,
+    };
   }
 
-  const parts = authHeader.split(' ');
-  if (parts.length !== 2 || parts[0].toLowerCase() !== 'bearer') {
-    return { authenticated: false, error: 'Invalid Authorization format. Expected: Bearer <key>' };
+  // Method 2: Session cookie (dashboard users)
+  // The session cookie is set by the login endpoint in index.ts
+  const cookies = req.headers.cookie || '';
+  const sessionMatch = cookies.split(';').map(c => c.trim()).find(c => c.startsWith('ubot_session='));
+  if (sessionMatch) {
+    const sessionToken = sessionMatch.split('=')[1];
+    if (sessionToken && validateSessionToken) {
+      const valid = validateSessionToken(sessionToken);
+      if (valid) {
+        return { authenticated: true, clientName: 'Dashboard Session' };
+      }
+    }
   }
 
-  const token = parts[1];
-  const matched = keys.find(k => k.key === token);
-  if (!matched) {
-    return { authenticated: false, error: 'Invalid API key' };
-  }
+  return { authenticated: false, error: 'Missing Authorization header. Add api.keys to config.json or send Bearer token.' };
+}
 
-  return {
-    authenticated: true,
-    clientName: matched.name,
-    scopes: matched.scopes,
-  };
+/**
+ * Session validation function — injected by index.ts at startup
+ * to avoid circular dependency (session store lives in index.ts).
+ */
+let validateSessionToken: ((token: string) => boolean) | null = null;
+
+export function setSessionValidator(fn: (token: string) => boolean): void {
+  validateSessionToken = fn;
 }
 
 /**
