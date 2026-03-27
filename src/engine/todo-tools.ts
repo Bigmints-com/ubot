@@ -37,13 +37,25 @@ const todoToolModule: ToolModule = {
   register(registry: ToolRegistry, ctx: ToolContext) {
     registry.register('write_todos', async (args) => {
       const sessionId = ctx.sessionId || 'default';
-      const todos = args.todos as Array<{ id?: string; task: string; status: string }>;
       
-      if (!Array.isArray(todos)) {
+      // Defensively extract todos — LLM may send as string, direct array, or nested
+      let todos: Array<{ id?: string; task: string; status: string }> | undefined;
+      
+      if (Array.isArray(args.todos)) {
+        todos = args.todos;
+      } else if (typeof args.todos === 'string') {
+        try { todos = JSON.parse(args.todos); } catch { /* ignore */ }
+      } else if (Array.isArray(args)) {
+        todos = args as any;
+      }
+      
+      console.log(`[write_todos] args keys: ${Object.keys(args).join(',')}, todos type: ${typeof args.todos}, isArray: ${Array.isArray(todos)}`);
+      
+      if (!Array.isArray(todos) || todos.length === 0) {
         return {
           toolName: 'write_todos',
           success: false,
-          error: 'Missing or invalid "todos" parameter',
+          error: `Missing or invalid "todos" parameter. Received keys: ${Object.keys(args).join(',')}. Pass an array of {task, status} objects.`,
           duration: 0,
         };
       }
