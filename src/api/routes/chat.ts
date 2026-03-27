@@ -6,6 +6,17 @@ import type { LLMProviderConfig, Attachment } from '../../engine/types.js';
 import { parseBody, parseLargeBody, json, notFound, error, type ApiContext } from '../context.js';
 import { getProcessingSessions } from '../../engine/handler.js';
 
+// ─── Async Job Store ──────────────────────────────────────
+// Tracks async chat jobs so API clients can poll for results
+const asyncJobs = new Map<string, {
+  status: 'processing' | 'completed' | 'failed';
+  sessionId: string;
+  result?: any;
+  error?: string;
+  startedAt: number;
+  completedAt?: number;
+}>();
+
 export async function handleChatRoutes(
   req: http.IncomingMessage,
   res: http.ServerResponse,
@@ -13,6 +24,25 @@ export async function handleChatRoutes(
   method: string,
   ctx: ApiContext,
 ): Promise<boolean> {
+
+  // ── Poll async job result ─────────────────────────────────
+  if (url.startsWith('/api/chat/job/') && method === 'GET') {
+    const jobId = url.replace('/api/chat/job/', '').split('?')[0];
+    const job = asyncJobs.get(jobId);
+    if (!job) {
+      error(res, 'Job not found', 404);
+      return true;
+    }
+    json(res, {
+      jobId,
+      status: job.status,
+      sessionId: job.sessionId,
+      result: job.result,
+      error: job.error,
+      elapsed: job.completedAt ? job.completedAt - job.startedAt : Date.now() - job.startedAt,
+    });
+    return true;
+  }
 
   // ── Chat / Agent ────────────────────────────────────────
 
@@ -113,10 +143,63 @@ export async function handleChatRoutes(
       if (attachments.length === 0) attachments = undefined;
     }
 
+    // Async mode: return immediately with jobId, poll /api/chat/job/:id for results
+    if (body.async) {
+      const jobId = crypto.randomUUID();
+      asyncJobs.set(jobId, { status: 'processing', sessionId, startedAt: Date.now() });
+
+      // Fire and forget
+      ctx.agentOrchestrator.chat(
+        sessionId, message, 'web', undefined, undefined, attachments
+      ).then((response) => {
+        asyncJobs.set(jobId, { status: 'completed', sessionId, result: response, startedAt: asyncJobs.get(jobId)?.startedAt || Date.now(), completedAt: Date.now() });
+
+        // Auto-name thread (same as sync path)
+        try {
+          const store = ctx.agentOrchestrator!.getConversationStore();
+          const sessions = store.listSessions();
+          const session = sessions.find((s: any) => s.id === sessionId);
+          if (session && /^(Thread \d+|New Thread|General)$/i.test(session.name)) {
+            let autoName = message.trim().replace(/\n.*/s, '');
+            if (autoName.length > 40) autoName = autoName.slice(0, 40).replace(/\s\S*$/, '') + '…';
+            if (autoName.length > 3) store.renameSession(sessionId, autoName);
+          }
+        } catch { /* best-effort */ }
+
+        // Clean up after 5 minutes
+        setTimeout(() => asyncJobs.delete(jobId), 5 * 60 * 1000);
+      }).catch((e: any) => {
+        asyncJobs.set(jobId, { status: 'failed', sessionId, error: e.message, startedAt: asyncJobs.get(jobId)?.startedAt || Date.now(), completedAt: Date.now() });
+        setTimeout(() => asyncJobs.delete(jobId), 5 * 60 * 1000);
+      });
+
+      json(res, { jobId, status: 'processing', sessionId }, 202);
+      return true;
+    }
+
+    // Sync mode (default): wait for completion
     try {
       const response = await ctx.agentOrchestrator.chat(
         sessionId, message, 'web', undefined, undefined, attachments
       );
+
+      // Auto-name thread from first message if it has a generic name
+      try {
+        const store = ctx.agentOrchestrator.getConversationStore();
+        const sessions = store.listSessions();
+        const session = sessions.find((s: any) => s.id === sessionId);
+        if (session && /^(Thread \d+|New Thread|General)$/i.test(session.name)) {
+          // Generate name from first message (first 40 chars, trimmed at word boundary)
+          let autoName = message.trim().replace(/\n.*/s, ''); // first line only
+          if (autoName.length > 40) {
+            autoName = autoName.slice(0, 40).replace(/\s\S*$/, '') + '…';
+          }
+          if (autoName.length > 3) {
+            store.renameSession(sessionId, autoName);
+          }
+        }
+      } catch { /* auto-naming is best-effort */ }
+
       json(res, response);
     } catch (e: any) {
       console.error('[API] Chat error:', e);
