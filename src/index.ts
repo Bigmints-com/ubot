@@ -11,6 +11,8 @@ import { createConversationStore, conversationMigrations } from './memory/conver
 import { createMemoryStore, memoryMigrations } from './memory/memory-store.js';
 import { createFollowUpStore, followUpMigrations } from './memory/followups.js';
 import { todoMigrations } from './engine/todo-store.js';
+import { asyncJobMigrations } from './api/job-store.js';
+import { spawnedSessionMigrations } from './engine/spawned-session-store.js';
 import { initMetering } from './engine/metering.js';
 import { createSoul } from './memory/soul.js';
 import { createAgentOrchestrator } from './engine/orchestrator.js';
@@ -56,12 +58,15 @@ if (!fs.existsSync(dataDir)) {
 
 const db = createConnection({
   config: createDefaultConfig(dbPath),
-  migrations: [...defaultMigrations, ...conversationMigrations, ...memoryMigrations, ...followUpMigrations, ...todoMigrations],
+  migrations: [...defaultMigrations, ...conversationMigrations, ...memoryMigrations, ...followUpMigrations, ...todoMigrations, ...asyncJobMigrations, ...spawnedSessionMigrations],
   autoMigrate: true,
 });
 
 // Initialize LLM usage metering
 initMetering(db);
+
+// Initialize persistent tool metrics
+metricsCollector.setDatabase(db as any);
 
 // Initialize agent — read LLM config from config.json
 const WORKSPACE_PATH = UBOT_HOME 
@@ -182,11 +187,17 @@ function clearSessionCookie(res: http.ServerResponse): void {
 }
 
 async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
-  appState.requestCount++;
-  
   const url = req.url || '/';
   const method = req.method || 'GET';
 
+  // Security: prevent directory traversal
+  if (url.includes('..')) {
+    res.writeHead(403, { 'Content-Type': 'text/plain' });
+    res.end('Forbidden');
+    return;
+  }
+
+  appState.requestCount++;
   // ── Extension middleware hook — runs before all routing ──
   const hooks = getHooks();
   if (hooks.middleware?.onRequest) {
@@ -374,13 +385,6 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
 
   // ── Production: serve static files (Next.js static export) ─────────
   let filePath = url === '/' ? '/index.html' : url;
-  
-  // Security: prevent directory traversal
-  if (filePath.includes('..')) {
-    res.writeHead(403, { 'Content-Type': 'text/plain' });
-    res.end('Forbidden');
-    return;
-  }
   
   // Try exact path, then .html suffix, then /index.html (Next.js static export routes)
   let file = await serveStatic(filePath);

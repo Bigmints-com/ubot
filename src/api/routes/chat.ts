@@ -6,18 +6,7 @@ import type { LLMProviderConfig, Attachment } from '../../engine/types.js';
 import { parseBody, parseLargeBody, json, notFound, error, type ApiContext } from '../context.js';
 import { getProcessingSessions } from '../../engine/handler.js';
 
-// ─── Async Job Store ──────────────────────────────────────
-// Tracks async chat jobs so API clients can poll for results
-// NOTE: These are currently in-memory and lost on restart.
-// For Phase 2 persistence, these could be moved to SQLite, but they are short-lived (5 min TTL).
-const asyncJobs = new Map<string, {
-  status: 'processing' | 'completed' | 'failed';
-  sessionId: string;
-  result?: any;
-  error?: string;
-  startedAt: number;
-  completedAt?: number;
-}>();
+// Async jobs are now persisted via ctx.asyncJobStore (Phase 2)
 
 export async function handleChatRoutes(
   req: http.IncomingMessage,
@@ -30,7 +19,7 @@ export async function handleChatRoutes(
   // ── Poll async job result ─────────────────────────────────
   if (url.startsWith('/api/chat/job/') && method === 'GET') {
     const jobId = url.replace('/api/chat/job/', '').split('?')[0];
-    const job = asyncJobs.get(jobId);
+    const job = ctx.asyncJobStore?.get(jobId);
     if (!job) {
       error(res, 'Job not found', 404);
       return true;
@@ -147,14 +136,25 @@ export async function handleChatRoutes(
 
     // Async mode: return immediately with jobId, poll /api/chat/job/:id for results
     if (body.async) {
+      if (!ctx.asyncJobStore) {
+        error(res, 'Async job persistence not available', 500);
+        return true;
+      }
       const jobId = crypto.randomUUID();
-      asyncJobs.set(jobId, { status: 'processing', sessionId, startedAt: Date.now() });
+      ctx.asyncJobStore.create(jobId, sessionId);
+      
+      // Periodic cleanup (keep last 24 hours of jobs)
+      ctx.asyncJobStore.cleanup(24 * 60 * 60 * 1000);
 
       // Fire and forget
       ctx.agentOrchestrator.chat(
         sessionId, message, 'web', undefined, undefined, attachments
       ).then((response) => {
-        asyncJobs.set(jobId, { status: 'completed', sessionId, result: response, startedAt: asyncJobs.get(jobId)?.startedAt || Date.now(), completedAt: Date.now() });
+        ctx.asyncJobStore?.update(jobId, { 
+          status: 'completed', 
+          result: response, 
+          completedAt: Date.now() 
+        });
 
         // Auto-name thread (same as sync path)
         try {
@@ -167,12 +167,12 @@ export async function handleChatRoutes(
             if (autoName.length > 3) store.renameSession(sessionId, autoName);
           }
         } catch { /* best-effort */ }
-
-        // Clean up after 5 minutes
-        setTimeout(() => asyncJobs.delete(jobId), 5 * 60 * 1000);
       }).catch((e: any) => {
-        asyncJobs.set(jobId, { status: 'failed', sessionId, error: e.message, startedAt: asyncJobs.get(jobId)?.startedAt || Date.now(), completedAt: Date.now() });
-        setTimeout(() => asyncJobs.delete(jobId), 5 * 60 * 1000);
+        ctx.asyncJobStore?.update(jobId, { 
+          status: 'failed', 
+          error: e.message, 
+          completedAt: Date.now() 
+        });
       });
 
       json(res, { jobId, status: 'processing', sessionId }, 202);

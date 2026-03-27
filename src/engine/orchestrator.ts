@@ -33,6 +33,8 @@ import { LoopDetector } from './loop-detector.js';
 import { getVertexAccessToken } from './vertex-auth.js';
 import { getMetering } from './metering.js';
 import { filterStaleErrors } from './message-filter.js';
+import { runSubagent } from './subagent-runner.js';
+import { createTaskPlan, getExecutionOrder } from './task-planner.js';
 
 /**
  * Find recent outbound messages sent TO a specific contact by the owner.
@@ -107,7 +109,7 @@ function findRecentOutboundMessages(
 
 export interface AgentOrchestrator {
   /** Process a message and return the agent's response */
-  chat(sessionId: string, message: string, source?: 'web' | 'whatsapp' | 'telegram' | 'webchat', contactName?: string, isOwner?: boolean, attachments?: Attachment[], skillContext?: string): Promise<AgentResponse>;
+  chat(sessionId: string, message: string, source?: 'web' | 'whatsapp' | 'telegram' | 'webchat' | 'sub-agent', contactName?: string, isOwner?: boolean, attachments?: Attachment[], skillContext?: string): Promise<AgentResponse>;
   /** Direct LLM text generation (no tools) — for skill generation, etc. */
   generate(systemPrompt: string, userMessage: string): Promise<string>;
   /** Get the current config */
@@ -145,6 +147,9 @@ export function createAgentOrchestrator(
   const toolRegistry = createToolRegistry();
   const continuationCount = new Map<string, number>();
   
+  // Forward-declare orchestrator for tool closure capture
+  const orchestrator = {} as AgentOrchestrator;
+  
   // Register core orchestrator tools
   toolRegistry.register('list_agents', async () => {
     const list = Array.from(agents.values());
@@ -171,6 +176,96 @@ export function createAgentOrchestrator(
     sessionAgents.set(sessionId, agentId);
     const agent = agents.get(agentId)!;
     return { toolName: 'switch_agent', success: true, result: `Successfully switched to ${agent.name}. Instructions updated.`, duration: 0 };
+  });
+
+  toolRegistry.register('delegate_to_agent', async (args, context) => {
+    const agentId = String(args.agentId || '');
+    const task = String(args.task || '');
+    const timeoutSeconds = Number(args.timeoutSeconds || 120);
+    
+    if (!agentId) return { toolName: 'delegate_to_agent', success: false, error: 'agentId is required', duration: 0 };
+    if (!task) return { toolName: 'delegate_to_agent', success: false, error: 'task is required', duration: 0 };
+    
+    const agentDef = agents.get(agentId);
+    if (!agentDef) {
+      const available = Array.from(agents.keys()).join(', ');
+      return { toolName: 'delegate_to_agent', success: false, error: `Agent "${agentId}" not found. Available: ${available}`, duration: 0 };
+    }
+    
+    const subConfig = {
+      name: agentDef.name,
+      systemPrompt: agentDef.systemPrompt,
+      allowedTools: agentDef.allowedTools,
+      timeoutMs: timeoutSeconds * 1000,
+    };
+    
+    const orchestratorInterface = {
+      chat: (sid: string, msg: string, spo?: string) => 
+        orchestrator.chat(sid, msg, 'sub-agent', context?.contactName, context?.isOwner, undefined, spo)
+    };
+    
+    const result = await runSubagent(subConfig, task, orchestratorInterface);
+    
+    if (result.status === 'completed') {
+      return { toolName: 'delegate_to_agent', success: true, result: `Agent '${agentDef.name}' completed: ${result.result}`, duration: 0 };
+    } else {
+      return { toolName: 'delegate_to_agent', success: false, error: `Agent '${agentDef.name}' failed: ${result.error}`, duration: 0 };
+    }
+  });
+
+  toolRegistry.register('execute_plan', async (args, context) => {
+    const request = String(args.request || '');
+    if (!request) return { toolName: 'execute_plan', success: false, error: 'request is required', duration: 0 };
+    
+    const availableAgentTypes = [...Array.from(agents.keys()), 'general'];
+    
+    const plan = await createTaskPlan(request, availableAgentTypes, (sys, user) => orchestrator.generate(sys, user));
+    
+    const steps = plan.steps;
+    const executionOrder = getExecutionOrder(steps);
+    const stepResults = new Map<string, string>();
+    
+    for (const group of executionOrder) {
+      await Promise.all(group.map(async (step) => {
+        // Inject results from previous steps
+        let prompt = step.prompt || step.description;
+        for (const [id, res] of stepResults.entries()) {
+          prompt = prompt.replace(new RegExp(`\\{${id}.result\\}`, 'g'), res);
+        }
+        
+        const agentDef = agents.get(step.agentType);
+        const subConfig = agentDef ? {
+          name: agentDef.name,
+          systemPrompt: agentDef.systemPrompt,
+          allowedTools: agentDef.allowedTools,
+          timeoutMs: 120000,
+        } : {
+          name: 'General',
+          timeoutMs: 120000,
+        };
+        
+        const orchestratorInterface = {
+          chat: (sid: string, msg: string, spo?: string) => 
+            orchestrator.chat(sid, msg, 'sub-agent', context?.contactName, context?.isOwner, undefined, spo)
+        };
+        
+        step.status = 'running';
+        const result = await runSubagent(subConfig, prompt, orchestratorInterface);
+        
+        if (result.status === 'completed') {
+          step.status = 'completed';
+          step.result = result.result;
+          stepResults.set(step.id, result.result || '');
+        } else {
+          step.status = 'failed';
+          step.error = result.error;
+          throw new Error(`Step ${step.id} failed: ${result.error}`);
+        }
+      }));
+    }
+    
+    const summary = plan.steps.map(s => `- ${s.description}: ${s.status === 'completed' ? 'Success' : `Failed (${s.error})`}`).join('\n');
+    return { toolName: 'execute_plan', success: true, result: `Plan executed:\n${summary}`, duration: 0 };
   });
   
   // Multi-agent state
@@ -698,7 +793,7 @@ export function createAgentOrchestrator(
     }
   }
 
-  return {
+  Object.assign(orchestrator, {
     async chat(
       sessionId: string,
       message: string,
@@ -720,7 +815,7 @@ export function createAgentOrchestrator(
         .use(new LoggingMiddleware())
         .use(new CircuitBreakerMiddleware())
         .use(new RetryMiddleware(async (name, args) => 
-          toolRegistry.execute({ toolName: name, arguments: args, rawText: '' })
+          toolRegistry.execute({ toolName: name, arguments: args, rawText: '' }, { sessionId, isOwner: ownerFlag, contactName, source })
         ));
 
       // Track incoming message
@@ -885,7 +980,7 @@ export function createAgentOrchestrator(
               rawText: '',
             });
             toolResults.push(triageResult);
-            metricsCollector.recordTool('cli_triage', triageResult.success);
+            metricsCollector.recordTool('cli_triage', triageResult.success, triageResult.duration, sessionId);
 
             if (triageResult.success && triageResult.result) {
               // Re-inject triage result and let LLM reconsider
@@ -976,7 +1071,7 @@ export function createAgentOrchestrator(
           }
 
           toolResults.push(result);
-          metricsCollector.recordTool(toolCall.toolName, result.success);
+          metricsCollector.recordTool(toolCall.toolName, result.success, result.duration, sessionId);
 
           // Add tool result as a "tool" role message (OpenAI format)
           const rawToolContent = result.success
@@ -1212,5 +1307,7 @@ export function createAgentOrchestrator(
         console.error(`[Orchestrator] Error writing agent file ${filePath}:`, err.message);
       }
     },
-  };
+  });
+
+  return orchestrator;
 }

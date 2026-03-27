@@ -24,6 +24,22 @@ export const CORE_ORCHESTRATOR_TOOLS: ToolDefinition[] = [
       { name: 'sessionId', type: 'string', description: 'The unique ID of the current conversation session.', required: true },
     ],
   },
+  {
+    name: 'delegate_to_agent',
+    description: 'Delegate a specific task to a specialized agent specialist.',
+    parameters: [
+      { name: 'agentId', type: 'string', description: 'The ID of the specialized agent (researcher, writer, browser-operator, publisher, coder).', required: true },
+      { name: 'task', type: 'string', description: 'The detailed task description for the agent.', required: true },
+      { name: 'timeoutSeconds', type: 'number', description: 'Optional timeout for the task in seconds (default 120).', required: false },
+    ],
+  },
+  {
+    name: 'execute_plan',
+    description: 'Decompose a complex multi-step request into a plan and execute it using specialized agents.',
+    parameters: [
+      { name: 'request', type: 'string', description: 'The complex multi-step request to execute.', required: true },
+    ],
+  },
 ];
 
 /** All available tool definitions — dynamically loaded from auto-discovered modules */
@@ -194,13 +210,13 @@ export function extractTextContent(text: string): string {
 }
 
 /** Tool executor type */
-export type ToolExecutor = (args: Record<string, unknown>) => Promise<ToolExecutionResult>;
+export type ToolExecutor = (args: Record<string, unknown>, context?: any) => Promise<ToolExecutionResult>;
 
 /** Registry of tool executors */
 export interface ToolRegistry {
   register(toolName: string, executor: ToolExecutor): void;
   unregister(toolName: string): boolean;
-  execute(toolCall: ToolCallResult): Promise<ToolExecutionResult>;
+  execute(toolCall: ToolCallResult, context?: any): Promise<ToolExecutionResult>;
   has(toolName: string): boolean;
 }
 
@@ -212,7 +228,7 @@ export function createToolRegistry(): ToolRegistry {
       executors.set(toolName, executor);
     },
 
-    async execute(toolCall: ToolCallResult): Promise<ToolExecutionResult> {
+    async execute(toolCall: ToolCallResult, context?: any): Promise<ToolExecutionResult> {
       const start = Date.now();
       const executor = executors.get(toolCall.toolName);
       
@@ -226,7 +242,7 @@ export function createToolRegistry(): ToolRegistry {
       }
 
       try {
-        const result = await executor(toolCall.arguments);
+        const result = await executor(toolCall.arguments, context);
         return {
           ...result,
           duration: Date.now() - start,

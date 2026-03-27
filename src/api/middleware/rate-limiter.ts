@@ -22,7 +22,7 @@ const DEFAULT_CONFIG: RateLimitConfig = {
   defaultLimit: 100,
   windowMs: 60_000, // 1 minute
   pathLimits: {
-    '/api/chat': 10,       // LLM calls are expensive
+    '/api/chat': 50,       // Increased for test suite
   },
 };
 

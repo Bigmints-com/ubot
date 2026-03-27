@@ -19,11 +19,15 @@ import type { SafetyConfig, SafetyRule } from '../agents/safety/types.js';
 import type { DatabaseConnection as CoreDatabaseConnection } from '../data/database/types.js';
 import type { McpServerManager } from '../capabilities/mcp/mcp-manager.js';
 import type { SkillRepository } from '../agents/skills/skill-repository.js';
+import type { AsyncJobStore } from './job-store.js';
+import type { SpawnedSessionStore } from '../engine/spawned-session-store.js';
 
 export interface ApiContext {
   // Core
   agentOrchestrator: AgentOrchestrator | null;
   coreDb: CoreDatabaseConnection | null;
+  asyncJobStore: AsyncJobStore | null;
+  spawnedSessionStore: SpawnedSessionStore | null;
 
   // Channels
   waConnection: WhatsAppConnection | null;
