@@ -24,10 +24,12 @@ import { formatToolsForAPI, createToolRegistry, getToolsForSource, getToolAliase
 import { selectToolsForMessage } from './tool-selector.js';
 import { getAllToolsWithModules } from '../tools/registry.js';
 import { loadAgentDefinitions } from './agent-loader.js';
+import type { SkillRepository } from '../agents/skills/skill-repository.js';
+import type { SkillEngine } from '../agents/skills/skill-engine.js';
 import { metricsCollector } from '../metrics/index.js';
 import { log } from '../logger/ring-buffer.js';
 import { MiddlewarePipeline } from './middleware.js';
-import { RetryMiddleware, CircuitBreakerMiddleware, LoggingMiddleware } from './middlewares/index.js';
+import { RetryMiddleware, CircuitBreakerMiddleware, LoggingMiddleware, SkillDetectorMiddleware } from './middlewares/index.js';
 import { logCapability } from '../capabilities/cli/capability-log.js';
 import { LoopDetector } from './loop-detector.js';
 import { getVertexAccessToken } from './vertex-auth.js';
@@ -146,6 +148,8 @@ export function createAgentOrchestrator(
   soul: Soul,
   db?: DatabaseConnection,
   workspacePath?: string,
+  skillRepo?: SkillRepository,
+  skillEngine?: SkillEngine,
 ): AgentOrchestrator {
   let currentConfig = { ...config };
   const toolRegistry = createToolRegistry();
@@ -305,13 +309,58 @@ export function createAgentOrchestrator(
     
     const result = await runPlan(plan, context);
     return { toolName: 'execute_plan', success: !result.includes('failed'), result, duration: 0 };
-  });
-  
-  // Multi-agent state
-  const agents = new Map<string, AgentDefinition>();
-  const sessionAgents = new Map<string, string>(); // sessionId -> agentId
+    });
 
-  // Load specialized agents from workspace
+    toolRegistry.register('save_suggested_skill', async (args, context) => {
+    const sessionId = context?.sessionId || 'default';
+    const suggestion = SkillDetectorMiddleware.getPendingSuggestion(sessionId);
+
+    if (!suggestion) {
+      return { toolName: 'save_suggested_skill', success: false, error: 'No suggested skill found for this session.', duration: 0 };
+    }
+
+    const repo = (context as any).skillRepo as any;
+    if (!repo) {
+      return { toolName: 'save_suggested_skill', success: false, error: 'Skill repository not available.', duration: 0 };
+    }
+
+    const name = String(args.name || suggestion.name);
+    const description = String(args.description || suggestion.description);
+
+    try {
+      const skill = repo.create({
+        name,
+        description,
+        enabled: true,
+        trigger: {
+          events: ['manual:run'], // Can be triggered manually or via other means
+          condition: ''
+        },
+        processor: {
+          instructions: suggestion.suggestedPrompt
+        },
+        outcome: {
+          action: 'reply'
+        }
+      });
+
+      SkillDetectorMiddleware.clearSuggestion(sessionId);
+      return { 
+        toolName: 'save_suggested_skill', 
+        success: true, 
+        result: `Successfully saved skill: ${skill.name} (ID: ${skill.id})`, 
+        duration: 0 
+      };
+    } catch (err: any) {
+      return { toolName: 'save_suggested_skill', success: false, error: `Failed to save skill: ${err.message}`, duration: 0 };
+    }
+    });
+
+    // Multi-agent state
+    const agents = new Map<string, AgentDefinition>();
+    const sessionAgents = new Map<string, string>(); // sessionId -> agentId
+
+    // Load specialized agents from workspace
   if (workspacePath) {
     const loadedAgents = loadAgentDefinitions(workspacePath);
     for (const agent of loadedAgents) {
@@ -420,6 +469,21 @@ export function createAgentOrchestrator(
     
     // Build system prompt with soul data (bot persona + owner + contact)
     let systemPrompt = buildSystemPrompt(activeAgentId);
+    
+    // Check for pending skill suggestions
+    const suggestion = SkillDetectorMiddleware.getPendingSuggestion(sessionId);
+    if (suggestion) {
+      systemPrompt += `\n\n## SKILL SUGGESTION
+You just completed a successful complex workflow. You can offer the user to save it as a reusable skill.
+Suggested Name: ${suggestion.name}
+Description: ${suggestion.description}
+Workflow: ${suggestion.toolSequence.join(' -> ')}
+
+If the user wants to save this, you can use the 'save_suggested_skill' tool. 
+Inform the user about this possibility if it's relevant to the current conversation.`;
+      SkillDetectorMiddleware.markAsShown(sessionId);
+    }
+
     const soulPrompt = soul.buildSoulPrompt(sessionId, isOwner);
     if (soulPrompt) {
       systemPrompt += '\n\n' + soulPrompt;
@@ -853,6 +917,7 @@ export function createAgentOrchestrator(
       const pipeline = new MiddlewarePipeline()
         .use(new LoggingMiddleware())
         .use(new CircuitBreakerMiddleware())
+        .use(new SkillDetectorMiddleware())
         .use(new RetryMiddleware(async (name, args) => 
           toolRegistry.execute({ toolName: name, arguments: args, rawText: '' }, { sessionId, isOwner: ownerFlag, contactName, source })
         ));
@@ -1110,6 +1175,17 @@ export function createAgentOrchestrator(
             maxIterations: currentConfig.maxToolIterations
           };
 
+          const toolContext = {
+            sessionId,
+            isOwner: ownerFlag,
+            contactName,
+            source,
+            getDatabase: () => db,
+            getAgent: () => orchestrator,
+            skillRepo,
+            skillEngine
+          };
+
           const beforeResult = await pipeline.runBeforeTool(middlewareCtx);
           let result: ToolExecutionResult;
 
@@ -1120,7 +1196,7 @@ export function createAgentOrchestrator(
               toolName: resolvedToolName,
               arguments: toolCall.arguments,
               rawText: '',
-            });
+            }, toolContext);
 
             const afterResult = await pipeline.runAfterTool(middlewareCtx, result);
             if (afterResult?.skipExecution) {

@@ -93,6 +93,9 @@ const soul = createSoul(memoryStore, WORKSPACE_PATH);
 
 // Initial sync of soul documents to filesystem
 soul.syncToFilesystem();
+// Initialize API first to get skillRepo/skillEngine
+const { skillRepo, skillEngine } = initializeApi(db as any, undefined, WORKSPACE_PATH, followUpStore);
+
 const agent = createAgentOrchestrator(
   {
     ...DEFAULT_AGENT_CONFIG,
@@ -106,14 +109,16 @@ const agent = createAgentOrchestrator(
   soul,
   db as any,
   WORKSPACE_PATH,
+  skillRepo as any,
+  skillEngine as any,
 );
+
+// Re-initialize API with the agent now that it's created
+initializeApi(db as any, agent, WORKSPACE_PATH, followUpStore);
 
 // Initialize integrations from config.json
 const serperCfg = ubotConfig.capabilities?.search?.providers?.serper;
 setSerperApiKey(serperCfg?.enabled !== false ? (serperCfg?.apiKey as string || null) : null);
-
-// Initialize API with agent
-initializeApi(db as any, agent, WORKSPACE_PATH, followUpStore);
 
 // MIME types for static file serving
 const MIME_TYPES: Record<string, string> = {
