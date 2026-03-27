@@ -13,6 +13,7 @@ import { createFollowUpStore, followUpMigrations } from './memory/followups.js';
 import { todoMigrations } from './engine/todo-store.js';
 import { asyncJobMigrations } from './api/job-store.js';
 import { spawnedSessionMigrations } from './engine/spawned-session-store.js';
+import { planMigrations } from './engine/plan-store.js';
 import { initMetering } from './engine/metering.js';
 import { createSoul } from './memory/soul.js';
 import { createAgentOrchestrator } from './engine/orchestrator.js';
@@ -58,7 +59,16 @@ if (!fs.existsSync(dataDir)) {
 
 const db = createConnection({
   config: createDefaultConfig(dbPath),
-  migrations: [...defaultMigrations, ...conversationMigrations, ...memoryMigrations, ...followUpMigrations, ...todoMigrations, ...asyncJobMigrations, ...spawnedSessionMigrations],
+  migrations: [
+    ...defaultMigrations, 
+    ...conversationMigrations, 
+    ...memoryMigrations, 
+    ...followUpMigrations, 
+    ...todoMigrations, 
+    ...asyncJobMigrations, 
+    ...spawnedSessionMigrations,
+    ...planMigrations
+  ],
   autoMigrate: true,
 });
 
@@ -499,6 +509,11 @@ if (process.env.NODE_ENV !== 'test' && !process.env.VITEST) {
       console.log(`📊 Health check: http://localhost:${PORT}/health`);
       console.log(`📈 State API: http://localhost:${PORT}/api/state`);
       console.log(`[UBOT] Mode: ${MODE.toUpperCase()} | Features: WA=${FEATURES.whatsapp} TG=${FEATURES.telegram} FS=${FEATURES.filesystem} CLI=${FEATURES.cli}`);
+      
+      // Resume active plans in the background
+      agent?.resumeActivePlans().catch((err: any) => {
+        console.error('[Main] Error resuming active plans:', err.message);
+      });
     });
   });
 }
