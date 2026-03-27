@@ -808,7 +808,12 @@ function migrateConfig(): void {
   log.info('Migration', 'Config migrated to v3.0 (capabilities)');
 }
 
-export function initializeApi(db?: DatabaseConnection, agent?: AgentOrchestrator, wsPath?: string, followUpStore?: any): void {
+export function initializeApi(
+  db?: DatabaseConnection, 
+  agent?: AgentOrchestrator, 
+  wsPath?: string, 
+  followUpStore?: any
+): { skillRepo: SkillRepository | null, skillEngine: SkillEngine | null } {
   migrateConfig();
   workspacePath = wsPath || null;
   if (db) {
@@ -1039,6 +1044,8 @@ export function initializeApi(db?: DatabaseConnection, agent?: AgentOrchestrator
       console.error('[Hooks] Startup hook failed:', err.message);
     });
   }
+
+  return { skillRepo, skillEngine };
 }
 
 async function registerAgentTools(agent: AgentOrchestrator): Promise<void> {
