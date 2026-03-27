@@ -15,8 +15,8 @@ export interface ChatMessage {
 }
 
 export interface ChatMessageMetadata {
-  /** Source of the message: web UI or WhatsApp JID */
-  source?: 'web' | 'whatsapp' | 'telegram' | 'webchat';
+  /** Source of the message: web UI, WhatsApp JID, sub-agent, or scheduler */
+  source?: 'web' | 'whatsapp' | 'telegram' | 'webchat' | 'sub-agent' | 'scheduler';
   /** WhatsApp JID if source is whatsapp */
   whatsappJid?: string;
   /** Contact name if known */
@@ -36,7 +36,7 @@ export interface ChatMessageMetadata {
 export interface ConversationSession {
   id: string;
   /** 'web-console' for UI, WhatsApp JID for WhatsApp chats */
-  type: 'web' | 'whatsapp' | 'telegram' | 'webchat';
+  type: 'web' | 'whatsapp' | 'telegram' | 'webchat' | 'sub-agent' | 'scheduler';
   /** Display name for the session */
   name: string;
   createdAt: Date;

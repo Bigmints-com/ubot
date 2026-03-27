@@ -10,6 +10,7 @@ import { defaultMigrations } from './data/database/migrations.js';
 import { createConversationStore, conversationMigrations } from './memory/conversation.js';
 import { createMemoryStore, memoryMigrations } from './memory/memory-store.js';
 import { createFollowUpStore, followUpMigrations } from './memory/followups.js';
+import { todoMigrations } from './engine/todo-store.js';
 import { initMetering } from './engine/metering.js';
 import { createSoul } from './memory/soul.js';
 import { createAgentOrchestrator } from './engine/orchestrator.js';
@@ -55,7 +56,7 @@ if (!fs.existsSync(dataDir)) {
 
 const db = createConnection({
   config: createDefaultConfig(dbPath),
-  migrations: [...defaultMigrations, ...conversationMigrations, ...memoryMigrations, ...followUpMigrations],
+  migrations: [...defaultMigrations, ...conversationMigrations, ...memoryMigrations, ...followUpMigrations, ...todoMigrations],
   autoMigrate: true,
 });
 
@@ -83,7 +84,9 @@ const agent = createAgentOrchestrator(
   },
   conversationStore,
   memoryStore,
+  followUpStore,
   soul,
+  db as any,
   WORKSPACE_PATH,
 );
 

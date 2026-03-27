@@ -28,6 +28,7 @@ export interface ToolRegistry {
  */
 export interface ToolContext {
   sessionId?: string;
+  getDatabase(): any | null;
   getMessagingRegistry(): any;
   getScheduler(): any | null;
   getApprovalStore(): any | null;

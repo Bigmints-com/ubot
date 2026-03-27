@@ -77,6 +77,7 @@ export function createMockContext(opts: MockContextOptions = {}): ToolContext {
   const { allNull = false, overrides = {} } = opts;
 
   const defaults: ToolContext = {
+    getDatabase: () => null,
     getMessagingRegistry: () => allNull ? null : createMockMessagingRegistry(),
     getScheduler: () => allNull ? null : createMockScheduler(),
     getApprovalStore: () => allNull ? null : createMockApprovalStore(),
