@@ -148,7 +148,7 @@ export async function handleChatRoutes(
 
       // Fire and forget
       ctx.agentOrchestrator.chat(
-        sessionId, message, 'web', undefined, undefined, attachments
+        sessionId, message, 'web', undefined, true, attachments
       ).then((response) => {
         ctx.asyncJobStore?.update(jobId, { 
           status: 'completed', 
@@ -180,9 +180,10 @@ export async function handleChatRoutes(
     }
 
     // Sync mode (default): wait for completion
+    // All authenticated API users are treated as owner (they have the API key)
     try {
       const response = await ctx.agentOrchestrator.chat(
-        sessionId, message, 'web', undefined, undefined, attachments
+        sessionId, message, 'web', undefined, true, attachments
       );
 
       // Auto-name thread from first message if it has a generic name
