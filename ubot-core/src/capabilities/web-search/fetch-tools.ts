@@ -205,7 +205,17 @@ const webFetchToolModule: ToolModule = {
         console.log(`[web_fetch] Fetched ${url} (${result.length} chars, ${Date.now() - start}ms)`);
         return { toolName: 'web_fetch', success: true, result, duration: Date.now() - start };
       } catch (err: any) {
-        const msg = err.name === 'TimeoutError' ? `Request timed out after 15s` : err.message;
+        // Node's fetch() wraps the real error in err.cause — extract it for useful diagnostics
+        const cause = err.cause ? ` (${err.cause.code || err.cause.message || err.cause})` : '';
+        let msg: string;
+        if (err.name === 'TimeoutError') {
+          msg = `Request timed out after 15s for ${url}`;
+        } else if (err.name === 'AbortError') {
+          msg = `Request aborted for ${url}`;
+        } else {
+          msg = `${err.message}${cause} — URL: ${url}`;
+        }
+        console.error(`[web_fetch] Error fetching ${url}: ${msg}`);
         return { toolName: 'web_fetch', success: false, error: msg, duration: Date.now() - start };
       }
     });
