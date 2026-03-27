@@ -1068,6 +1068,29 @@ Inform the user about this possibility if it's relevant to the current conversat
           // selectedTools stays undefined → callLLM will use full set
         }
       }
+      // ── Skill-First Routing ──────────────────────────────────
+      // Check if any saved skills match this request.
+      // If so, inject a hint so the LLM uses run_skill instead of manual execution.
+      if (ownerFlag && skillEngine && !skillContext) {
+        try {
+          const skills = skillEngine.getSkills();
+          if (skills.length > 0) {
+            const skillSummary = skills
+              .filter((s: any) => s.enabled)
+              .map((s: any) => `• "${s.name}" (${s.id}) — ${s.processor?.instructions?.slice(0, 80) || 'no description'}`)
+              .join('\n');
+            if (skillSummary) {
+              // Insert BEFORE the last user message
+              const insertIdx = messages.length - 1;
+              messages.splice(insertIdx, 0, {
+                role: 'system',
+                content: `## Available Skills\nYou have pre-built automation skills. Before doing a task manually, check if a skill already handles it and use run_skill:\n${skillSummary}\n\nIf a skill matches the user's request, call run_skill with the skill ID. Otherwise, proceed normally.`,
+              } as ChatMsg);
+              log.info('Agent', `Skill-first: injected ${skills.filter((s: any) => s.enabled).length} skill hints`);
+            }
+          }
+        } catch { /* skills not available */ }
+      }
 
       // Agent loop with tool calling
       let iteration = 0;
@@ -1282,6 +1305,98 @@ Inform the user about this possibility if it's relevant to the current conversat
             } else {
               log.warn('Agent', `Max continuations (3) reached for session ${sessionId}. Stopping.`);
             }
+          }
+        }
+      }
+
+      // ── Task Completion Enforcement ──────────────────────
+      // If the task used tools (actionable request) but ended without
+      // clear evidence of completion, give the agent a few more tries
+      // to either complete it or explain the failure explicitly.
+      if (toolResults.length > 0 && finalContent) {
+        const failureSignals = [
+          'unable to', 'couldn\'t', 'could not', 'failed to', 'was not able',
+          'i apologize', 'unfortunately', 'i was repeating', 'loop detected',
+          'encountered an error', 'didn\'t work', 'not successful',
+        ];
+        const evidenceSignals = [
+          'http://', 'https://', '✓', '✅', 'successfully', 'published',
+          'posted', 'saved', 'created', 'completed', 'confirmed', 'done',
+          'here is', 'here\'s the', 'the result',
+        ];
+        const lower = finalContent.toLowerCase();
+        const hasFailure = failureSignals.some(s => lower.includes(s));
+        const hasEvidence = evidenceSignals.some(s => lower.includes(s));
+        const hasFailedTools = toolResults.some(r => !r.success);
+
+        if ((hasFailure || hasFailedTools) && !hasEvidence && iteration < currentConfig.maxToolIterations) {
+          log.info('Agent', `Completion enforcement: task ended without evidence. Giving ${Math.min(3, currentConfig.maxToolIterations - iteration)} more iterations.`);
+          
+          messages.push({
+            role: 'assistant',
+            content: finalContent || null,
+          } as ChatMsg);
+          messages.push({
+            role: 'system',
+            content: `⚠️ TASK NOT COMPLETE — You attempted this task but did not provide evidence of completion.
+
+Your response suggests failure ("${failureSignals.find(s => lower.includes(s)) || 'tool errors'}") but you haven't exhausted your options.
+
+REQUIREMENTS:
+1. Try a DIFFERENT approach. If browser automation failed, try a different selector, scroll, wait, or use web_fetch instead.
+2. If the task truly cannot be completed, explain EXACTLY what failed and why (specific error, specific element not found, etc.)
+3. NEVER respond with vague failure messages like "I was unable to complete the task." — specify WHAT failed.
+4. If you succeed, provide EVIDENCE: a URL, a screenshot, a confirmation message, or specific data from the result.`,
+          } as ChatMsg);
+
+          // Give 3 more iterations for completion
+          const extraMax = Math.min(3, currentConfig.maxToolIterations - iteration);
+          for (let extra = 0; extra < extraMax; extra++) {
+            iteration++;
+            const retryResult = await callLLM(messages, ownerFlag, sessionAgents.get(sessionId), selectedTools, 'chat');
+            lastUsage = retryResult.usage;
+            lastModel = retryResult.model || currentConfig.llmModel;
+
+            if (retryResult.toolCalls.length === 0) {
+              finalContent = retryResult.content;
+              break;
+            }
+
+            // Process tool calls
+            messages.push({
+              role: 'assistant',
+              content: retryResult.content || null,
+              tool_calls: retryResult.toolCalls.map(tc => ({
+                id: tc.id,
+                type: 'function' as const,
+                function: { name: tc.toolName, arguments: JSON.stringify(tc.arguments) },
+              })),
+            } as ChatMsg);
+
+            for (const tc of retryResult.toolCalls) {
+              let resolvedName = tc.toolName;
+              const als = getToolAliases();
+              if (als.has(tc.toolName)) resolvedName = als.get(tc.toolName)!;
+
+              const result = await toolRegistry.execute({
+                toolName: resolvedName,
+                arguments: tc.arguments,
+                rawText: '',
+              }, { sessionId, isOwner: ownerFlag, contactName, source, getDatabase: () => db, getAgent: () => orchestrator, skillRepo, skillEngine });
+
+              toolResults.push(result);
+              metricsCollector.recordTool(tc.toolName, result.success, result.duration, sessionId);
+
+              const raw = result.success
+                ? (result.result || 'Completed.')
+                : `❌ TOOL FAILED: ${tc.toolName}\nError: ${result.error}`;
+              const maxC = resolvedName.startsWith('mcp_playwright_') ? 6000 : 3000;
+              const content = raw.length > maxC ? raw.slice(0, maxC) + '\n[...truncated]' : raw;
+
+              messages.push({ role: 'tool', tool_call_id: tc.id, content } as ChatMsg);
+            }
+
+            finalContent = retryResult.content;
           }
         }
       }
