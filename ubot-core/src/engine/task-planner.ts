@@ -17,6 +17,7 @@ export interface TaskStep {
 
 export interface TaskPlan {
   id: string;
+  sessionId: string;
   originalRequest: string;
   steps: TaskStep[];
   createdAt: Date;
@@ -27,6 +28,7 @@ export interface TaskPlan {
  * Creates a task plan by decomposing a complex request using an LLM.
  */
 export async function createTaskPlan(
+  sessionId: string,
   request: string,
   agentTypes: string[],
   generate: (system: string, user: string) => Promise<string>
@@ -36,6 +38,7 @@ export async function createTaskPlan(
   if (isSimpleRequest(request)) {
     return {
       id: planId,
+      sessionId,
       originalRequest: request,
       steps: [
         {
@@ -106,6 +109,7 @@ Respond with ONLY valid JSON (no markdown fences):
 
     return {
       id: planId,
+      sessionId,
       originalRequest: request,
       steps,
       createdAt: new Date(),
@@ -116,6 +120,7 @@ Respond with ONLY valid JSON (no markdown fences):
     // Fallback to a single general step if planning fails
     return {
       id: planId,
+      sessionId,
       originalRequest: request,
       steps: [
         {

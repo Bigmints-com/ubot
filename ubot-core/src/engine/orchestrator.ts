@@ -35,7 +35,7 @@ import { getMetering } from './metering.js';
 import { filterStaleErrors } from './message-filter.js';
 import { runSubagent } from './subagent-runner.js';
 import { createTaskPlan, getExecutionOrder, type TaskPlan, type TaskStep } from './task-planner.js';
-import { saveTaskPlan, updateStepStatus, updatePlanStatus } from './plan-store.js';
+import { saveTaskPlan, updateStepStatus, updatePlanStatus, getTaskPlan } from './plan-store.js';
 
 /**
  * Find recent outbound messages sent TO a specific contact by the owner.
@@ -296,7 +296,7 @@ export function createAgentOrchestrator(
     const db = context?.getDatabase?.();
     const sessionId = context?.sessionId || 'default';
     
-    const plan = await createTaskPlan(request, availableAgentTypes, (sys, user) => orchestrator.generate(sys, user));
+    const plan = await createTaskPlan(sessionId, request, availableAgentTypes, (sys, user) => orchestrator.generate(sys, user));
     
     if (db) {
       saveTaskPlan(sessionId, plan, db);
@@ -1347,17 +1347,42 @@ export function createAgentOrchestrator(
     },
 
     async resumeActivePlans(): Promise<void> {
-      // TODO: Implement plan resumption when plan persistence is fully built
-      // This requires getTaskPlan() and runPlan() which are not yet implemented.
-      // For now, this is a no-op. Plans that were interrupted will need to be
-      // re-triggered manually.
       if (!db) return;
       try {
         const rows = db.query<{ id: string }>('SELECT id FROM task_plans WHERE status IN (?, ?)', ['executing', 'planning']);
-        if (rows.length > 0) {
-          console.log(`[Orchestrator] Found ${rows.length} incomplete plans (resumption not yet implemented)`);
+        if (rows.length === 0) return;
+
+        console.log(`[Orchestrator] 🔄 Resuming ${rows.length} interrupted task plans...`);
+        
+        for (const row of rows) {
+          try {
+            const plan = getTaskPlan(row.id, db);
+            if (!plan) continue;
+
+            console.log(`[Orchestrator]   - Resuming plan: ${plan.id} (${plan.originalRequest.substring(0, 50)}...)`);
+            
+            // Reconstruct minimal context for runPlan
+            const resumeContext = {
+              sessionId: plan.sessionId || 'resumed',
+              getDatabase: () => db
+            };
+
+            // Run the plan (it will skip completed steps automatically)
+            runPlan(plan, resumeContext).then(result => {
+              console.log(`[Orchestrator] ✅ Resumed plan ${plan.id} finished: ${result.split('\n')[0]}`);
+            }).catch(err => {
+              console.error(`[Orchestrator] ❌ Resumed plan ${plan.id} failed:`, err.message);
+            });
+          } catch (err: any) {
+            console.error(`[Orchestrator] Error resuming plan ${row.id}:`, err.message);
+          }
         }
-      } catch { /* table may not exist yet */ }
+      } catch (err: any) {
+        // Table might not exist yet if no plans were ever created
+        if (!err.message.includes('no such table')) {
+          console.error('[Orchestrator] Error in resumeActivePlans:', err.message);
+        }
+      }
     },
   });
 

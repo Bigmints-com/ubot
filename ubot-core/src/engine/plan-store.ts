@@ -99,6 +99,7 @@ export function getTaskPlan(planId: string, db: DatabaseConnection): TaskPlan | 
 
     return {
       id: row.id,
+      sessionId: row.session_id,
       originalRequest: row.original_request,
       steps,
       createdAt: new Date(row.created_at),
