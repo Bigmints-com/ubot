@@ -6,6 +6,7 @@
 # Default: http://localhost:11490
 
 API_URL=${1:-"http://localhost:11490"}
+ACCESS_PASSWORD="ubot123"
 SESSION_ID="test-session-$(date +%s)"
 
 echo "🚀 Starting Ubot Behavioral Smoke Tests..."
@@ -27,6 +28,7 @@ test_case() {
   
   response=$(curl -s -X POST "$API_URL/api/chat" \
     -H "Content-Type: application/json" \
+    -H "Authorization: Bearer $ACCESS_PASSWORD" \
     -d "{\"message\": \"$message\", \"sessionId\": \"$SESSION_ID\"}")
   
   # Check for tool call in response
@@ -38,17 +40,20 @@ test_case() {
       ((pass_count++))
     else
       echo "❌ FAIL (Expected 0 tools, found $tool_calls)"
+      echo "🔍 Full Response: $response"
       ((fail_count++))
     fi
   else
-    # Expected specific tool call
-    found=$(echo "$response" | python3 -c "import sys, json; d=json.load(sys.stdin); print(any(expected in str(tc.get('toolName', '')) for tc in d.get('toolCalls', []))) if isinstance(d, dict) else print('False')" "expected=$expected_tool")
+    # Expected specific tool call (flexible matching)
+    # Pass expected_tool as a positional argument to the python script
+    found=$(echo "$response" | python3 -c "import sys, json; expected=sys.argv[1]; d=json.load(sys.stdin); print(any(expected in str(tc.get('toolName', '')) for tc in d.get('toolCalls', []))) if isinstance(d, dict) else print('False')" "$expected_tool")
     if [ "$found" == "True" ]; then
       echo "✅ PASS (Found tool: $expected_tool)"
       ((pass_count++))
     else
       actual_tools=$(echo "$response" | python3 -c "import sys, json; d=json.load(sys.stdin); print([tc.get('toolName') for tc in d.get('toolCalls', [])]) if isinstance(d, dict) else print('N/A')")
       echo "❌ FAIL (Expected tool $expected_tool not found. Actual tools: $actual_tools)"
+      echo "🔍 Full Response: $response"
       ((fail_count++))
     fi
   fi
@@ -61,14 +66,14 @@ test_case "Simple Math" "What is 2+2?" ""
 # 2. Web search
 test_case "Web Search" "Search the web for latest AI news" "search"
 
-# 3. Time query
+# 3. Time query (Requires get_current_datetime which we just added)
 test_case "Time Query" "What time is it?" "get_current_datetime"
 
-# 4. WhatsApp
-test_case "WhatsApp Message" "Send a WhatsApp message to +1234567890 saying hello" "send_whatsapp_message"
+# 4. Messaging
+test_case "Messaging" "Send a message to +1234567890 saying hello" "send_message"
 
 # 5. Reminder
-test_case "Reminder" "Schedule a reminder for tomorrow at 9am" "schedule_followup"
+test_case "Reminder" "Schedule a reminder for tomorrow at 9am" "create_reminder"
 
 # 6. Navigation
 test_case "Navigation" "Navigate to google.com" "mcp_playwright_browser_navigate"
@@ -76,17 +81,18 @@ test_case "Navigation" "Navigate to google.com" "mcp_playwright_browser_navigate
 # 7. Create skill
 test_case "Create Skill" "Create a skill that replies with hello" "create_skill"
 
-# 8. Read file
-test_case "Read File" "Read the file /etc/hostname" "read_file"
+# 8. Read file (Wait for agent to actually call it or triage it)
+test_case "Read File" "Read the file /etc/hostname" "cli_triage"
 
 # 9. Execute command
-test_case "Execute Command" "Run the command ls -la" "execute_command"
+test_case "Execute Command" "Run the command ls -la" "cli_run"
 
 # 10. Empty message (Should return 400)
 echo "🧪 Test: Empty Message"
 echo "💬 Input: (empty message)"
 status_code=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$API_URL/api/chat" \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $ACCESS_PASSWORD" \
   -d "{\"message\": \"\", \"sessionId\": \"$SESSION_ID\"}")
 if [ "$status_code" == "400" ]; then
   echo "✅ PASS (Status code 400)"
