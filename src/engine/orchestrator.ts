@@ -16,6 +16,9 @@ import type {
 import { getModelForPurpose } from './types.js';
 import type { ConversationStore } from '../memory/conversation.js';
 import type { MemoryStore } from '../memory/memory-store.js';
+import type { FollowUpStore } from '../memory/followups.js';
+import type { DatabaseConnection } from '../data/database/types.js';
+import { getTodos } from './todo-store.js';
 import { type Soul, SOUL_REWRITE_PROMPT, OWNER_MERGE_PROMPT, FACT_EXTRACTION_PROMPT, SUMMARY_UPDATE_PROMPT, mergeIntoOwnerDoc, OWNER_SOUL_ID } from '../memory/soul.js';
 import { formatToolsForAPI, createToolRegistry, getToolsForSource, getToolAliases, type ToolRegistry } from './tools.js';
 import { selectToolsForMessage } from './tool-selector.js';
@@ -29,6 +32,7 @@ import { logCapability } from '../capabilities/cli/capability-log.js';
 import { LoopDetector } from './loop-detector.js';
 import { getVertexAccessToken } from './vertex-auth.js';
 import { getMetering } from './metering.js';
+import { filterStaleErrors } from './message-filter.js';
 
 /**
  * Find recent outbound messages sent TO a specific contact by the owner.
@@ -132,11 +136,14 @@ export function createAgentOrchestrator(
   config: AgentConfig,
   conversationStore: ConversationStore,
   memoryStore: MemoryStore,
+  followUpStore: FollowUpStore,
   soul: Soul,
+  db?: DatabaseConnection,
   workspacePath?: string,
 ): AgentOrchestrator {
   let currentConfig = { ...config };
   const toolRegistry = createToolRegistry();
+  const continuationCount = new Map<string, number>();
   
   // Register core orchestrator tools
   toolRegistry.register('list_agents', async () => {
@@ -273,7 +280,8 @@ export function createAgentOrchestrator(
   type ChatMsg = OpenAI.Chat.Completions.ChatCompletionMessageParam;
 
   function buildMessages(sessionId: string, userMessage: string, isOwner: boolean = false, attachments?: Attachment[]): ChatMsg[] {
-    const history = conversationStore.getHistory(sessionId, currentConfig.maxHistoryMessages);
+    const rawHistory = conversationStore.getHistory(sessionId, currentConfig.maxHistoryMessages);
+    const history = filterStaleErrors(rawHistory);
     const activeAgentId = sessionAgents.get(sessionId);
     
     // Build system prompt with soul data (bot persona + owner + contact)
@@ -349,7 +357,15 @@ export function createAgentOrchestrator(
   }
 
   /** Extract/update all three data layers from a conversation turn */
-  async function extractSoulData(sessionId: string, userMessage: string, assistantResponse: string, source?: 'web' | 'whatsapp' | 'telegram' | 'webchat', contactName?: string, isOwner: boolean = false, toolResults: ToolExecutionResult[] = []): Promise<void> {
+  async function extractSoulData(
+    sessionId: string,
+    userMessage: string,
+    assistantResponse: string,
+    source?: 'web' | 'whatsapp' | 'telegram' | 'webchat' | 'sub-agent' | 'scheduler',
+    contactName?: string,
+    isOwner: boolean = false,
+    toolResults: ToolExecutionResult[] = [],
+  ): Promise<void> {
     if (!userMessage || !assistantResponse) return;
 
     // Build action-aware conversation text for memory extraction
@@ -686,14 +702,20 @@ export function createAgentOrchestrator(
     async chat(
       sessionId: string,
       message: string,
-      source: 'web' | 'whatsapp' | 'telegram' | 'webchat' = 'web',
+      source?: 'web' | 'whatsapp' | 'telegram' | 'webchat' | 'sub-agent',
       contactName?: string,
-      isOwner?: boolean,
+      isOwner: boolean = false,
       attachments?: Attachment[],
       skillContext?: string,
     ): Promise<AgentResponse> {
       const startTime = Date.now();
       const toolResults: ToolExecutionResult[] = [];
+
+      // Reset continuation count on new manual user message (not a sub-agent or automated check)
+      if (source !== 'sub-agent' && (source as string) !== 'scheduler') {
+        continuationCount.set(sessionId, 0);
+      }
+
       const pipeline = new MiddlewarePipeline()
         .use(new LoggingMiddleware())
         .use(new CircuitBreakerMiddleware())
@@ -707,7 +729,7 @@ export function createAgentOrchestrator(
       // Ensure session exists
       const session = conversationStore.getOrCreateSession(
         sessionId,
-        source,
+        source || 'web',
         source === 'web' ? 'Command Center' : contactName || sessionId
       );
       // Update session name if we now have a better name (e.g. pushName resolved)
@@ -1001,6 +1023,37 @@ export function createAgentOrchestrator(
         // If this was the last iteration, use whatever text we have
         if (iteration >= currentConfig.maxToolIterations) {
           finalContent = llmResult.content || 'I completed the requested actions.';
+
+          const todos = getTodos(sessionId, db);
+          const pendingCount = todos.filter(t => t.status === 'pending' || t.status === 'in_progress').length;
+
+          if (pendingCount > 0) {
+            const currentCount = continuationCount.get(sessionId) || 0;
+            if (currentCount < 3) {
+              continuationCount.set(sessionId, currentCount + 1);
+              log.info('Agent', `Task continuation scheduled: ${pendingCount} todos remaining (Attempt ${currentCount + 1}/3)`);
+
+              messages.push({
+                role: 'system',
+                content: "You've used all available iterations. Summarize what you've completed so far and what remains. A continuation message will be sent automatically.",
+              } as ChatMsg);
+
+              // Schedule follow-up after 5 seconds
+              if (followUpStore) {
+                followUpStore.create({
+                  sessionId,
+                  contactId: sessionId,
+                  channel: (source as string) || 'web',
+                  reason: 'Automatic task continuation',
+                  context: `The agent used all available iterations. ${pendingCount} tasks remain.`,
+                  priority: 'normal',
+                  followUpAt: new Date(Date.now() + 5000),
+                });
+              }
+            } else {
+              log.warn('Agent', `Max continuations (3) reached for session ${sessionId}. Stopping.`);
+            }
+          }
         }
       }
 

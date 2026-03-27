@@ -62,7 +62,8 @@ const todoToolModule: ToolModule = {
 
       const start = Date.now();
       try {
-        const result = writeTodos(sessionId, todos);
+        const db = ctx.getDatabase();
+        const result = writeTodos(sessionId, todos, db);
         return {
           toolName: 'write_todos',
           success: true,

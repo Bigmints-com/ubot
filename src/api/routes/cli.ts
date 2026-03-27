@@ -338,6 +338,7 @@ export const handleCliRoutes: RouteHandler = async (req, res, url, method, _ctx)
       const registry = _ctx.agentOrchestrator.getToolRegistry();
       // Build minimal tool context for hot-reload registration
       const toolContext = {
+        getDatabase: () => _ctx.coreDb,
         getMessagingRegistry: () => _ctx.messagingRegistry,
         getScheduler: () => _ctx.scheduler,
         getApprovalStore: () => _ctx.approvalStore,
