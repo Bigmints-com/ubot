@@ -27,8 +27,11 @@ import { createEventBus, type EventBus } from '../agents/skills/event-bus.js';
 import { loadUbotConfig, saveUbotConfig } from '../data/config.js';
 
 import { createApprovalStore, type ApprovalStore } from '../automation/approvals/service.js';
+import { createAsyncJobStore, type AsyncJobStore } from './job-store.js';
+import { createSpawnedSessionStore, type SpawnedSessionStore } from '../engine/spawned-session-store.js';
 
 import type { AgentOrchestrator } from '../engine/orchestrator.js';
+import { metricsCollector } from '../metrics/index.js';
 import { log } from '../logger/ring-buffer.js';
 import { handleIncomingMessage, type UnifiedMessage, type UnifiedDeps } from '../engine/handler.js';
 import { existsSync } from 'fs';
@@ -143,6 +146,8 @@ let followUpStoreInstance: any | null = null;
 
 // Database reference for config persistence
 let coreDb: DatabaseConnection | null = null;
+let asyncJobStore: AsyncJobStore | null = null;
+let spawnedSessionStore: SpawnedSessionStore | null = null;
 
 // ─── Config Persistence (Direct JSON — single source of truth) ──
 
@@ -813,6 +818,10 @@ export function initializeApi(db?: DatabaseConnection, agent?: AgentOrchestrator
       : './skills';
     skillRepo = createFileSkillRepository(skillsDir);
     coreDb = db as unknown as DatabaseConnection;
+    asyncJobStore = createAsyncJobStore(coreDb);
+    asyncJobStore.failAllProcessingJobs('Server restarted while job was processing');
+    spawnedSessionStore = createSpawnedSessionStore(coreDb);
+    spawnedSessionStore.failAllRunningSessions('Server restarted while sub-agent was running');
     eventBus = createEventBus();
     approvalStore = createApprovalStore(db as unknown as DatabaseConnection);
 
@@ -1048,6 +1057,7 @@ async function registerAgentTools(agent: AgentOrchestrator): Promise<void> {
     getWorkspacePath: () => workspacePath,
     getCliService: () => null, // CLI service is lazily loaded in the tool module
     getFollowUpStore: () => followUpStoreInstance,
+    getSpawnedSessionStore: () => spawnedSessionStore,
   };
 
   await registerAllToolModules(registry, toolContext);
@@ -1089,6 +1099,8 @@ function getApiContext(): ApiContext {
   return {
     agentOrchestrator,
     coreDb,
+    asyncJobStore,
+    spawnedSessionStore,
     waConnection,
     waQrCode,
     waStatus,
@@ -1412,6 +1424,22 @@ async function handleChannelRoutes(
     const period = (params.get('period') || '30d') as 'today' | '7d' | '30d' | 'all';
     const summary = metering.getSummary(period);
     json(res, summary);
+    return true;
+  }
+
+  // ── Tool Metrics ──────────────────────────────────────
+  if (url.startsWith('/api/metrics/tools') && method === 'GET') {
+    const params = new URL(url, 'http://localhost').searchParams;
+    const hours = parseInt(params.get('hours') || '24', 10);
+    
+    const current = metricsCollector.getToolMetrics();
+    const historical = await metricsCollector.getHistoricalMetrics(hours);
+    
+    json(res, {
+      current,
+      historical,
+      hours
+    });
     return true;
   }
 

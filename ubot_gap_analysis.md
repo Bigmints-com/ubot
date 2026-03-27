@@ -34,11 +34,11 @@ A single-agent loop with a **middleware pipeline** that provides retry, circuit-
 - ✅ Iteration limit raised to 25 (handles longer chains)
 
 What's still missing:
-- ✅ **SQLite persistence** — todos and jobs are in-memory, lost on restart (Verified)
+- ✅ **SQLite persistence** — todos, async jobs, and subagent results are persisted to SQLite (Verified)
 - ✅ **Cross-turn continuation** — if a task needs more than 25 iterations, it stops (Verified)
 - ❌ **Resume-on-failure** — if Chrome crashes mid-task, no auto-recovery (Remaining)
 
-**Status: 🟢 85% complete** — Persistence layer for todos and cross-turn continuation are fully implemented and verified on the production server. Async jobs are in-memory but identified for future migration.
+**Status: 🟢 95% complete** — Persistence layer for todos, jobs, and subagent sessions are fully implemented. 
 
 ---
 
@@ -141,11 +141,11 @@ What's still missing:
 10. ~~Thread auto-naming~~ ✅ Done
 11. ~~Async API for long chains~~ ✅ Done
 
-### Phase 2: Task Persistence (2-3 weeks) — 🟡 40% DONE
-1. ✅ In-memory todo tracking (write_todos + TodoStore)
-2. ✅ Async API with job polling (POST async → GET job/:id)
-3. ❌ SQLite-backed persistence for todos, jobs, and subagent results
-4. ❌ Long-running tasks that continue across agent turns
+### Phase 2: Task Persistence (2-3 weeks) — 🟢 90% DONE
+1. ~~In-memory todo tracking (write_todos + TodoStore)~~ ✅ Done
+2. ~~Async API with job polling (POST async → GET job/:id)~~ ✅ Done
+3. ~~SQLite-backed persistence for todos, jobs, and subagent results~~ ✅ Done
+4. ✅ Long-running tasks that continue across agent turns
 5. ❌ Resume-on-failure for browser workflows
 
 ### Phase 3: Multi-Agent Architecture (4-6 weeks) — 🔴 15% DONE

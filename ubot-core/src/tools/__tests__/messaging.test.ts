@@ -5,7 +5,7 @@ import { registerModule, createMockContext } from './test-helpers.js';
 describe('Messaging Tool Module', () => {
   it('should export correct module metadata', () => {
     expect(messagingModule.name).toBe('messaging');
-    expect(messagingModule.tools.length).toBe(12);
+    expect(messagingModule.tools.length).toBe(13);
   });
 
   it('should register all 8 tool executors', () => {

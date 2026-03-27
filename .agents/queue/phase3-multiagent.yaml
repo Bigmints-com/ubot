@@ -1,0 +1,260 @@
+queue:
+  - name: "1. Create specialized agent definitions"
+    prompt: |
+      Create specialized agent definition files for UBOT's multi-agent system.
+
+      Read /Users/pretheesh/Projects/ubot/ubot-core/src/engine/agent-loader.ts to understand the .agent.md format. It parses sections: # Identity (name, description), # Tools (allowed tool list), # System Prompt, # Config (model, temperature).
+
+      The agents directory is at ~/.ubot/workspace/agents/. Create 5 agent files:
+
+      1. ~/.ubot/workspace/agents/researcher.agent.md
+         - Name: Research Agent
+         - Description: Searches the web and reads URLs to gather well-sourced information
+         - Tools: web_search, mcp_tavily_search, web_fetch, mcp_playwright_browser_navigate, mcp_playwright_browser_snapshot, mcp_playwright_browser_click, mcp_playwright_browser_type, write_todos
+         - System Prompt: You are a research specialist. Search multiple sources, cross-reference facts, always cite URLs. Return findings as structured bullet points with source citations. Use write_todos to track your research steps. Verify claims with at least 2 sources.
+
+      2. ~/.ubot/workspace/agents/writer.agent.md
+         - Name: Writer Agent
+         - Description: Creates high-quality written content — articles, posts, summaries, emails
+         - Tools: web_fetch, write_todos
+         - System Prompt: You are a professional writer. Given research notes and a topic, produce polished, engaging content. Match the requested tone (formal, casual, technical). Structure with clear headings, strong opening, and actionable conclusion. Never fabricate facts — only use information provided in context.
+
+      3. ~/.ubot/workspace/agents/browser-operator.agent.md
+         - Name: Browser Operator
+         - Description: Performs complex browser automation — form filling, navigation, screenshot verification
+         - Tools: mcp_playwright_browser_navigate, mcp_playwright_browser_click, mcp_playwright_browser_type, mcp_playwright_browser_snapshot, mcp_playwright_browser_tab_list, mcp_playwright_browser_press_key, mcp_playwright_browser_select_option, mcp_playwright_browser_drag, mcp_playwright_browser_hover, mcp_playwright_browser_handle_dialog, write_todos
+         - System Prompt: You are a browser automation specialist. Navigate websites, fill forms, click buttons, and take screenshots as evidence. ALWAYS take a snapshot AFTER every significant action to verify it worked. If a click doesn't change the page, try a different approach. Report each step with screenshot evidence. Use write_todos to track your progress.
+
+      4. ~/.ubot/workspace/agents/publisher.agent.md
+         - Name: Social Publisher
+         - Description: Publishes content to social platforms — Substack, LinkedIn, Twitter via browser
+         - Tools: mcp_playwright_browser_navigate, mcp_playwright_browser_click, mcp_playwright_browser_type, mcp_playwright_browser_snapshot, mcp_playwright_browser_press_key, mcp_playwright_browser_select_option, mcp_playwright_browser_handle_dialog, write_todos
+         - System Prompt: You are a publishing specialist. Given content and a target platform, navigate to the platform, log in if needed, paste/type the content, format it appropriately, and publish. ALWAYS screenshot the published result as proof. Use write_todos to track each step. If publishing fails, report exactly what happened with screenshots.
+
+      5. ~/.ubot/workspace/agents/coder.agent.md
+         - Name: Coding Agent
+         - Description: Writes, reviews, and debugs code — runs commands and tests
+         - Tools: cli_run, cli_triage, read_file, write_file, list_directory, search_files, execute_command, write_todos
+         - System Prompt: You are a senior software engineer. Write clean, well-documented code. Always read existing code before modifying. Run tests after changes. Explain your approach before implementing. Use write_todos for multi-file changes.
+
+      After creating all files, verify with: ls -la ~/.ubot/workspace/agents/*.agent.md
+      Commit with message "feat: add 5 specialized agent definitions for multi-agent system"
+
+  - name: "2. Task decomposition planner"
+    prompt: |
+      Create a task decomposition planner that breaks complex requests into executable sub-tasks with dependencies.
+
+      Read these files first for context:
+      - /Users/pretheesh/Projects/ubot/ubot-core/src/engine/subagent-types.ts (SubagentConfig, SubagentResult)
+      - /Users/pretheesh/Projects/ubot/ubot-core/src/engine/subagent-runner.ts (runSubagent function)
+      - /Users/pretheesh/Projects/ubot/ubot-core/src/engine/agent-loader.ts (AgentDefinition)
+      - /Users/pretheesh/Projects/ubot/ubot-core/src/engine/types.ts (for AgentDefinition interface and ToolExecutionResult)
+
+      Create /Users/pretheesh/Projects/ubot/ubot-core/src/engine/task-planner.ts with:
+
+      1. Interfaces:
+         ```typescript
+         export interface TaskStep {
+           id: string;              // e.g., "step-1"
+           description: string;     // Human-readable description
+           agentType: string;       // 'researcher' | 'writer' | 'browser-operator' | 'publisher' | 'coder' | 'general'
+           dependsOn: string[];     // Step IDs that must complete first
+           status: 'pending' | 'running' | 'completed' | 'failed' | 'skipped';
+           prompt?: string;         // The prompt to send to the subagent
+           result?: string;         // Output from the subagent
+           error?: string;          // Error if failed
+         }
+
+         export interface TaskPlan {
+           id: string;
+           originalRequest: string;
+           steps: TaskStep[];
+           createdAt: Date;
+           status: 'planning' | 'executing' | 'completed' | 'failed' | 'partial';
+         }
+         ```
+
+      2. A function `createTaskPlan` that takes the user's request and a list of available agent types, then returns a TaskPlan. This function should:
+         - Call the LLM (using a passed-in `generate` function with signature `(system: string, user: string) => Promise<string>`) to decompose the request
+         - Use a PLANNER_PROMPT that instructs the LLM to output JSON with steps, agent types, and dependencies
+         - Parse the LLM response (handle markdown code fences, be defensive about JSON parsing)
+         - Validate dependencies (no circular deps, all dependsOn IDs exist)
+         - Return the TaskPlan
+
+      3. The PLANNER_PROMPT should be:
+         ```
+         You are a task decomposition planner. Given a complex request, break it into sequential steps.
+
+         Available agent types: {agentTypes}
+
+         Rules:
+         - Each step should be a single, clear action for one agent
+         - Use dependsOn to express ordering (step 2 depends on step 1's output)
+         - Steps with no dependsOn can run in parallel
+         - Keep it minimal — don't over-decompose simple tasks
+         - If the task is simple (1-2 steps), return just 1-2 steps
+         - If the task doesn't need decomposition, return a single step with agentType "general"
+
+         Respond with ONLY valid JSON (no markdown fences):
+         {
+           "steps": [
+             { "id": "step-1", "description": "...", "agentType": "researcher", "dependsOn": [], "prompt": "..." },
+             { "id": "step-2", "description": "...", "agentType": "writer", "dependsOn": ["step-1"], "prompt": "Using the research from the previous step: {step-1.result}, write..." }
+           ]
+         }
+         ```
+
+      4. Helper function `getExecutionOrder(steps: TaskStep[]): TaskStep[][]` that returns groups of steps that can run in parallel (topological sort). Steps in the same group have no inter-dependencies.
+
+      5. Helper function `isSimpleRequest(request: string): boolean` that returns true if the request is likely a single-step task (no "and then", "after that", fewer than 20 words, single verb). This helps avoid unnecessary decomposition.
+
+      After creating, run `npm run build --prefix ubot-core`. Fix any errors. Commit with message "feat: task decomposition planner with dependency graph"
+
+  - name: "3. Delegate-to-agent tool and plan execution tool"
+    prompt: |
+      Register two new tools in the orchestrator: delegate_to_agent and execute_plan.
+
+      Read these files first:
+      - /Users/pretheesh/Projects/ubot/ubot-core/src/engine/orchestrator.ts (lines 108-170 for tool registration pattern)
+      - /Users/pretheesh/Projects/ubot/ubot-core/src/engine/subagent-runner.ts (runSubagent function)
+      - /Users/pretheesh/Projects/ubot/ubot-core/src/engine/agent-loader.ts (loadAgentDefinitions)
+      - /Users/pretheesh/Projects/ubot/ubot-core/src/engine/task-planner.ts (createTaskPlan, getExecutionOrder)
+      - /Users/pretheesh/Projects/ubot/ubot-core/src/engine/types.ts (AgentDefinition)
+
+      In /Users/pretheesh/Projects/ubot/ubot-core/src/engine/orchestrator.ts, add two new tool registrations near the existing list_agents and switch_agent tools (around line 148-170):
+
+      1. `delegate_to_agent` tool:
+         - Args: agentId (string, required), task (string, required), timeoutSeconds (number, optional, default 120)
+         - Implementation:
+           a. Look up the agent from the agents Map
+           b. If not found, return error listing available agents
+           c. Build a SubagentConfig from the AgentDefinition (name, systemPrompt, allowedTools, timeoutMs)
+           d. Call runSubagent(config, task, orchestratorInterface) where orchestratorInterface wraps the chat method
+           e. Return formatted result: "Agent '{name}' completed: {result}" or "Agent '{name}' failed: {error}"
+         - The orchestratorInterface should be: { chat: (sid, msg, spo) => chatFn(sid, msg, source, contactName, isOwner, undefined, spo) }
+           where chatFn is the orchestrator's own chat method (you'll need to capture a reference)
+
+      2. `execute_plan` tool:
+         - Args: request (string, required) — the complex task to decompose and execute
+         - Implementation:
+           a. Call createTaskPlan(request, availableAgentTypes, generate) to get a TaskPlan
+           b. Call getExecutionOrder(plan.steps) to get parallel groups
+           c. For each group, run all steps in parallel using Promise.all + runSubagent
+           d. Before each step, inject previous step results into the prompt (replace {step-X.result} placeholders)
+           e. Track progress with write_todos
+           f. Return formatted summary of all step results
+         - Available agent types should come from the loaded agents Map keys plus 'general'
+
+      Also update the system prompt in /Users/pretheesh/Projects/ubot/ubot-core/src/engine/types.ts to add a section about multi-agent delegation:
+      ```
+      ## Multi-Agent Delegation
+      For complex multi-step tasks (e.g., "research X, write about it, publish it"):
+      - Use execute_plan for complex tasks with 3+ steps that need different capabilities
+      - Use delegate_to_agent for single tasks better handled by a specialist
+      - Available agents: researcher, writer, browser-operator, publisher, coder
+      - For simple tasks, just use your own tools directly — don't over-delegate
+      ```
+
+      After implementing, run `npm run build --prefix ubot-core`. Fix any compile errors. Commit with message "feat: delegate_to_agent and execute_plan tools for multi-agent orchestration"
+
+  - name: "4. Persistent tool analytics with SQLite"
+    prompt: |
+      Make the MetricsCollector persist tool usage data to SQLite for historical analysis.
+
+      Read these files:
+      - /Users/pretheesh/Projects/ubot/ubot-core/src/metrics/index.ts (MetricsCollector class)
+      - /Users/pretheesh/Projects/ubot/ubot-core/src/data/database/types.ts (DatabaseConnection interface — look for run, all, get methods)
+      - /Users/pretheesh/Projects/ubot/ubot-core/src/engine/todo-store.ts (example of SQLite integration in UBOT)
+
+      Requirements:
+      1. Add a new method to MetricsCollector: `setDatabase(db: DatabaseConnection)` that stores a reference
+      2. Create the metrics table on setDatabase call:
+         ```sql
+         CREATE TABLE IF NOT EXISTS tool_metrics (
+           id INTEGER PRIMARY KEY AUTOINCREMENT,
+           tool_name TEXT NOT NULL,
+           success INTEGER NOT NULL,
+           duration_ms INTEGER,
+           timestamp TEXT DEFAULT (datetime('now')),
+           session_id TEXT
+         )
+         ```
+         Also create: `CREATE INDEX IF NOT EXISTS idx_tool_metrics_name ON tool_metrics(tool_name)`
+         And: `CREATE INDEX IF NOT EXISTS idx_tool_metrics_ts ON tool_metrics(timestamp)`
+      3. Modify recordTool to also write to SQLite (fire-and-forget, don't await):
+         ```typescript
+         if (this.db) {
+           this.db.run('INSERT INTO tool_metrics (tool_name, success, duration_ms, session_id) VALUES (?, ?, ?, ?)',
+             [toolName, success ? 1 : 0, durationMs || null, sessionId || null]);
+         }
+         ```
+         Update recordTool signature to accept optional durationMs and sessionId
+      4. Add a query method: `async getHistoricalMetrics(hours: number = 24): Promise<{toolName: string, calls: number, errors: number, avgDuration: number}[]>`
+         that queries SQLite with GROUP BY and time filtering
+      5. Add API endpoint in /Users/pretheesh/Projects/ubot/ubot-core/src/api/index.ts:
+         - GET /api/metrics/tools — returns current in-memory metrics + historical from SQLite
+         - Wire metricsCollector.setDatabase(db) in the startup code where db is available
+      6. Update the metricsCollector.recordTool() calls in orchestrator.ts to pass duration and sessionId
+
+      After implementing, run `npm run build --prefix ubot-core`. Fix errors. Commit with message "feat: persistent tool analytics with SQLite storage"
+
+  - name: "5. Expand behavioral test suite to 30+ tests"
+    prompt: |
+      Expand the behavioral smoke test suite from 11 to 30+ tests covering multi-agent delegation, error recovery, and edge cases.
+
+      Read the existing test script at /Users/pretheesh/Projects/ubot/ubot-core/scripts/behavior-tests.sh to understand the current format.
+
+      Add these new test cases to the EXISTING script (append after the current tests, before the summary section):
+
+      Multi-Agent Tests:
+      - "List all available agents" → should call list_agents
+      - "Use the research agent to find info about quantum computing" → should call delegate_to_agent
+      - "Research climate change trends, then write a summary blog post about it" → should call execute_plan
+
+      Error Recovery Tests:
+      - "Fetch the URL https://this-domain-does-not-exist-12345.com" → should call web_fetch (will fail, but should not crash)
+      - "Navigate to https://this-domain-does-not-exist-12345.com and take a screenshot" → should call mcp_playwright (will fail gracefully)
+
+      Memory/Context Tests:
+      - "Remember that my favorite color is blue" → should call save_memory
+      - "What do you know about me?" → should call get_profile or get_user_memory
+
+      Todo/Progress Tests:
+      - "Do these 3 things tracking progress: 1) search for AI news 2) search for space news 3) tell me both results" → should call write_todos
+
+      Scheduling Tests:
+      - "Remind me in 5 minutes to check my email" → should call schedule_followup or create_reminder
+
+      CLI Tests:
+      - "What's the current directory?" → should call cli_run or execute_command
+      - "Show me the disk usage" → should call cli_run or execute_command
+
+      File Tests:
+      - "List the files in /tmp" → should call list_directory or cli_run
+
+      Vault Tests:
+      - "Store API key 'abc123' as 'test-key'" → should call vault_store
+
+      Complex Chain Tests:
+      - "Search the web for 3 trending tech topics and summarize each in one sentence" → should call web_search (multi-step)
+
+      Also add a negative test:
+      - Send a request with invalid JSON body → should return non-200
+
+      After adding all tests, verify the script is syntactically valid: `bash -n /Users/pretheesh/Projects/ubot/ubot-core/scripts/behavior-tests.sh`
+      Commit with message "feat: expand behavioral test suite to 30+ tests"
+
+  - name: "6. Build, deploy locally, and verify"
+    prompt: |
+      Build everything and deploy locally. Then run the behavioral tests.
+
+      Steps:
+      1. cd /Users/pretheesh/Projects/ubot && npm run build --prefix ubot-core
+         If there are build errors, fix them and rebuild.
+      2. make update (this builds web UI, installs, and restarts)
+      3. Wait 5 seconds for the server to start
+      4. Run the behavioral tests: bash /Users/pretheesh/Projects/ubot/ubot-core/scripts/behavior-tests.sh http://localhost:11490
+         Note: some tests may fail due to auth — that's OK. Focus on tool routing, not auth.
+      5. Show the test results summary
+      6. Commit any remaining changes
+      7. Show: git log --oneline -10

@@ -5,9 +5,9 @@ import { registerModule, createMockContext } from './test-helpers.js';
 describe('Approvals Tool Module', () => {
   it('should export correct module metadata', () => {
     expect(approvalsModule.name).toBe('approvals');
-    expect(approvalsModule.tools.length).toBe(3);
+    expect(approvalsModule.tools.length).toBe(4);
     expect(approvalsModule.tools.map(t => t.name)).toEqual([
-      'ask_owner', 'respond_to_approval', 'list_pending_approvals',
+      'ask_owner', 'respond_to_approval', 'list_pending_approvals', 'delete_approval'
     ]);
   });
 

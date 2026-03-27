@@ -6,22 +6,8 @@
  */
 
 import type { ToolModule, ToolRegistry, ToolContext, ToolDefinition } from '../tools/types.js';
+import type { SpawnedSessionStore, SpawnedSession } from './spawned-session-store.js';
 
-// ─── Session Store ────────────────────────────────────────
-
-interface SpawnedSession {
-  id: string;
-  task: string;
-  agentId: string | null;
-  status: 'running' | 'completed' | 'failed';
-  result: string | null;
-  error: string | null;
-  startTime: number;
-  endTime: number | null;
-  depth: number;
-}
-
-const spawnedSessions = new Map<string, SpawnedSession>();
 const MAX_DEPTH = 3;
 let sessionCounter = 0;
 
@@ -68,6 +54,7 @@ const sessionsToolModule: ToolModule = {
   name: 'sessions',
   tools: SESSION_TOOLS,
   register(registry: ToolRegistry, ctx: ToolContext) {
+    const store = ctx.getSpawnedSessionStore() as SpawnedSessionStore;
 
     // ── sessions_spawn ────────────────────────────────────
     registry.register('sessions_spawn', async (args) => {
@@ -100,24 +87,24 @@ const sessionsToolModule: ToolModule = {
       }
 
       const sessionId = `sub-${Date.now()}-${++sessionCounter}`;
-      const session: SpawnedSession = {
+      const sessionData: Omit<SpawnedSession, 'endTime' | 'result' | 'error'> = {
         id: sessionId,
         task,
         agentId,
         status: 'running',
-        result: null,
-        error: null,
         startTime: start,
-        endTime: null,
         depth: currentDepth + 1,
       };
-      spawnedSessions.set(sessionId, session);
+      
+      if (store) {
+        store.create(sessionData);
+      }
 
-      console.log(`[sessions] Spawning sub-agent "${sessionId}" (depth ${session.depth}): ${task.slice(0, 100)}`);
+      console.log(`[sessions] Spawning sub-agent "${sessionId}" (depth ${sessionData.depth}): ${task.slice(0, 100)}`);
 
       try {
         // Set depth for the sub-agent
-        depthTracker.set('current', session.depth);
+        depthTracker.set('current', sessionData.depth);
 
         // If agentId specified, switch agent context
         if (agentId) {
@@ -132,11 +119,15 @@ const sessionsToolModule: ToolModule = {
           ),
         ]);
 
-        session.status = 'completed';
-        session.result = result.content;
-        session.endTime = Date.now();
+        if (store) {
+          store.update(sessionId, {
+            status: 'completed',
+            result: result.content,
+            endTime: Date.now()
+          });
+        }
 
-        console.log(`[sessions] Sub-agent "${sessionId}" completed (${((session.endTime - start) / 1000).toFixed(1)}s)`);
+        console.log(`[sessions] Sub-agent "${sessionId}" completed (${((Date.now() - start) / 1000).toFixed(1)}s)`);
 
         return {
           toolName: 'sessions_spawn',
@@ -146,14 +137,18 @@ const sessionsToolModule: ToolModule = {
             status: 'completed',
             response: result.content,
             tools_used: result.toolCalls?.length || 0,
-            duration_ms: session.endTime - start,
+            duration_ms: Date.now() - start,
           }),
           duration: Date.now() - start,
         };
       } catch (err: any) {
-        session.status = 'failed';
-        session.error = err.message;
-        session.endTime = Date.now();
+        if (store) {
+          store.update(sessionId, {
+            status: 'failed',
+            error: err.message,
+            endTime: Date.now()
+          });
+        }
         return {
           toolName: 'sessions_spawn',
           success: false,
@@ -168,7 +163,8 @@ const sessionsToolModule: ToolModule = {
 
     // ── sessions_list ─────────────────────────────────────
     registry.register('sessions_list', async () => {
-      const list = [...spawnedSessions.values()].map(s => ({
+      const sessions = store ? store.list() : [];
+      const list = sessions.map(s => ({
         session_id: s.id,
         task: s.task.slice(0, 100),
         agent: s.agentId || 'default',
@@ -190,7 +186,7 @@ const sessionsToolModule: ToolModule = {
       const sessionId = String(args.session_id || '');
       if (!sessionId) return { toolName: 'sessions_status', success: false, error: 'Missing "session_id"', duration: 0 };
 
-      const session = spawnedSessions.get(sessionId);
+      const session = store ? store.get(sessionId) : undefined;
       if (!session) {
         return { toolName: 'sessions_status', success: false, error: `Session "${sessionId}" not found`, duration: 0 };
       }
@@ -216,7 +212,7 @@ const sessionsToolModule: ToolModule = {
       if (!sessionId) return { toolName: 'sessions_send', success: false, error: 'Missing "session_id"', duration: 0 };
       if (!message) return { toolName: 'sessions_send', success: false, error: 'Missing "message"', duration: 0 };
 
-      const session = spawnedSessions.get(sessionId);
+      const session = store ? store.get(sessionId) : undefined;
       if (!session) {
         return { toolName: 'sessions_send', success: false, error: `Session "${sessionId}" not found`, duration: 0 };
       }
@@ -229,7 +225,12 @@ const sessionsToolModule: ToolModule = {
       const start = Date.now();
       try {
         const result = await orchestrator.chat(sessionId, message, 'web', 'sub-agent', true);
-        session.result = result.content;
+        if (store) {
+          store.update(sessionId, {
+            result: result.content,
+            endTime: Date.now()
+          });
+        }
         return {
           toolName: 'sessions_send',
           success: true,

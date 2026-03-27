@@ -40,6 +40,7 @@ export interface ToolContext {
   getWorkspacePath(): string | null;
   getCliService(): any | null;
   getFollowUpStore(): any | null;
+  getSpawnedSessionStore(): any | null;
 }
 
 /**
