@@ -34,7 +34,8 @@ import { getVertexAccessToken } from './vertex-auth.js';
 import { getMetering } from './metering.js';
 import { filterStaleErrors } from './message-filter.js';
 import { runSubagent } from './subagent-runner.js';
-import { createTaskPlan, getExecutionOrder } from './task-planner.js';
+import { createTaskPlan, getExecutionOrder, type TaskPlan, type TaskStep } from './task-planner.js';
+import { saveTaskPlan, updateStepStatus, updatePlanStatus } from './plan-store.js';
 
 /**
  * Find recent outbound messages sent TO a specific contact by the owner.
@@ -132,6 +133,8 @@ export interface AgentOrchestrator {
   getAgentMarkdown(agentId: string): string | null;
   /** Save raw markdown for a specialized agent and reload it */
   saveAgentMarkdown(agentId: string, content: string): void;
+  /** Resume active task plans from the database (called at startup) */
+  resumeActivePlans(): Promise<void>;
 }
 
 export function createAgentOrchestrator(
@@ -213,59 +216,94 @@ export function createAgentOrchestrator(
     }
   });
 
+  async function runPlan(plan: TaskPlan, context: any): Promise<string> {
+    const stepResults = new Map<string, string>();
+    const executionOrder = getExecutionOrder(plan.steps);
+    const db = context?.getDatabase?.();
+    
+    // Fill in results for already completed steps
+    for (const step of plan.steps) {
+      if (step.status === 'completed' && step.result) {
+        stepResults.set(step.id, step.result);
+      }
+    }
+    
+    try {
+      updatePlanStatus(plan.id, 'executing', db as any);
+      
+      for (const group of executionOrder) {
+        // Only run steps that are not already completed or failed
+        const stepsToRun = group.filter(s => s.status === 'pending' || s.status === 'running');
+        if (stepsToRun.length === 0) continue;
+        
+        await Promise.all(stepsToRun.map(async (step) => {
+          // Inject results from previous steps
+          let prompt = step.prompt || step.description;
+          for (const [id, res] of stepResults.entries()) {
+            prompt = prompt.replace(new RegExp(`\\{${id}.result\\}`, 'g'), res);
+          }
+          
+          const agentDef = agents.get(step.agentType);
+          const subConfig = agentDef ? {
+            name: agentDef.name,
+            systemPrompt: agentDef.systemPrompt,
+            allowedTools: agentDef.allowedTools,
+            timeoutMs: 120000,
+          } : {
+            name: 'General',
+            timeoutMs: 120000,
+          };
+          
+          const orchestratorInterface = {
+            chat: (sid: string, msg: string, spo?: string) => 
+              orchestrator.chat(sid, msg, 'sub-agent', context?.contactName, context?.isOwner, undefined, spo)
+          };
+          
+          step.status = 'running';
+          updateStepStatus(plan.id, step.id, 'running', undefined, undefined, db as any);
+          
+          const result = await runSubagent(subConfig, prompt, orchestratorInterface);
+          
+          if (result.status === 'completed') {
+            step.status = 'completed';
+            step.result = result.result;
+            stepResults.set(step.id, result.result || '');
+            updateStepStatus(plan.id, step.id, 'completed', result.result, undefined, db as any);
+          } else {
+            step.status = 'failed';
+            step.error = result.error;
+            updateStepStatus(plan.id, step.id, 'failed', undefined, result.error, db as any);
+            throw new Error(`Step ${step.id} failed: ${result.error}`);
+          }
+        }));
+      }
+      
+      updatePlanStatus(plan.id, 'completed', db as any);
+      const summary = plan.steps.map((s: TaskStep) => `- ${s.description}: ${s.status === 'completed' ? 'Success' : `Failed (${s.error})`}`).join('\n');
+      return `Plan executed successfully:\n${summary}`;
+    } catch (err: any) {
+      updatePlanStatus(plan.id, 'failed', db as any);
+      const summary = plan.steps.map((s: TaskStep) => `- ${s.description}: ${s.status}`).join('\n');
+      return `Plan failed: ${err.message}\n\nProgress:\n${summary}`;
+    }
+  }
+
   toolRegistry.register('execute_plan', async (args, context) => {
     const request = String(args.request || '');
     if (!request) return { toolName: 'execute_plan', success: false, error: 'request is required', duration: 0 };
     
     const availableAgentTypes = [...Array.from(agents.keys()), 'general'];
+    const db = context?.getDatabase?.();
+    const sessionId = context?.sessionId || 'default';
     
     const plan = await createTaskPlan(request, availableAgentTypes, (sys, user) => orchestrator.generate(sys, user));
     
-    const steps = plan.steps;
-    const executionOrder = getExecutionOrder(steps);
-    const stepResults = new Map<string, string>();
-    
-    for (const group of executionOrder) {
-      await Promise.all(group.map(async (step) => {
-        // Inject results from previous steps
-        let prompt = step.prompt || step.description;
-        for (const [id, res] of stepResults.entries()) {
-          prompt = prompt.replace(new RegExp(`\\{${id}.result\\}`, 'g'), res);
-        }
-        
-        const agentDef = agents.get(step.agentType);
-        const subConfig = agentDef ? {
-          name: agentDef.name,
-          systemPrompt: agentDef.systemPrompt,
-          allowedTools: agentDef.allowedTools,
-          timeoutMs: 120000,
-        } : {
-          name: 'General',
-          timeoutMs: 120000,
-        };
-        
-        const orchestratorInterface = {
-          chat: (sid: string, msg: string, spo?: string) => 
-            orchestrator.chat(sid, msg, 'sub-agent', context?.contactName, context?.isOwner, undefined, spo)
-        };
-        
-        step.status = 'running';
-        const result = await runSubagent(subConfig, prompt, orchestratorInterface);
-        
-        if (result.status === 'completed') {
-          step.status = 'completed';
-          step.result = result.result;
-          stepResults.set(step.id, result.result || '');
-        } else {
-          step.status = 'failed';
-          step.error = result.error;
-          throw new Error(`Step ${step.id} failed: ${result.error}`);
-        }
-      }));
+    if (db) {
+      saveTaskPlan(sessionId, plan, db);
     }
     
-    const summary = plan.steps.map(s => `- ${s.description}: ${s.status === 'completed' ? 'Success' : `Failed (${s.error})`}`).join('\n');
-    return { toolName: 'execute_plan', success: true, result: `Plan executed:\n${summary}`, duration: 0 };
+    const result = await runPlan(plan, context);
+    return { toolName: 'execute_plan', success: !result.includes('failed'), result, duration: 0 };
   });
   
   // Multi-agent state
@@ -1306,6 +1344,20 @@ export function createAgentOrchestrator(
       } catch (err: any) {
         console.error(`[Orchestrator] Error writing agent file ${filePath}:`, err.message);
       }
+    },
+
+    async resumeActivePlans(): Promise<void> {
+      // TODO: Implement plan resumption when plan persistence is fully built
+      // This requires getTaskPlan() and runPlan() which are not yet implemented.
+      // For now, this is a no-op. Plans that were interrupted will need to be
+      // re-triggered manually.
+      if (!db) return;
+      try {
+        const rows = db.query<{ id: string }>('SELECT id FROM task_plans WHERE status IN (?, ?)', ['executing', 'planning']);
+        if (rows.length > 0) {
+          console.log(`[Orchestrator] Found ${rows.length} incomplete plans (resumption not yet implemented)`);
+        }
+      } catch { /* table may not exist yet */ }
     },
   });
 
