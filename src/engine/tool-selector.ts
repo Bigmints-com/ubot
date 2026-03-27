@@ -15,12 +15,13 @@ import { log } from '../logger/ring-buffer.js';
 
 /** Modules whose tools are ALWAYS included (core agent behavior) */
 const ALWAYS_INCLUDE_MODULES = new Set([
-  'approvals',   // ask_owner — secretary behavior
-  'personas',    // save_memory, get_profile — soul system
-  'followups',   // conversation continuity
-  'web-fetch',   // always need URL fetching as fallback
-  'web-search',  // always need web search capability (includes tavily MCP)
-  'browser',     // playwright MCP — always available for browsing
+  'approvals',      // ask_owner — secretary behavior
+  'personas',       // save_memory, get_profile — soul system
+  'followups',      // conversation continuity
+  'web-fetch',      // always need URL fetching as fallback
+  'web-search',     // always need web search capability (includes tavily MCP)
+  'browser',        // playwright MCP — always available for browsing
+  'orchestrator',   // delegate_to_agent, execute_plan — multi-agent control
 ]);
 
 /** Static one-liner descriptions per module — used in the compact catalog */
@@ -45,6 +46,7 @@ const MODULE_DESCRIPTIONS: Record<string, string> = {
   scheduler:     'Schedule messages, reminders, and agent tasks',
   browser:       'Browser automation, screenshots, form filling',
   mcp:           'External MCP server tools',
+  orchestrator:  'Delegate tasks to specialized agents, decompose complex multi-step requests into plans',
 };
 
 /**

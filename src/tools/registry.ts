@@ -8,6 +8,9 @@
  *   3. The registry discovers and registers them automatically
  *
  * Infrastructure modules (channels, memory, engine) are registered explicitly.
+ *
+ * NOTE: CORE_ORCHESTRATOR_TOOLS (delegate_to_agent, execute_plan, list_agents)
+ * are injected here under module:'orchestrator' so the tool selector always includes them.
  */
 
 import fs from 'fs';
@@ -143,7 +146,16 @@ export async function getAllToolsWithModules(): Promise<Array<{ module: string; 
   const custom = getLoadedToolModules().flatMap(m => 
     m.tools.map(tool => ({ module: `custom:${m.name}`, tool }))
   );
-  return [...core, ...custom];
+
+  // Include core orchestrator tools (delegate_to_agent, execute_plan, list_agents)
+  // so the tool selector can see them and the LLM can use multi-agent delegation.
+  let orchestratorTools: Array<{ module: string; tool: ToolDefinition }> = [];
+  try {
+    const { CORE_ORCHESTRATOR_TOOLS } = await import('../engine/tools.js');
+    orchestratorTools = CORE_ORCHESTRATOR_TOOLS.map(tool => ({ module: 'orchestrator', tool }));
+  } catch { /* engine not available yet during startup */ }
+
+  return [...orchestratorTools, ...core, ...custom];
 }
 
 /**
