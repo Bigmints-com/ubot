@@ -3,8 +3,8 @@
 ## The Vision
 An autonomous, multi-agent, sub-agent tool that can receive a complex instruction like *"write an article about X, publish it on Substack, cross-post to LinkedIn"* and just **do it** — reliably, every time, without human intervention.
 
-## The Reality
-A single-agent loop that calls tools sequentially, hits arbitrary limits, loses context between turns, has no task persistence, no error recovery, and couples infrastructure stability to fragile process management.
+## The Reality (Updated 2026-03-27)
+A single-agent loop with a **middleware pipeline** that provides retry, circuit-breaking, and logging. It calls tools sequentially, recovers from failures, tracks progress, and schedules follow-ups. Significant progress since initial analysis, but still single-agent.
 
 ---
 
@@ -15,162 +15,181 @@ A single-agent loop that calls tools sequentially, hits arbitrary limits, loses 
 
 **What exists:** One `AgentOrchestrator` with one LLM loop. It calls one tool at a time, waits for the result, then decides what to do next. There's no concept of delegation, parallel execution, or specialized agents for different domains.
 
-**What's missing:**
-- **Task decomposition** — breaking "publish to Substack + LinkedIn" into sub-tasks
-- **Sub-agent spawning** — a browser agent, a writing agent, a social media agent
-- **Parallel execution** — writing the LinkedIn post while the Substack page loads
-- **Agent specialization** — a browser agent that knows DOM patterns, a writing agent that knows your voice
+**What's been added:**
+- ✅ `SubagentRunner` — can spawn isolated background sub-tasks with timeout protection
+- ❌ No task decomposition planner
+- ❌ No parallel execution
+- ❌ No agent specialization
 
-**Current code:**
-```typescript
-// orchestrator.ts — the entire "multi-agent" system is this single loop
-while (iteration < currentConfig.maxToolIterations) {
-  const llmResult = await callLLM(messages, ...);
-  // Execute tools ONE AT A TIME
-  for (const toolCall of llmResult.toolCalls) {
-    const result = await toolRegistry.execute(toolCall);
-  }
-}
-```
-
-**What's needed:** A task planner that decomposes requests into a DAG of sub-tasks, each runnable by a specialized agent with its own context window, tools, and failure handling.
+**Status: 🔴 15% complete** — foundation exists (`SubagentRunner`), but no orchestration layer on top.
 
 ---
 
 ## Gap 2: Fire-and-Forget Execution (No Task Persistence)
 
-**What exists:** When a user sends a message, the agent loop runs synchronously within a single HTTP request. If it hits `maxToolIterations` (was 10, now 25), it just stops. The task is **gone**. There's no way to resume.
+**What exists now:**
+- ✅ `write_todos` — in-memory progress tracking for multi-step tasks (verified working with `pending → in_progress → completed/failed` lifecycle)
+- ✅ `schedule_followup` — schedule delayed messages to come back to the user
+- ✅ **Async API mode** — `POST /api/chat {async: true}` returns `202 Accepted` with a `jobId`, client polls `GET /api/chat/job/:id` for results. Prevents HTTP timeouts on 30-75s multi-tool chains.
+- ✅ Iteration limit raised to 25 (handles longer chains)
 
-**What's missing:**
-- **Task queue** — tasks should be first-class, persisted objects with state (pending, running, completed, failed)
-- **Continuation** — if a browser workflow needs 30 steps, it should continue across multiple agent turns, not die at step 10
-- **Progress tracking** — the user should see "Step 3/7: Filling in article content..." not silence for 60 seconds
-- **Resume on failure** — if Chrome crashes mid-task, the system should detect it, restart Chrome, and pick up where it left off
+**What's still missing:**
+- ❌ **SQLite persistence** — todos and jobs are in-memory, lost on restart
+- ❌ **Cross-turn continuation** — if a task needs more than 25 iterations, it stops
+- ❌ **Resume-on-failure** — if Chrome crashes mid-task, no auto-recovery
 
-**Current behavior:**
-```
-User: "publish this article"
-Agent: [navigate ✓] [snapshot ✓] [click ✓] [fill ✓] [snapshot ✓] ... [iteration 10] → STOP
-Agent: "I completed the requested actions." ← LIE
-```
+**Status: 🟡 40% complete** — progress tracking and async API work in production. Persistence layer needed.
 
 ---
 
 ## Gap 3: Infrastructure Fragility
 
-**What broke today (and will break again):**
-
 | Issue | Root Cause | Status |
 |-------|-----------|--------|
 | Chrome dies silently | Launched ad-hoc, no process supervision | ✅ Fixed (systemd) |
-| CDP config lost on deploy | `make update` overwrites config.json | ⚠️ Patched but fragile |
+| CDP config lost on deploy | `make update` overwrites config.json | ✅ Fixed (merge, not overwrite) |
 | Playwright launches own browser | `--cdp-endpoint` missing from args | ✅ Fixed |
 | Playwright MCP times out | Default 30s too short for heavy pages | ✅ Fixed (60s) |
 | No health checks | Nothing monitors Chrome, Playwright, or UBOT | ❌ Not addressed |
+| Config protection | Deploy should NEVER overwrite CDP/MCP settings | ✅ Fixed (config merge preserves existing values) |
 
-**What's needed:**
-- **Health monitoring loop** — check Chrome CDP, Playwright connection, LLM availability every 60s
-- **Auto-recovery** — if CDP drops, restart Chrome and reconnect Playwright
-- **Config protection** — deploy should NEVER overwrite CDP/MCP settings
-- **Liveness probes** — the dashboard should show real-time infrastructure health
+**Status: 🟢 70% complete** — all critical infra issues fixed. Health monitoring loop still needed.
 
 ---
 
 ## Gap 4: Memory Poisoning Loop
 
-**What happened:** The `SUMMARY_UPDATE_PROMPT` told the model to "preserve tool outcomes" in the chat digest. When a tool failed, that failure got recorded permanently. Next time, the ToolSelector saw "browser tools don't work" in the digest and stopped including them as available tools. Self-reinforcing failure loop.
+**What happened:** The `SUMMARY_UPDATE_PROMPT` told the model to "preserve tool outcomes" in the chat digest. When a tool failed, that failure got recorded permanently. Self-reinforcing failure loop.
 
-**What's fixed:** The prompt now says "never record failures." But this is a band-aid.
+**What's fixed:**
+- ✅ Prompt now says "never record failures"
+- ✅ Tool failure messages are explicit: *"do NOT tell the user it succeeded. Report the actual error."*
+- ✅ `write_todos` correctly tracks `failed` status (verified in production logs)
 
-**What's actually needed:**
-- **Separate memory layers** — facts (permanent), task state (transient), error log (diagnostic only, never injected into LLM context)
-- **Memory validation** — before injecting digest into context, check if the claims are still true ("browser tools don't work" → test them right now)
-- **Expiring context** — tool failure memories should expire after 1 hour, not persist forever
+**What's still needed:**
+- ❌ Separate memory layers (facts / task state / error log)
+- ❌ Memory validation before injection
+- ❌ Expiring error memories
+
+**Status: 🟡 35% complete** — band-aids work, but no structural fix to memory architecture.
 
 ---
 
 ## Gap 5: Model-Prompt Coupling
 
-**The root cause of 80% of today's issues:** The model doesn't inherently know the difference between "do this now" and "create an automation." It relies entirely on the system prompt to make this decision. When the prompt said *"use create_skill immediately"*, the model obeyed — even when it was wrong.
+**Status: 🟡 30% complete**
 
-**This means:**
-- Every behavioral fix requires editing a prompt string in TypeScript
-- Prompt changes require a full build → deploy → restart cycle
-- There's no runtime experimentation — you can't A/B test prompts
-- The model's behavior is brittle — one ambiguous sentence can redirect everything
+**What's been done:**
+- ✅ ToolSelector — lightweight classifier (Flash-Lite) runs BEFORE the main LLM to route tools, reducing context by ~11K tokens
+- ✅ Better structured system prompt with explicit tool routing rules
 
-**What's needed:**
-- **Structured decision routing** — don't rely on natural language to decide between "use tool" vs "create skill." Add a lightweight classifier BEFORE the main LLM call that categorizes the request type
-- **Prompt management** — prompts should be config-driven (stored in DB/files), not hardcoded in TypeScript
-- **Behavioral tests** — a test suite that sends 20 known requests and verifies the model calls the right tools
+**What's still missing:**
+- ❌ Prompt management — prompts still hardcoded in TypeScript
+- ❌ No behavioral test suite
+- ❌ No runtime A/B testing
 
 ---
 
 ## Gap 6: No Tool Execution Observability
 
-**Today I had to add `console.log` to see what Playwright returned.** There was zero visibility into tool results. The model received an error, decided "browser doesn't work," and the only log was `[Agent] LLM response: 117 chars text, 0 tool calls`.
+**Status: ✅ 85% complete**
 
-**What's needed:**
-- **Structured tool execution log** — every tool call with: name, args, duration, success, result preview, error
-- **Dashboard integration** — see the agent's "thinking" in real-time: "Navigating to substack.com... Clicking Publish..."
-- **Cost tracking per task** — how many tokens did this Substack publish cost?
-- **Replay** — ability to replay a failed task to debug it
+**What's been built:**
+- ✅ **LoggingMiddleware** — every tool call logged with `✓/✗`, timing, and args
+- ✅ **Turn Summary** — `Turn Summary: 8 iterations, 7 tool calls (✓ 6, ✗ 1)` after every turn
+- ✅ **Failed Tools log** — explicit listing of which tools failed and why
+- ✅ **Error diagnostics** — `web_fetch` now extracts `err.cause` for actionable messages (`UND_ERR_SOCKET`, `ECONNRESET` instead of just "fetch failed")
+- ✅ **Token cost tracking** — token usage shown per message in web UI
+- ✅ **Tool badges** — visible in web UI showing which tools were called
+- ✅ **Thread auto-naming** — threads named from first message content
+
+**Remaining:**
+- ❌ Dashboard-level tool analytics (most used, most failed, avg latency)
+- ❌ Task replay for debugging
 
 ---
 
 ## Gap 7: No Error Recovery Strategy
 
-**Current behavior when a tool fails:**
-1. Model sees `❌ TOOL FAILED: ...`
-2. Model decides to either retry (sometimes loops) or give up ("I couldn't do it")
-3. No structured retry logic, no circuit breaker, no fallback strategy
+**Status: ✅ 80% complete**
 
-**What's needed:**
-- **Retry with backoff** — if `browser_navigate` times out, wait 5s and retry (max 2 retries)
-- **Circuit breaker** — if Chrome/CDP fails 3 times, stop trying browser tools and tell the user "browser service is down"
-- **Fallback strategies** — if browser can't reach LinkedIn, offer to compose the post text and let the user post manually
-- **Error classification** — transient (timeout, network) vs permanent (auth expired, page doesn't exist)
+**What's been built (verified with E2E edge case tests):**
+- ✅ **RetryMiddleware** — exponential backoff for transient failures. Verified: `Retrying web_fetch (attempt 1/2): fetch failed (UND_ERR_SOCKET)` → `(attempt 2/2)` → give up
+- ✅ **CircuitBreakerMiddleware** — monitors tool health, opens circuit after 3 consecutive failures
+- ✅ **Pipeline continues after failures** — confirmed: 10 tool calls in single turn, continued past web_fetch failure
+- ✅ **Error classification** — transient errors (socket, timeout) trigger retry; permanent errors (auth, 404) don't
+- ✅ **Explicit failure reporting** — agent uses `"failed"` status in todos, provides error evidence
+
+**Remaining:**
+- ❌ Fallback strategies (if browser fails, offer manual alternative)
+- ❌ Auto-recovery (restart Chrome if CDP drops)
 
 ---
 
-## Prioritized Roadmap
+## Prioritized Roadmap (Updated)
 
-### Phase 1: Make What Exists Reliable (1-2 weeks)
+### Phase 1: Make What Exists Reliable ~~(1-2 weeks)~~ ✅ 90% DONE
 1. ~~Fix tool routing (create_skill vs browser)~~ ✅ Done
 2. ~~Fix iteration limits~~ ✅ Done  
 3. ~~Fix Chrome infrastructure~~ ✅ Done (systemd)
-4. Add health monitoring loop (Chrome CDP, Playwright, LLM)
-5. Add structured tool execution logging
-6. Protect config.json from deploy overwrites
-7. Add retry logic for transient tool failures
+4. Add health monitoring loop (Chrome CDP, Playwright, LLM) — ❌ remaining
+5. ~~Add structured tool execution logging~~ ✅ Done (LoggingMiddleware)
+6. ~~Protect config.json from deploy overwrites~~ ✅ Done (merge strategy)
+7. ~~Add retry logic for transient tool failures~~ ✅ Done (RetryMiddleware)
+8. ~~Add circuit breaker~~ ✅ Done (CircuitBreakerMiddleware)
+9. ~~Fix error diagnostics~~ ✅ Done (web_fetch cause extraction)
+10. ~~Thread auto-naming~~ ✅ Done
+11. ~~Async API for long chains~~ ✅ Done
 
-### Phase 2: Task Persistence (2-3 weeks)
-1. Task queue with persistent state (SQLite)
-2. Long-running tasks that continue across agent turns
-3. Progress reporting to user ("Step 3/7...")
-4. Resume-on-failure for browser workflows
+### Phase 2: Task Persistence (2-3 weeks) — 🟡 40% DONE
+1. ✅ In-memory todo tracking (write_todos + TodoStore)
+2. ✅ Async API with job polling (POST async → GET job/:id)
+3. ❌ SQLite-backed persistence for todos, jobs, and subagent results
+4. ❌ Long-running tasks that continue across agent turns
+5. ❌ Resume-on-failure for browser workflows
 
-### Phase 3: Multi-Agent Architecture (4-6 weeks)
-1. Task decomposition planner (breaks complex requests into sub-tasks)
-2. Specialized agent types (BrowserAgent, WritingAgent, SocialAgent)
-3. Agent-to-agent delegation ("BrowserAgent, go publish this on Substack")
-4. Parallel sub-task execution
-5. Result aggregation and reporting
+### Phase 3: Multi-Agent Architecture (4-6 weeks) — 🔴 15% DONE
+1. ✅ SubagentRunner foundation (isolated background tasks)
+2. ❌ Task decomposition planner
+3. ❌ Specialized agent types (BrowserAgent, WritingAgent, SocialAgent)
+4. ❌ Agent-to-agent delegation
+5. ❌ Parallel sub-task execution
+6. ❌ Result aggregation and reporting
 
-### Phase 4: Self-Improving System (ongoing)
-1. Behavioral test suite (50+ known requests → expected tool calls)
-2. Prompt A/B testing
-3. Tool usage analytics (which tools fail most, average latency)
-4. Auto-generate skills from successful manual workflows
+### Phase 4: Self-Improving System (ongoing) — 🔴 5% DONE
+1. ❌ Behavioral test suite (50+ known requests → expected tool calls)
+2. ❌ Prompt A/B testing
+3. ❌ Tool usage analytics (which tools fail most, average latency)
+4. ❌ Auto-generate skills from successful manual workflows
 
 ---
 
-## The Honest Bottom Line
+## Edge Case Test Results Summary
 
-UBOT today is a **single-agent tool-calling loop with an impressive set of integrations**. The channel coverage (WhatsApp, Telegram, webchat), the memory system, the skill engine, the MCP integration — these are real and valuable.
+All 10 edge case tests pass (2026-03-27):
+| Test | Result |
+|------|--------|
+| Empty message | ✅ HTTP 400 |
+| Missing field | ✅ HTTP 400 |
+| Invalid JSON | ✅ Handled |
+| Bad URL browse | ✅ Error recovery |
+| Schedule + evidence | ✅ ID returned |
+| Concurrent requests | ✅ No cross-contamination |
+| Invalid tool params | ✅ Rejected with clear message |
+| Multi-tool chain w/ errors | ✅ 10 tools, continued past failures |
+| RetryMiddleware | ✅ 2 retries with backoff |
+| Error recovery chain | ✅ 7 tools, all steps completed |
 
-But it's not yet an autonomous multi-agent system. The gap between "call tools in a loop" and "decompose, delegate, execute, recover, report" is significant. It's not a weekend project — it's a genuine architectural evolution.
+---
 
-The good news: the foundation is solid. The `AgentOrchestrator` interface, the `ToolRegistry`, the `SkillEngine`, the MCP bridge — these are the right abstractions. They just need to be composed into a higher-level orchestration layer rather than being the final layer themselves.
+## Updated Bottom Line
 
-**The single most impactful next step** is Phase 2 (Task Persistence) — making tasks survive beyond a single HTTP request/response cycle. That alone would fix 60% of the "it stopped mid-way" problems without requiring a full multi-agent rewrite.
+UBOT has evolved from a **fragile single-agent loop** to a **reliable middleware-hardened orchestrator**. It now:
+- Retries transient failures with exponential backoff
+- Tracks progress with accurate status (`failed` vs `completed`)
+- Handles multi-tool chains (10+ tools in a single turn, 74s)
+- Provides async API for long-running tasks
+- Auto-names threads for usability
+- Logs every tool call with diagnostic detail
+
+**The next frontier is Phase 2 (SQLite persistence)** — making todos, jobs, and subagent results survive restarts. After that, Phase 3 (multi-agent) becomes feasible because the reliability foundation is now solid.
