@@ -19,7 +19,7 @@ describe('Task Planner', () => {
   describe('createTaskPlan', () => {
     it('should return a single step for simple requests', async () => {
       const generate = vi.fn();
-      const plan = await createTaskPlan('Simple task', ['general'], generate);
+      const plan = await createTaskPlan('test-session', 'Simple task', ['general'], generate);
       
       expect(plan.steps).toHaveLength(1);
       expect(plan.steps[0].agentType).toBe('general');
@@ -35,7 +35,7 @@ describe('Task Planner', () => {
       });
       const generate = vi.fn().mockResolvedValue(mockResponse);
       
-      const plan = await createTaskPlan('Search for pizza and then send the address to John', ['browser-operator', 'general'], generate);
+      const plan = await createTaskPlan('test-session', 'Search for pizza and then send the address to John', ['browser-operator', 'general'], generate);
       
       expect(plan.steps).toHaveLength(2);
       expect(plan.steps[0].id).toBe('step-1');
@@ -45,7 +45,7 @@ describe('Task Planner', () => {
 
     it('should fallback to single step on LLM failure', async () => {
       const generate = vi.fn().mockRejectedValue(new Error('LLM Error'));
-      const plan = await createTaskPlan('Complex task that fails planning', ['general'], generate);
+      const plan = await createTaskPlan('test-session', 'Complex task that fails planning', ['general'], generate);
       
       expect(plan.steps).toHaveLength(1);
       expect(plan.steps[0].description).toBe('Complex task that fails planning');
