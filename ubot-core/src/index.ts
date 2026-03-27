@@ -3,6 +3,7 @@ import fs from 'fs';
 import path from 'path';
 
 import { handleApiRoute, initializeApi } from './api/index.js';
+import { setSessionValidator } from './api/middleware/auth.js';
 import { metricsCollector } from './metrics/index.js';
 import { log } from './logger/ring-buffer.js';
 import { createConnection, createDefaultConfig } from './data/database/connection.js';
@@ -203,6 +204,9 @@ function setSessionCookie(res: http.ServerResponse, token: string): void {
 function clearSessionCookie(res: http.ServerResponse): void {
   res.setHeader('Set-Cookie', `${SESSION_COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`);
 }
+
+// Wire session validation into API auth middleware so dashboard cookie auth works
+setSessionValidator(validateSession);
 
 async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
   const url = req.url || '/';
