@@ -959,7 +959,7 @@ export function createAgentOrchestrator(
           // Add tool result as a "tool" role message (OpenAI format)
           const rawToolContent = result.success
             ? (result.result || 'Completed (no details returned).')
-            : `❌ TOOL FAILED: ${toolCall.toolName}\nError: ${result.error}\nIMPORTANT: This tool call FAILED — do NOT tell the user it succeeded. Report the actual error.`;
+            : `❌ TOOL FAILED: ${toolCall.toolName}\nError: ${result.error}\nIMPORTANT: This tool call FAILED — do NOT tell the user it succeeded. Report the actual error. If you are using write_todos to track progress, mark this step as "failed" (not "completed"). Continue with the next step.`;
 
           // ── Token guard: truncate large tool results ──────────────
           // browser_snapshot returns full DOM accessibility trees (10k+ tokens).
