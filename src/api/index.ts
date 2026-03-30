@@ -818,10 +818,12 @@ export function initializeApi(
   workspacePath = wsPath || null;
   if (db) {
 
-    // File-based skills: stored as SKILL.md files in $UBOT_HOME/skills/
-    const skillsDir = process.env.UBOT_HOME
-      ? require('path').join(process.env.UBOT_HOME, 'skills')
-      : './skills';
+    // File-based skills: stored as SKILL.md files in workspace/skills/
+    const skillsDir = wsPath
+      ? require('path').join(wsPath, 'skills')
+      : (process.env.UBOT_HOME
+        ? require('path').join(process.env.UBOT_HOME, 'workspace', 'skills')
+        : './skills');
     skillRepo = createFileSkillRepository(skillsDir);
     coreDb = db as unknown as DatabaseConnection;
     asyncJobStore = createAsyncJobStore(coreDb);
