@@ -57,6 +57,14 @@ const SKILLS_TOOLS: ToolDefinition[] = [
       { name: 'skill_id', type: 'string', description: 'ID of the skill to delete', required: true },
     ],
   },
+  {
+    name: 'run_skill',
+    description: 'Run a saved skill on demand with a given message/topic. Use this when a matching skill exists for the user\'s request instead of doing it manually.',
+    parameters: [
+      { name: 'skill_id', type: 'string', description: 'ID of the skill to run (e.g., "substack-writer", "linkedin-poster")', required: true },
+      { name: 'message', type: 'string', description: 'The message/topic to process through the skill\'s pipeline', required: true },
+    ],
+  },
 ];
 
 const skillsToolModule: ToolModule = {
@@ -87,6 +95,40 @@ const skillsToolModule: ToolModule = {
         return `• [${s.id}] "${s.name}" — ${status}\n  Events: ${events}${cond}${filterStr}\n  Instructions: ${s.processor.instructions.slice(0, 100)}${s.processor.instructions.length > 100 ? '...' : ''}\n  Outcome: ${s.outcome.action}${s.outcome.target ? ' → ' + s.outcome.target : ''}`;
       }).join('\n');
       return { toolName: 'list_skills', success: true, result: `${skills.length} skill(s):\n${summary}`, duration: 0 };
+    });
+
+    registry.register('run_skill', async (args: Record<string, unknown>, context?: any) => {
+      const engine = getEngine();
+      const skillId = String(args.skill_id || args.skillId || '');
+      const message = String(args.message || args.topic || '');
+      if (!skillId) return { toolName: 'run_skill', success: false, error: 'skill_id is required', duration: 0 };
+      if (!message) return { toolName: 'run_skill', success: false, error: 'message is required', duration: 0 };
+
+      const skill = engine.getSkill(skillId);
+      if (!skill) {
+        const available = engine.getSkills().map((s: any) => s.id).join(', ');
+        return { toolName: 'run_skill', success: false, error: `Skill "${skillId}" not found. Available: ${available}`, duration: 0 };
+      }
+
+      try {
+        const result = await engine.runSkill(skillId, {
+          source: 'web',
+          type: 'web:command',
+          from: context?.sessionId || 'web-console',
+          body: message,
+          data: { isOwner: true },
+        });
+        return {
+          toolName: 'run_skill',
+          success: result.success,
+          result: result.success
+            ? `Skill "${skill.name}" executed successfully:\n${result.response}`
+            : `Skill "${skill.name}" failed: ${result.error}`,
+          duration: result.duration,
+        };
+      } catch (err: any) {
+        return { toolName: 'run_skill', success: false, error: `Skill execution failed: ${err.message}`, duration: 0 };
+      }
     });
 
     registry.register('create_skill', async (args) => {
