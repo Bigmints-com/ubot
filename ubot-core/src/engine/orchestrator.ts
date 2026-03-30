@@ -138,6 +138,8 @@ export interface AgentOrchestrator {
   saveAgentMarkdown(agentId: string, content: string): void;
   /** Resume active task plans from the database (called at startup) */
   resumeActivePlans(): Promise<void>;
+  /** Inject skill engine after initialization (needed because agent is created before skillEngine) */
+  setSkillEngine(engine: SkillEngine): void;
 }
 
 export function createAgentOrchestrator(
@@ -1609,6 +1611,11 @@ REQUIREMENTS:
           console.error('[Orchestrator] Error in resumeActivePlans:', err.message);
         }
       }
+    },
+
+    setSkillEngine(engine: SkillEngine) {
+      skillEngine = engine;
+      log.info('Agent', `SkillEngine injected (${engine.getSkills().length} skills available)`);
     },
   });
 

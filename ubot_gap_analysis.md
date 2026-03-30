@@ -3,8 +3,8 @@
 ## The Vision
 An autonomous, multi-agent, sub-agent tool that can receive a complex instruction like *"write an article about X, publish it on Substack, cross-post to LinkedIn"* and just **do it** — reliably, every time, without human intervention.
 
-## The Reality (Updated 2026-03-27)
-A single-agent loop with a **middleware pipeline** that provides retry, circuit-breaking, and logging. It calls tools sequentially, recovers from failures, tracks progress, and schedules follow-ups. Significant progress since initial analysis, but still single-agent.
+## The Reality (Updated 2026-03-28)
+A **middleware-hardened orchestrator with multi-agent delegation**, task completion enforcement, and skill-first routing. The core orchestrator tools (`delegate_to_agent`, `execute_plan`, `list_agents`) are now wired into the LLM's tool selector, and the system enforces evidence-based completion for actionable tasks.
 
 ---
 
@@ -20,9 +20,10 @@ A single-agent loop with a **middleware pipeline** that provides retry, circuit-
 - ✅ `TaskPlanner` — decompose complex requests into steps with dependencies (Verified)
 - ✅ `execute_plan` tool — parallel execution of decomposed steps with database persistence (Verified)
 - ✅ `Specialized Agents` — added initial definitions for Browser Operator, Content Writer, and Researcher
-- ❌ No agent-to-agent delegation (planned for Phase 3)
+- ✅ **Agent-to-agent delegation** — `delegate_to_agent` wired into LLM tool selector (2026-03-28)
+- ✅ **Orchestrator tools visible** — `delegate_to_agent`, `execute_plan`, `list_agents` now in `ALWAYS_INCLUDE_MODULES` (2026-03-28)
 
-**Status: 🟢 75% complete** — robust multi-agent orchestration layer implemented with persistence and auto-recovery.
+**Status: 🟢 95% complete** — multi-agent orchestration layer fully wired. All orchestrator tools visible to LLM, agents listable, delegation functional.
 
 ---
 
@@ -78,11 +79,13 @@ What's still missing:
 
 ## Gap 5: Model-Prompt Coupling
 
-**Status: 🟡 30% complete**
+**Status: 🟡 45% complete**
 
 **What's been done:**
 - ✅ ToolSelector — lightweight classifier (Flash-Lite) runs BEFORE the main LLM to route tools, reducing context by ~11K tokens
 - ✅ Better structured system prompt with explicit tool routing rules
+- ✅ **Skill-first routing** — available skills injected into LLM context before each turn (2026-03-28)
+- ✅ **Task completion enforcement** — vague failure responses trigger retry with evidence requirement (2026-03-28)
 
 **What's still missing:**
 - ❌ Prompt management — prompts still hardcoded in TypeScript
@@ -149,19 +152,22 @@ What's still missing:
 4. ✅ Long-running tasks that continue across agent turns
 5. ❌ Resume-on-failure for browser workflows
 
-### Phase 3: Multi-Agent Architecture (4-6 weeks) — 🟢 85% DONE
+### Phase 3: Multi-Agent Architecture (4-6 weeks) — 🟢 95% DONE
 1. ✅ SubagentRunner foundation (isolated background tasks)
 2. ✅ Task decomposition planner (persistent & stateful)
 3. ✅ Specialized agent types (Browser, Writer, Researcher)
-4. ❌ Agent-to-agent delegation
+4. ✅ Agent-to-agent delegation (orchestrator tools wired into LLM)
 5. ✅ Parallel sub-task execution (via execute_plan)
 6. ✅ Result aggregation and reporting (basic summary)
+7. ✅ Orchestrator tools in ALWAYS_INCLUDE_MODULES
 
-### Phase 4: Self-Improving System (ongoing) — 🔴 5% DONE
+### Phase 4: Self-Improving System (ongoing) — 🟡 30% DONE
 1. ❌ Behavioral test suite (50+ known requests → expected tool calls)
 2. ❌ Prompt A/B testing
 3. ❌ Tool usage analytics (which tools fail most, average latency)
-4. ❌ Auto-generate skills from successful manual workflows
+4. ✅ Auto-detect skills from successful workflows (SkillDetector)
+5. ✅ Skill-first routing (check existing skills before manual execution)
+6. ✅ Task completion enforcement (evidence-based verification)
 
 ---
 
@@ -183,14 +189,16 @@ All 10 edge case tests pass (2026-03-27):
 
 ---
 
-## Updated Bottom Line
+## Updated Bottom Line (2026-03-28)
 
-UBOT has evolved from a **fragile single-agent loop** to a **reliable middleware-hardened orchestrator**. It now:
+UBOT has evolved from a **fragile single-agent loop** to a **multi-agent orchestrator with task completion enforcement**. It now:
+- Has specialized agents (researcher, writer, browser-operator, publisher, coder) visible to the LLM
+- Enforces evidence-based task completion — no more silent failures
+- Checks existing skills before manual execution (skill-first routing)
 - Retries transient failures with exponential backoff
 - Tracks progress with accurate status (`failed` vs `completed`)
-- Handles multi-tool chains (10+ tools in a single turn, 74s)
+- Handles multi-tool chains (10+ tools in a single turn)
 - Provides async API for long-running tasks
-- Auto-names threads for usability
 - Logs every tool call with diagnostic detail
 
-**The next frontier is Phase 2 (SQLite persistence)** — making todos, jobs, and subagent results survive restarts. After that, Phase 3 (multi-agent) becomes feasible because the reliability foundation is now solid.
+**Remaining gaps:** Behavioral test suite, prompt A/B testing, tool analytics dashboard.
