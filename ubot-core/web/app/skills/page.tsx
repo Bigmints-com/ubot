@@ -30,6 +30,7 @@ interface Skill {
   name: string;
   description: string;
   enabled: boolean;
+  system?: boolean;
   trigger: {
     events: string[];
     condition?: string;
@@ -221,6 +222,7 @@ export default function SkillsPage() {
                         >
                           <FileCode2 className="size-4" />
                         </Button>
+                        {!skill.system && (
                         <Button
                           variant="ghost"
                           size="icon"
@@ -229,6 +231,7 @@ export default function SkillsPage() {
                         >
                           <Trash2 className="size-4" />
                         </Button>
+                        )}
                       </div>
                     </TableCell>
                   </TableRow>

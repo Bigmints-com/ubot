@@ -136,6 +136,8 @@ export interface Skill {
   outcome: SkillOutcome;
   /** Whether the skill is active */
   enabled: boolean;
+  /** System skills can't be deleted from the UI */
+  system?: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
