@@ -115,7 +115,12 @@ const agent = createAgentOrchestrator(
 );
 
 // Re-initialize API with the agent now that it's created
-initializeApi(db as any, agent, WORKSPACE_PATH, followUpStore);
+const { skillEngine: liveSkillEngine } = initializeApi(db as any, agent, WORKSPACE_PATH, followUpStore);
+
+// Inject the live skill engine into the orchestrator (it was null on the first init)
+if (liveSkillEngine) {
+  agent.setSkillEngine(liveSkillEngine);
+}
 
 // Initialize integrations from config.json
 const serperCfg = ubotConfig.capabilities?.search?.providers?.serper;
