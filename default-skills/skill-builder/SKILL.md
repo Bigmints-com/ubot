@@ -6,6 +6,7 @@ filter_dms_only: true
 condition: the owner wants to create, build, define, edit, or improve a Ubot skill or automation — OR is asking what skills can do or how they work
 outcome: reply
 enabled: true
+system: true
 ---
 
 # Skill Builder
@@ -83,6 +84,7 @@ filter_pattern: "keyword|phrase"   # Regex pre-filter on message body (omit if n
 condition: when exactly this should fire  # Phase 2 LLM yes/no check (omit = auto-match)
 outcome: reply                     # reply | silent | send | store
 enabled: true
+system: true
 ---
 # Instructions
 

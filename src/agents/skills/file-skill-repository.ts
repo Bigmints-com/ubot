@@ -44,6 +44,7 @@ interface SkillFrontmatter {
   channel?: string;
   tools?: string[];
   enabled?: boolean;
+  system?: boolean;
   filters?: {
     contacts?: string[];
     groups?: string[];
@@ -117,6 +118,7 @@ function toFrontmatter(skill: Skill): string {
     lines.push(`tools: [${skill.processor.tools.join(', ')}]`);
   }
   lines.push(`enabled: ${skill.enabled}`);
+  if (skill.system) lines.push(`system: true`);
   lines.push('---');
 
   return lines.join('\n');
@@ -166,6 +168,7 @@ function fileToSkill(dirPath: string): Skill | null {
     processor,
     outcome,
     enabled: meta.enabled !== false,
+    system: meta.system === true,
     createdAt: stat.birthtime,
     updatedAt: stat.mtime,
   };
@@ -267,6 +270,9 @@ export function createFileSkillRepository(skillsDir: string): SkillRepository {
     },
 
     delete(id) {
+      // Prevent deletion of system skills
+      const skill = this.getById(id);
+      if (skill?.system) return false;
       const dirPath = path.join(skillsDir, id);
       if (!fs.existsSync(dirPath)) return false;
       fs.rmSync(dirPath, { recursive: true, force: true });
