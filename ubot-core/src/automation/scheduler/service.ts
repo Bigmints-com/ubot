@@ -93,7 +93,7 @@ export class TaskSchedulerService {
   private initDB(): void {
     try {
       const ubotHome = process.env.UBOT_HOME || join(homedir(), '.ubot');
-      const dbPath = join(ubotHome, 'data', 'ubot.db');
+      const dbPath = join(ubotHome, 'data', 'local', 'ubot.db');
       this.db = new Database(dbPath);
       this.db.exec(`
         CREATE TABLE IF NOT EXISTS scheduled_tasks (

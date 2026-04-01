@@ -12,6 +12,7 @@
 import type { ToolDefinition } from './types.js';
 import OpenAI from 'openai';
 import { log } from '../logger/ring-buffer.js';
+import { getHooks } from '../hooks/extensions.js';
 
 /** Modules whose tools are ALWAYS included (core agent behavior) */
 const ALWAYS_INCLUDE_MODULES = new Set([
@@ -53,11 +54,15 @@ const MODULE_DESCRIPTIONS: Record<string, string> = {
  * Build the compact module catalog for Phase 1.
  * ~300 tokens instead of ~12,600 for full tool schemas.
  */
-function buildModuleCatalog(availableModules: string[]): string {
+function buildModuleCatalog(
+  availableModules: string[],
+  descriptions: Record<string, string> = MODULE_DESCRIPTIONS,
+  alwaysOn: Set<string> = ALWAYS_INCLUDE_MODULES,
+): string {
   const lines = availableModules
-    .filter(m => !ALWAYS_INCLUDE_MODULES.has(m))
+    .filter(m => !alwaysOn.has(m))
     .map(m => {
-      const desc = MODULE_DESCRIPTIONS[m] || m;
+      const desc = descriptions[m] || m;
       return `- ${m}: ${desc}`;
     });
 
@@ -240,7 +245,15 @@ export async function selectToolsForMessage(
     }
   }
 
-  const catalog = buildModuleCatalog(allModules);
+  // Merge extra module descriptions from engine hook (custom apps)
+  const extraModuleDescs = getHooks().engine?.getExtraToolModules?.() ?? {};
+  const mergedDescriptions = { ...MODULE_DESCRIPTIONS, ...extraModuleDescs };
+
+  // Merge always-on modules from engine hook
+  const extraAlwaysOn = getHooks().engine?.getAlwaysOnModules?.() ?? [];
+  const mergedAlwaysOn = new Set([...ALWAYS_INCLUDE_MODULES, ...extraAlwaysOn]);
+
+  const catalog = buildModuleCatalog(allModules, mergedDescriptions, mergedAlwaysOn);
 
   try {
     const completion = await routerClient.chat.completions.create({

@@ -2,22 +2,45 @@
  * UBOT Feature Flags
  *
  * Controls which features are available based on deployment mode.
- * Set via UBOT_MODE environment variable:
- *   - 'local'        → Full power, self-hosted (default)
- *   - 'cloud'        → Single-tenant dedicated cloud
- *   - 'cloud-shared' → Multi-tenant shared SaaS
+ *
+ * Resolution order:
+ *   1. UBOT_MODE environment variable (highest priority — deploy-time override)
+ *   2. server.mode in config.json
+ *   3. Default: 'local'
+ *
+ * Core Modes:
+ *   - 'local' → Full power, self-hosted (default)
+ *   - 'cloud' → Single-tenant dedicated cloud
+ *
+ * Custom apps can extend with additional modes (e.g. 'cloud-shared')
+ * and use overrideFeatures() to restrict capabilities at startup.
  */
 
-export type UbotMode = 'local' | 'cloud' | 'cloud-shared';
+import { loadUbotConfig } from '../data/config.js';
 
-export const MODE: UbotMode = (process.env.UBOT_MODE || 'local') as UbotMode;
+export type UbotMode = 'local' | 'cloud';
+
+/**
+ * Resolve the deployment mode.
+ * Unknown mode values (e.g. 'cloud-shared' from a custom app) are
+ * treated as 'cloud' for core feature flag purposes.
+ */
+function resolveMode(): UbotMode {
+  const raw = process.env.UBOT_MODE || loadUbotConfig().server?.mode || 'local';
+  if (raw === 'local') return 'local';
+  // Any cloud variant ('cloud', 'cloud-shared', etc.) → 'cloud'
+  return 'cloud';
+}
+
+/** The raw UBOT_MODE value — custom apps can read this for extended modes */
+export const RAW_MODE: string = process.env.UBOT_MODE || loadUbotConfig().server?.mode || 'local';
+
+export const MODE: UbotMode = resolveMode();
 
 export const isLocal = MODE === 'local';
-export const isCloud = MODE === 'cloud' || MODE === 'cloud-shared';
-export const isDedicated = MODE === 'cloud';
-export const isShared = MODE === 'cloud-shared';
+export const isCloud = MODE === 'cloud';
 
-export const FEATURES = {
+export const FEATURES: Record<string, boolean> = {
   // ── All tiers (Core) ────────────────────────────────
   google: true,
   webchat: true,
@@ -34,11 +57,12 @@ export const FEATURES = {
   openai: true,
   sessions: true,
 
-  // ── Cloud dedicated + Local ─────────────────────────
-  telegram:          !isShared,
-  customMcp:         !isShared,
-  customSkills:      !isShared,
-  unlimitedSessions: !isShared,
+  // ── Cloud + Local (all on by default) ───────────────
+  // Custom apps can restrict these via overrideFeatures()
+  telegram:          true,
+  customMcp:         true,
+  customSkills:      true,
+  unlimitedSessions: true,
 
   // ── Local only ──────────────────────────────────────
   whatsapp:       isLocal,
@@ -50,26 +74,36 @@ export const FEATURES = {
   cli:            isLocal,
   appleServices:  isLocal,
   browserMcp:     isLocal,
-} as const;
+};
 
-export type FeatureName = keyof typeof FEATURES;
+export type FeatureName = string;
+
+/**
+ * Allow custom apps to override feature flags at startup.
+ * Called by custom app init hooks to restrict capabilities
+ * (e.g. SaveADay cloud-shared disables telegram, customMcp, etc.)
+ */
+export function overrideFeatures(overrides: Partial<Record<string, boolean>>): void {
+  for (const [key, value] of Object.entries(overrides)) {
+    if (key in FEATURES) {
+      FEATURES[key] = value;
+    }
+  }
+}
 
 /**
  * Check if a feature is enabled in the current mode.
  */
-export function isFeatureEnabled(feature: FeatureName): boolean {
+export function isFeatureEnabled(feature: string): boolean {
   return FEATURES[feature] ?? false;
 }
 
 /**
  * Returns a user-friendly message for disabled features.
  */
-export function getDisabledMessage(feature: FeatureName): string {
+export function getDisabledMessage(feature: string): string {
   if (FEATURES[feature]) return '';
 
-  if (isShared) {
-    return `This feature requires a dedicated or self-hosted instance.`;
-  }
   if (isCloud) {
     return `This feature is only available in the self-hosted (local) version.`;
   }

@@ -3,7 +3,7 @@
  *
  * Stores skills as markdown files with YAML frontmatter:
  *
- *   ~/.ubot/skills/
+ *   workspace/skills/
  *     daily-brief/
  *       SKILL.md
  *     linkedin-checker/
@@ -25,12 +25,14 @@
  *
  * The markdown body IS the processor instructions.
  * No database needed — skills are simple files you can edit, git-track, and share.
+ *
+ * Storage is abstracted via WorkspaceProvider so skills can live on local disk,
+ * GCS, or any other backend without changing this code.
  */
 
-import fs from 'fs';
-import path from 'path';
 import type { Skill, SkillTrigger, SkillProcessor, SkillOutcome } from './skill-types.js';
 import type { SkillRepository } from './skill-repository.js';
+import type { WorkspaceProvider } from '../../data/workspace-provider.js';
 
 // ─── Frontmatter Parsing ─────────────────────────────────
 
@@ -124,16 +126,14 @@ function toFrontmatter(skill: Skill): string {
   return lines.join('\n');
 }
 
-// ─── File ↔ Skill Conversion ─────────────────────────────
+// ─── Workspace ↔ Skill Conversion ─────────────────────────
 
-function fileToSkill(dirPath: string): Skill | null {
-  const skillFile = path.join(dirPath, 'SKILL.md');
-  if (!fs.existsSync(skillFile)) return null;
+function readSkill(workspace: WorkspaceProvider, skillsPrefix: string, skillId: string): Skill | null {
+  const skillPath = `${skillsPrefix}/${skillId}/SKILL.md`;
+  const content = workspace.readFile(skillPath);
+  if (!content) return null;
 
-  const content = fs.readFileSync(skillFile, 'utf-8');
   const { meta, body } = parseFrontmatter(content);
-  const dirName = path.basename(dirPath);
-  const stat = fs.statSync(skillFile);
 
   const trigger: SkillTrigger = {
     events: meta.triggers || ['manual:run'],
@@ -160,28 +160,29 @@ function fileToSkill(dirPath: string): Skill | null {
     channel: meta.channel,
   };
 
+  // Without direct stat access, use current time as fallback
+  // File-based timestamps are a local-only convenience
+  const now = new Date();
+
   return {
-    id: dirName, // directory name IS the ID
-    name: meta.name || dirName,
+    id: skillId,
+    name: meta.name || skillId,
     description: meta.description || '',
     trigger,
     processor,
     outcome,
     enabled: meta.enabled !== false,
     system: meta.system === true,
-    createdAt: stat.birthtime,
-    updatedAt: stat.mtime,
+    createdAt: now,
+    updatedAt: now,
   };
 }
 
-function skillToFile(skillsDir: string, skill: Skill): void {
+function writeSkill(workspace: WorkspaceProvider, skillsPrefix: string, skill: Skill): void {
   const slug = skill.id || slugify(skill.name);
-  const dirPath = path.join(skillsDir, slug);
-  fs.mkdirSync(dirPath, { recursive: true });
-
   const frontmatter = toFrontmatter(skill);
   const content = `${frontmatter}\n\n${skill.processor.instructions}\n`;
-  fs.writeFileSync(path.join(dirPath, 'SKILL.md'), content, 'utf-8');
+  workspace.writeFile(`${skillsPrefix}/${slug}/SKILL.md`, content);
 }
 
 function slugify(name: string): string {
@@ -190,17 +191,19 @@ function slugify(name: string): string {
 
 // ─── File-Based Repository ───────────────────────────────
 
-export function createFileSkillRepository(skillsDir: string): SkillRepository {
-  // Ensure skills directory exists
-  fs.mkdirSync(skillsDir, { recursive: true });
-
+/**
+ * Create a file-based skill repository.
+ *
+ * @param workspace - The workspace provider (local fs, GCS, etc.)
+ * @param skillsPrefix - Relative path within workspace where skills live (default: 'skills')
+ */
+export function createFileSkillRepository(workspace: WorkspaceProvider, skillsPrefix: string = 'skills'): SkillRepository {
   function loadAll(): Skill[] {
-    if (!fs.existsSync(skillsDir)) return [];
-    const entries = fs.readdirSync(skillsDir, { withFileTypes: true });
+    const entries = workspace.listDir(skillsPrefix);
     const skills: Skill[] = [];
     for (const entry of entries) {
-      if (!entry.isDirectory()) continue;
-      const skill = fileToSkill(path.join(skillsDir, entry.name));
+      if (!entry.isDirectory) continue;
+      const skill = readSkill(workspace, skillsPrefix, entry.name);
       if (skill) skills.push(skill);
     }
     return skills;
@@ -215,14 +218,12 @@ export function createFileSkillRepository(skillsDir: string): SkillRepository {
         createdAt: new Date(),
         updatedAt: new Date(),
       };
-      skillToFile(skillsDir, skill);
+      writeSkill(workspace, skillsPrefix, skill);
       return skill;
     },
 
     getById(id) {
-      const dirPath = path.join(skillsDir, id);
-      if (!fs.existsSync(dirPath)) return null;
-      return fileToSkill(dirPath);
+      return readSkill(workspace, skillsPrefix, id);
     },
 
     getAll() {
@@ -265,7 +266,7 @@ export function createFileSkillRepository(skillsDir: string): SkillRepository {
       if (updates.processor) updated.processor = { ...existing.processor, ...updates.processor };
       if (updates.outcome) updated.outcome = { ...existing.outcome, ...updates.outcome };
 
-      skillToFile(skillsDir, updated);
+      writeSkill(workspace, skillsPrefix, updated);
       return updated;
     },
 
@@ -273,10 +274,7 @@ export function createFileSkillRepository(skillsDir: string): SkillRepository {
       // Prevent deletion of system skills
       const skill = this.getById(id);
       if (skill?.system) return false;
-      const dirPath = path.join(skillsDir, id);
-      if (!fs.existsSync(dirPath)) return false;
-      fs.rmSync(dirPath, { recursive: true, force: true });
-      return true;
+      return workspace.deleteDir(`${skillsPrefix}/${id}`);
     },
 
     toggleEnabled(id, enabled) {
@@ -284,22 +282,17 @@ export function createFileSkillRepository(skillsDir: string): SkillRepository {
     },
 
     /** The directory where skills are stored */
-    get dir() { return skillsDir; },
+    get dir() { return `${workspace.rootPath}/${skillsPrefix}`; },
 
     /** Get raw SKILL.md content for a skill */
     getRaw(id: string): string | null {
-      const filePath = path.join(skillsDir, id, 'SKILL.md');
-      if (!fs.existsSync(filePath)) return null;
-      return fs.readFileSync(filePath, 'utf-8');
+      return workspace.readFile(`${skillsPrefix}/${id}/SKILL.md`);
     },
 
     /** Save raw SKILL.md content and return the parsed skill (or null on parse failure) */
     saveRaw(id: string, content: string): Skill | null {
-      const dirPath = path.join(skillsDir, id);
-      fs.mkdirSync(dirPath, { recursive: true });
-      const filePath = path.join(dirPath, 'SKILL.md');
-      fs.writeFileSync(filePath, content, 'utf-8');
-      return fileToSkill(dirPath);
+      workspace.writeFile(`${skillsPrefix}/${id}/SKILL.md`, content);
+      return readSkill(workspace, skillsPrefix, id);
     },
   };
 }

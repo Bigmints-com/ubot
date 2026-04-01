@@ -7,8 +7,7 @@
  */
 
 import crypto from 'crypto';
-import fs from 'fs';
-import path from 'path';
+import type { WorkspaceProvider } from '../../data/workspace-provider.js';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -52,22 +51,16 @@ interface VaultIndex {
 // ─── Vault Service ───────────────────────────────────────────────────────────
 
 export class VaultService {
-  private vaultDir: string;
-  private keyPath: string;
-  private indexPath: string;
+  private workspace: WorkspaceProvider;
+  private vaultPrefix = 'vault';
   private encryptionKey: Buffer | null = null;
 
-  constructor(workspacePath: string) {
-    this.vaultDir = path.join(workspacePath, 'vault');
-    this.keyPath = path.join(this.vaultDir, '.vault-key');
-    this.indexPath = path.join(this.vaultDir, '.vault-index');
+  constructor(workspace: WorkspaceProvider) {
+    this.workspace = workspace;
   }
 
-  /** Ensure vault directory and key exist */
+  /** Ensure vault key exists */
   private init(): void {
-    if (!fs.existsSync(this.vaultDir)) {
-      fs.mkdirSync(this.vaultDir, { recursive: true });
-    }
     if (!this.encryptionKey) {
       this.encryptionKey = this.loadOrCreateKey();
     }
@@ -75,13 +68,14 @@ export class VaultService {
 
   /** Load existing key or generate a new one */
   private loadOrCreateKey(): Buffer {
-    if (fs.existsSync(this.keyPath)) {
-      const hex = fs.readFileSync(this.keyPath, 'utf8').trim();
-      return Buffer.from(hex, 'hex');
+    const keyPath = `${this.vaultPrefix}/.vault-key`;
+    const existing = this.workspace.readFile(keyPath);
+    if (existing) {
+      return Buffer.from(existing.trim(), 'hex');
     }
     // Generate a random 256-bit key
     const key = crypto.randomBytes(32);
-    fs.writeFileSync(this.keyPath, key.toString('hex'), { mode: 0o600 });
+    this.workspace.writeFile(keyPath, key.toString('hex'));
     return key;
   }
 
@@ -117,11 +111,11 @@ export class VaultService {
   /** Load the vault index */
   private loadIndex(): VaultIndex {
     this.init();
-    if (!fs.existsSync(this.indexPath)) {
-      return { items: [] };
-    }
+    const indexPath = `${this.vaultPrefix}/.vault-index`;
+    const content = this.workspace.readFile(indexPath);
+    if (!content) return { items: [] };
     try {
-      const encrypted = JSON.parse(fs.readFileSync(this.indexPath, 'utf8')) as EncryptedPayload;
+      const encrypted = JSON.parse(content) as EncryptedPayload;
       const json = this.decrypt(encrypted);
       return JSON.parse(json) as VaultIndex;
     } catch {
@@ -132,7 +126,7 @@ export class VaultService {
   /** Save the vault index */
   private saveIndex(index: VaultIndex): void {
     const encrypted = this.encrypt(JSON.stringify(index));
-    fs.writeFileSync(this.indexPath, JSON.stringify(encrypted), { mode: 0o600 });
+    this.workspace.writeFile(`${this.vaultPrefix}/.vault-index`, JSON.stringify(encrypted));
   }
 
   /** Store a text item in the vault */
@@ -158,7 +152,7 @@ export class VaultService {
 
     // Encrypt and save the value
     const encrypted = this.encrypt(JSON.stringify({ value, metadata }));
-    fs.writeFileSync(path.join(this.vaultDir, `${id}.enc`), JSON.stringify(encrypted), { mode: 0o600 });
+    this.workspace.writeFile(`${this.vaultPrefix}/${id}.enc`, JSON.stringify(encrypted));
 
     // Update index
     if (existing) {
@@ -171,10 +165,11 @@ export class VaultService {
     return item;
   }
 
-  /** Store a document (file) in the vault */
+  /** Store a document (raw data) in the vault */
   storeDocument(
     label: string,
-    filePath: string,
+    data: Buffer,
+    filename: string,
     category: string = 'documents',
     metadata?: Record<string, string>,
   ): VaultItem {
@@ -182,12 +177,7 @@ export class VaultService {
     const index = this.loadIndex();
     const now = new Date().toISOString();
 
-    if (!fs.existsSync(filePath)) {
-      throw new Error(`File not found: ${filePath}`);
-    }
-
-    const filename = path.basename(filePath);
-    const ext = path.extname(filename).toLowerCase();
+    const ext = filename.includes('.') ? '.' + filename.split('.').pop()!.toLowerCase() : '';
     const mimeMap: Record<string, string> = {
       '.pdf': 'application/pdf',
       '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
@@ -200,11 +190,10 @@ export class VaultService {
     const existing = index.items.find(i => i.label.toLowerCase() === label.toLowerCase());
     const id = existing?.id || crypto.randomUUID();
 
-    // Read file and encrypt
-    const fileData = fs.readFileSync(filePath);
-    const base64 = fileData.toString('base64');
+    // Encrypt and save
+    const base64 = data.toString('base64');
     const encrypted = this.encrypt(JSON.stringify({ base64, filename, mimeType, metadata }));
-    fs.writeFileSync(path.join(this.vaultDir, `${id}.enc`), JSON.stringify(encrypted), { mode: 0o600 });
+    this.workspace.writeFile(`${this.vaultPrefix}/${id}.enc`, JSON.stringify(encrypted));
 
     const item: VaultItem = {
       id, label, category, type: 'document',
@@ -232,11 +221,11 @@ export class VaultService {
     );
     if (!entry) return null;
 
-    const encPath = path.join(this.vaultDir, `${entry.id}.enc`);
-    if (!fs.existsSync(encPath)) return null;
+    const encContent = this.workspace.readFile(`${this.vaultPrefix}/${entry.id}.enc`);
+    if (!encContent) return null;
 
     try {
-      const encrypted = JSON.parse(fs.readFileSync(encPath, 'utf8')) as EncryptedPayload;
+      const encrypted = JSON.parse(encContent) as EncryptedPayload;
       const decrypted = JSON.parse(this.decrypt(encrypted));
 
       const item: VaultItem = {
@@ -267,11 +256,11 @@ export class VaultService {
     );
     if (!entry) return null;
 
-    const encPath = path.join(this.vaultDir, `${entry.id}.enc`);
-    if (!fs.existsSync(encPath)) return null;
+    const encContent = this.workspace.readFile(`${this.vaultPrefix}/${entry.id}.enc`);
+    if (!encContent) return null;
 
     try {
-      const encrypted = JSON.parse(fs.readFileSync(encPath, 'utf8')) as EncryptedPayload;
+      const encrypted = JSON.parse(encContent) as EncryptedPayload;
       const decrypted = JSON.parse(this.decrypt(encrypted));
       return {
         buffer: Buffer.from(decrypted.base64, 'base64'),
@@ -319,10 +308,7 @@ export class VaultService {
     if (idx === -1) return false;
 
     const entry = index.items[idx];
-    const encPath = path.join(this.vaultDir, `${entry.id}.enc`);
-    if (fs.existsSync(encPath)) {
-      fs.unlinkSync(encPath);
-    }
+    this.workspace.delete(`${this.vaultPrefix}/${entry.id}.enc`);
 
     index.items.splice(idx, 1);
     this.saveIndex(index);
@@ -350,12 +336,12 @@ export class VaultService {
 
 let vaultInstance: VaultService | null = null;
 
-export function getVaultService(workspacePath?: string): VaultService {
-  if (!vaultInstance && workspacePath) {
-    vaultInstance = new VaultService(workspacePath);
+export function getVaultService(workspace?: WorkspaceProvider): VaultService {
+  if (!vaultInstance && workspace) {
+    vaultInstance = new VaultService(workspace);
   }
   if (!vaultInstance) {
-    throw new Error('Vault not initialized — workspace path required');
+    throw new Error('Vault not initialized — workspace provider required');
   }
   return vaultInstance;
 }

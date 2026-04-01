@@ -6,11 +6,11 @@ ulimit -n 65536 2>/dev/null || true
 DIR="$(cd "$(dirname "$0")/ubot-core" && pwd)"
 
 # Clear stale Turbopack cache (prevents EMFILE on restart)
-rm -rf "$DIR/web/.next"
+rm -rf "$DIR/web-ui/.next"
 
 echo "🛑 Killing any existing processes..."
 # Kill by saved PID files (and their process groups)
-for pidfile in "$DIR/ubot.pid" "$DIR/web.pid"; do
+for pidfile in "$DIR/ubot.pid" "$DIR/web-ui.pid"; do
   if [ -f "$pidfile" ]; then
     pid=$(cat "$pidfile")
     # Kill the entire process group
@@ -35,12 +35,12 @@ echo $! > "$DIR/ubot.pid"
 
 # 2) Start Next.js UI on port 4080 (user-facing)
 echo "🎨 Starting Next.js UI on :4080 (Turbopack)..."
-cd "$DIR/web"
-PORT=4080 WATCHPACK_POLLING=true nohup bash -c 'ulimit -n 65536 2>/dev/null; exec npm run dev' > "$DIR/web.log" 2>&1 &
-echo $! > "$DIR/web.pid"
+cd "$DIR/web-ui"
+PORT=4080 WATCHPACK_POLLING=true nohup bash -c 'ulimit -n 65536 2>/dev/null; exec npm run dev' > "$DIR/web-ui.log" 2>&1 &
+echo $! > "$DIR/web-ui.pid"
 
 sleep 4
 echo ""
 echo "✅ Ubot Core running!"
 echo "📊 Dashboard: http://localhost:4080"
-echo "📄 Logs: tail -f $DIR/ubot.log $DIR/web.log"
+echo "📄 Logs: tail -f $DIR/ubot.log $DIR/web-ui.log"

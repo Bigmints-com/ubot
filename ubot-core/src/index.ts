@@ -21,15 +21,53 @@ import { createSoul } from './memory/soul.js';
 import { createAgentOrchestrator } from './engine/orchestrator.js';
 import { DEFAULT_AGENT_CONFIG } from './engine/types.js';
 import { setSerperApiKey } from './capabilities/web-search/adapters/serper.js';
-import { loadUbotConfig, type UbotConfig } from './data/config.js';
-import { FEATURES, MODE } from './lib/features.js';
+import { loadUbotConfig, saveUbotConfig, resolveAuthConfig, type UbotConfig } from './data/config.js';
+import { FEATURES, MODE, RAW_MODE } from './lib/features.js';
 import { getHooks } from './hooks/extensions.js';
+import { loadCustomApps, getCustomToolModules } from './lib/app-loader.js';
+import { LocalWorkspaceProvider } from './data/local-workspace.js';
+import type { WorkspaceProvider } from './data/workspace-provider.js';
+import crypto from 'crypto';
 
 // ─── UBOT_HOME resolution ──────────────────────────────────────────────────────
 const UBOT_HOME = process.env.UBOT_HOME || '';
 const IS_PRODUCTION = process.env.NODE_ENV === 'production';
 
 const ubotConfig = loadUbotConfig();
+
+// ── Ensure auth is always configured ────────────────────────
+// Resolve auth from config (supports both new server.auth and deprecated flat fields)
+const resolvedAuth = resolveAuthConfig(ubotConfig);
+
+if (resolvedAuth.mode === 'local' && !resolvedAuth.password) {
+  // Local mode with no password — auto-generate one
+  const generated = crypto.randomBytes(12).toString('base64url');
+
+  // Write to the new auth section
+  if (!ubotConfig.server) ubotConfig.server = {};
+  if (!ubotConfig.server.auth) ubotConfig.server.auth = {};
+  ubotConfig.server.auth.mode = 'local';
+  ubotConfig.server.auth.username = resolvedAuth.username;
+  ubotConfig.server.auth.password = generated;
+  // Clean up deprecated flat fields if present
+  delete ubotConfig.server.access_username;
+  delete ubotConfig.server.access_password;
+  saveUbotConfig(ubotConfig);
+
+  resolvedAuth.password = generated;
+
+  console.log('');
+  console.log('┌─────────────────────────────────────────────────┐');
+  console.log('│  🔐 Auth credentials auto-generated             │');
+  console.log(`│  Username: ${resolvedAuth.username.padEnd(37)}│`);
+  console.log(`│  Password: ${generated.padEnd(37)}│`);
+  console.log('│  Saved to config.json — change anytime.         │');
+  console.log('└─────────────────────────────────────────────────┘');
+  console.log('');
+} else if (resolvedAuth.mode === 'sso') {
+  console.log(`[Auth] SSO mode — provider: ${resolvedAuth.provider ?? 'extension'}, auth_url: ${resolvedAuth.auth_url ?? 'n/a'}`);
+}
+
 const PORT = ubotConfig.server?.port ?? 11490;
 
 // In-memory application state
@@ -52,7 +90,7 @@ const dbPath = ubotConfig.database?.path
   ? (path.isAbsolute(ubotConfig.database.path)
     ? ubotConfig.database.path
     : path.join(UBOT_HOME || process.cwd(), ubotConfig.database.path))
-  : (UBOT_HOME ? path.join(UBOT_HOME, 'data', 'ubot.db') : './data/ubot.db');
+  : (UBOT_HOME ? path.join(UBOT_HOME, 'data', 'local', 'ubot.db') : './data/local/ubot.db');
 // Ensure data directory exists
 const dataDir = path.dirname(dbPath);
 if (!fs.existsSync(dataDir)) {
@@ -82,20 +120,37 @@ initMetering(db);
 // Initialize persistent tool metrics
 metricsCollector.setDatabase(db as any);
 
-// Initialize agent — read LLM config from config.json
-const WORKSPACE_PATH = UBOT_HOME 
-  ? path.join(UBOT_HOME, 'workspace') 
-  : path.join(process.cwd(), 'workspace');
+
+// Initialize agent — read workspace path from config
+const configWsPath = ubotConfig.workspace?.path;
+const WORKSPACE_PATH = configWsPath
+  ? (path.isAbsolute(configWsPath) ? configWsPath : path.join(UBOT_HOME || process.cwd(), configWsPath))
+  : UBOT_HOME 
+    ? path.join(UBOT_HOME, 'workspace') 
+    : path.join(process.cwd(), 'workspace');
+
+// Create workspace provider — hooks can override this (e.g. GCS for cloud deployments)
+let workspace: WorkspaceProvider = new LocalWorkspaceProvider(WORKSPACE_PATH);
+const wsHook = getHooks().workspace;
+if (wsHook) {
+  const custom = wsHook.createWorkspaceProvider({ defaultPath: WORKSPACE_PATH, ubotHome: UBOT_HOME });
+  if (custom) {
+    workspace = custom;
+    console.log(`[Workspace] Using custom provider: ${workspace.rootPath}`);
+  }
+}
+// Make workspace accessible via globalThis for extensions
+(globalThis as any).__workspaceProvider = workspace;
 
 const conversationStore = createConversationStore(db);
 const memoryStore = createMemoryStore(db);
 const followUpStore = createFollowUpStore(db);
-const soul = createSoul(memoryStore, WORKSPACE_PATH);
+const soul = createSoul(memoryStore, WORKSPACE_PATH, workspace);
 
 // Initial sync of soul documents to filesystem
 soul.syncToFilesystem();
 // Initialize API first to get skillRepo/skillEngine
-const { skillRepo, skillEngine } = initializeApi(db as any, undefined, WORKSPACE_PATH, followUpStore);
+const { skillRepo, skillEngine } = initializeApi(db as any, undefined, WORKSPACE_PATH, followUpStore, workspace);
 
 const agent = createAgentOrchestrator(
   {
@@ -115,7 +170,7 @@ const agent = createAgentOrchestrator(
 );
 
 // Re-initialize API with the agent now that it's created
-const { skillEngine: liveSkillEngine } = initializeApi(db as any, agent, WORKSPACE_PATH, followUpStore);
+const { skillEngine: liveSkillEngine } = initializeApi(db as any, agent, WORKSPACE_PATH, followUpStore, workspace);
 
 // Inject the live skill engine into the orchestrator (it was null on the first init)
 if (liveSkillEngine) {
@@ -148,10 +203,10 @@ function getMimeType(filePath: string): string {
   return MIME_TYPES[ext] || 'application/octet-stream';
 }
 
-// In production, serve the static Next.js export from UBOT_HOME/web/
+// In production, serve the static Next.js export from UBOT_HOME/web-ui/
 // In development, serve from ./public
 const STATIC_DIRS = IS_PRODUCTION && UBOT_HOME
-  ? [path.join(UBOT_HOME, 'web')]
+  ? [path.join(UBOT_HOME, 'web-ui')]
   : [path.join(process.cwd(), 'public')];
 
 function serveStatic(filePath: string): Promise<{ content: Buffer; contentType: string } | null> {
@@ -171,8 +226,6 @@ function serveStatic(filePath: string): Promise<{ content: Buffer; contentType: 
     tryDir([...STATIC_DIRS]);
   });
 }
-
-import crypto from 'crypto';
 
 // ─── Session store for access gate ────────────────────────────────────────────
 const activeSessions = new Map<string, { createdAt: number }>();
@@ -233,12 +286,9 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
   }
 
   // ── Server-level access gate ──────────────────────────────
-  // If server.access_password is set in config.json, require authentication
-  // for API requests. Frontend pages are always served (AuthGate handles login UI).
-  const accessPassword = ubotConfig.server?.access_password;
-  const accessUsername = ubotConfig.server?.access_username || 'admin';
-  
-  if (accessPassword && method !== 'OPTIONS') {
+  // In 'local' mode, require password for API requests.
+  // In 'sso' mode, the extension hook handles auth (not the local gate).
+  if (resolvedAuth.mode === 'local' && resolvedAuth.password && method !== 'OPTIONS') {
     // Only gate API endpoints — frontend pages/assets must always load
     // so the AuthGate component can render the login form
     const isApiRoute = url.startsWith('/api/');
@@ -275,23 +325,36 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
 
   // ── Auth endpoints (login / logout / status) ──────────────
   if (url === '/api/auth/status' && method === 'GET') {
-    const requiresAuth = !!accessPassword;
+    if (resolvedAuth.mode === 'sso') {
+      // SSO mode — auth is handled by middleware/extension, not local login
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        authenticated: true,  // SSO validates at middleware level
+        authRequired: false,  // No local login screen needed
+        authMode: 'sso',
+        auth_url: resolvedAuth.auth_url,
+      }));
+      return;
+    }
+
+    // Local mode
+    const requiresAuth = !!resolvedAuth.password;
     if (!requiresAuth) {
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ authenticated: true, authRequired: false }));
+      res.end(JSON.stringify({ authenticated: true, authRequired: false, authMode: 'local' }));
       return;
     }
     const token = getSessionFromCookie(req);
     const valid = token ? validateSession(token) : false;
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ authenticated: valid, authRequired: true }));
+    res.end(JSON.stringify({ authenticated: valid, authRequired: true, authMode: 'local' }));
     return;
   }
 
   if (url === '/api/auth/login' && method === 'POST') {
-    if (!accessPassword) {
+    if (resolvedAuth.mode === 'sso' || !resolvedAuth.password) {
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ success: true, message: 'No auth required' }));
+      res.end(JSON.stringify({ success: true, message: 'No local auth required' }));
       return;
     }
     
@@ -303,7 +366,7 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
     
     try {
       const { username, password } = JSON.parse(body);
-      if (username === accessUsername && password === accessPassword) {
+      if (username === resolvedAuth.username && password === resolvedAuth.password) {
         const token = createSession();
         setSessionCookie(res, token);
         res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -327,6 +390,67 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
     res.end(JSON.stringify({ success: true }));
     return;
   }
+
+  // ── User profile endpoint ─────────────────────────────────
+  if (url === '/api/auth/profile' && method === 'GET') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+      username: resolvedAuth.username,
+      authMode: resolvedAuth.mode,
+    }));
+    return;
+  }
+
+  // ── Change password endpoint ──────────────────────────────
+  if (url === '/api/auth/password' && method === 'PUT') {
+    if (resolvedAuth.mode !== 'local') {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ success: false, error: 'Password change is not supported in SSO mode' }));
+      return;
+    }
+
+    const body = await new Promise<string>((resolve) => {
+      let data = '';
+      req.on('data', chunk => { data += chunk; });
+      req.on('end', () => resolve(data));
+    });
+
+    try {
+      const { currentPassword, newPassword } = JSON.parse(body);
+
+      if (!currentPassword || !newPassword) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: false, error: 'Both current and new password are required' }));
+        return;
+      }
+
+      if (currentPassword !== resolvedAuth.password) {
+        res.writeHead(401, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: false, error: 'Current password is incorrect' }));
+        return;
+      }
+
+      if (newPassword.length < 6) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: false, error: 'New password must be at least 6 characters' }));
+        return;
+      }
+
+      // Update in-memory and persist to config
+      resolvedAuth.password = newPassword;
+      if (!ubotConfig.server) ubotConfig.server = {};
+      if (!ubotConfig.server.auth) ubotConfig.server.auth = {};
+      ubotConfig.server.auth.password = newPassword;
+      saveUbotConfig(ubotConfig);
+
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ success: true }));
+    } catch {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ success: false, error: 'Invalid request body' }));
+    }
+    return;
+  }
   
   // Health check endpoint
   if (url === '/health' && method === 'GET') {
@@ -338,7 +462,7 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
   // Feature flags endpoint — used by frontend to know available features
   if (url === '/api/features' && method === 'GET') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ mode: MODE, features: FEATURES }));
+    res.end(JSON.stringify({ mode: RAW_MODE, features: FEATURES }));
     return;
   }
   
@@ -388,7 +512,7 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
   // Serve frontend pages
   if (!IS_PRODUCTION) {
     // ── Dev mode: proxy to Next.js dev server for hot reload ──────────
-    const DEV_FRONTEND_PORT = parseInt(process.env.DEV_FRONTEND_PORT || '3015', 10);
+    const DEV_FRONTEND_PORT = ubotConfig.server?.frontend_port ?? parseInt(process.env.DEV_FRONTEND_PORT || '3015', 10);
     const proxyReq = http.request(
       {
         hostname: 'localhost',
@@ -404,7 +528,7 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
     );
     proxyReq.on('error', () => {
       res.writeHead(502, { 'Content-Type': 'text/plain' });
-      res.end(`Frontend dev server not ready (port ${DEV_FRONTEND_PORT}). Run: cd web && npm run dev`);
+      res.end(`Frontend dev server not ready (port ${DEV_FRONTEND_PORT}). Run: cd web-ui && npm run dev`);
     });
     req.pipe(proxyReq, { end: true });
     return;
@@ -455,7 +579,7 @@ function createServer(): http.Server {
   // In dev mode, proxy WebSocket upgrades to Next.js dev server for HMR
   if (!IS_PRODUCTION) {
     const net = require('net');
-    const DEV_FRONTEND_PORT = parseInt(process.env.DEV_FRONTEND_PORT || '3015', 10);
+    const DEV_FRONTEND_PORT = ubotConfig.server?.frontend_port ?? parseInt(process.env.DEV_FRONTEND_PORT || '3015', 10);
     server.on('upgrade', (req: http.IncomingMessage, socket: any, head: Buffer) => {
       const proxySocket = net.connect(DEV_FRONTEND_PORT, 'localhost', () => {
         proxySocket.write(
@@ -493,6 +617,18 @@ function resetState(): void {
 
 // Load extensions if available
 async function loadExtensions(): Promise<void> {
+  // ── Load Custom Apps first (engine hooks, auth, theme, tools) ──
+  // Must run before createServer() so hooks are available at first request.
+  // The orchestrator was already created above, but auth/theme/tool hooks are
+  // read lazily (per-request for auth, at startup for tools), so late registration is fine.
+  await loadCustomApps();
+
+  // Register custom tool modules onto globalThis for the API to pick up
+  const customToolModules = getCustomToolModules();
+  if (customToolModules.length > 0) {
+    (globalThis as any).__customToolModules = customToolModules;
+  }
+
   // Try to load ubot.extensions.ts/js from UBOT_HOME or current directory
   const searchDirs = UBOT_HOME ? [UBOT_HOME, process.cwd()] : [process.cwd()];
   for (const dir of searchDirs) {

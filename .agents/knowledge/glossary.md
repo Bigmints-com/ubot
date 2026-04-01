@@ -1,36 +1,55 @@
-# Technical Glossary
+# Glossary
 
-Standardized terminology mapping Ubot concepts to their technical implementations.
+## Core Concepts
 
-## Core Services & Classes
+| Term | Definition |
+|------|-----------|
+| **UBOT** | The AI Agent Platform core. Provides orchestrator, tools, channels, and dashboard. |
+| **Config.json** | The single source of truth for all runtime configuration. |
+| **Custom App** | A backend extension package in `custom/apps/<id>/` providing hooks, auth, theme, tools. |
+| **Extension** | A frontend registration (sidebar items, breadcrumbs, layout wrappers). |
+| **Mode** | Deployment mode: `local`, `cloud`, `cloud-shared`. Controls feature availability. |
+| **Fork** | A downstream project (like SaveADay) that extends UBOT via config + extensions. |
 
-- **AgentOrchestrator**: The central engine loop that handles message processing, LLM calls, tool execution, and response generation. Uses native OpenAI-compatible tool calling.
-- **SkillEngine**: The module that manages automated pipelines (Trigger → Processor → Outcome). Supports two-phase event matching and owner context injection.
-- **ToolRegistry**: The central catalog where all executable `ToolModules` are registered and invoked. Includes alias resolution for MCP tool routing.
-- **ToolRouter**: Deduplicates and routes between native and MCP tools, handling overlaps and generating aliases.
-- **EventBus**: Emits `SkillEvent` objects to skill engine for matching and processing.
-- **LoopDetector**: Prevents infinite tool-calling loops in the agent chat cycle.
+## Backend
 
-## System Entities
+| Term | Definition |
+|------|-----------|
+| **Orchestrator** | The multi-model AI engine that routes user messages to tools. |
+| **Tool Module** | A collection of tools exposed to the AI agent (e.g., CRM CRUD operations). |
+| **Engine Hook** | Backend extension: extra LLM providers, model routing, role resolution. |
+| **Auth Plugin** | Custom authentication handler (e.g., SSO). |
+| **AppTheme** | Branding config: app name, logo, colors, fonts. |
+| **WorkspaceProvider** | Abstraction for file storage (local filesystem or GCS). |
+| **NullDatabase** | In-memory database used in `cloud-shared` mode (data is ephemeral). |
+| **resolveAuthConfig()** | Function that normalizes auth settings from config.json. |
 
-- **Persona (Agent)**: A configuration file (`.agent.md`) defining an identity, system prompt, and allowed tools.
-- **Soul**: The identity layer (mirroring `IDENTITY.md` and `SOUL.md`) that maintains the persistent persona across sessions.
-- **Skill**: An automated Trigger → Processor → Outcome pipeline. Two storage backends: file-based (`SKILL.md` in `~/.ubot/skills/<skill-name>/`, manually authored) or SQLite-backed (created via `create_skill` tool or web UI). Both are loaded and run by the same `SkillEngine`.
-- **Tool**: A capability executor implementing the `ToolDefinition` interface. Registered in modules (ToolModule) and auto-discovered from capability directories.
-- **Workspace**: `~/.ubot/` — the root directory containing config, skills, sessions, data, and lib.
+## Frontend
 
-## Connectivity & Messaging
+| Term | Definition |
+|------|-----------|
+| **ExtensionsLoader** | Component in layout that triggers side-effect registrations. |
+| **ThemeInjector** | Component that applies theme (title, favicon, CSS vars) at runtime. |
+| **AuthGate** | Component in layout-wrapper that enforces authentication. |
+| **RegisterSidebarItems** | Function to inject items into existing sidebar groups. |
+| **RegisterSidebarExtensions** | Function to add new sidebar groups at specific positions. |
+| **useFeatures()** | Hook returning feature flags and deployment mode. |
+| **useHomePageOverride()** | Hook returning custom dashboard component (null = default). |
 
-- **UnifiedMessage**: The standardized message format used by `handleIncomingMessage()` in `handler.ts`. All channels normalize into this format.
-- **Messaging Provider**: Channel-specific adapters (Baileys for WhatsApp, node-telegram-bot-api for Telegram, BlueBubbles for iMessage).
-- **LID (Linked ID)**: WhatsApp's alternative JID format (`127058135019537@lid`). Must be resolved to phone JIDs (`971569737344@s.whatsapp.net`) for owner detection and routing.
-- **JID (Jabber ID)**: WhatsApp's identifier format for contacts (`number@s.whatsapp.net`) and groups (`id@g.us`).
-- **ToolContext**: A secure object passed to tools during execution, providing messaging hooks, WhatsApp connection access, and workspace paths.
-- **MCP (Model Context Protocol)**: Integration layer for connecting to external tool servers. Configured per-instance in `config.json`. Connected servers have their tools automatically discovered and deduplicated.
-- **VISITOR_SAFE_TOOL_NAMES**: The 11-tool allowlist for non-owner sessions: `ask_owner`, `search_messages`, `get_contacts`, `get_profile`, `get_conversations`, `save_memory`, `web_search`, `web_fetch`, `list_pending_approvals`, `gcal_list_events`, `wa_respond_to_bot`. Defined in `engine/tools.ts`.
+## Channels
 
-## Security Concepts
+| Term | Definition |
+|------|-----------|
+| **WhatsApp** | Local-only channel via WhatsApp Web bridge. |
+| **Telegram** | Bot channel via Telegram Bot API (all modes). |
+| **iMessage** | Local-only channel via macOS Messages.app bridge. |
+| **Webchat** | Embeddable web widget with WebSocket connection. |
 
-- **Owner Detection**: Single source of truth in `handler.ts`. Web = always owner. WhatsApp = phone match. Telegram = ID or username match.
-- **Session Routing**: Owner messages route to `web-console`. Visitor messages route to channel-specific sessions (WhatsApp JID, `telegram:chatId`).
-- **Rate Limiter**: Human-like send delays for WhatsApp outbound messages (per-minute, per-hour, per-day limits).
+## Skills
+
+| Term | Definition |
+|------|-----------|
+| **Skill** | An automated pipeline: Trigger → Processor → Outcome. |
+| **Trigger** | Event that activates a skill (message, email, cron, etc.). |
+| **Processor** | Natural language instructions for the LLM. |
+| **Outcome** | What happens with the result (reply, send, store, silent). |
