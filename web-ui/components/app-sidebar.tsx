@@ -179,6 +179,7 @@ export function AppSidebar() {
   const [appName, setAppName] = useState("Ubot");
   const [appTagline, setAppTagline] = useState("Agent Core");
   const [username, setUsername] = useState("");
+  const [logoUrl, setLogoUrl] = useState<string | null>(null);
 
   useEffect(() => {
     fetch('/api/app/theme')
@@ -186,6 +187,7 @@ export function AppSidebar() {
       .then(({ theme }) => {
         if (theme?.appName) setAppName(theme.appName);
         if (theme?.appName && theme.appName !== 'Ubot') setAppTagline('AI Command Center');
+        if (theme?.logoUrl) setLogoUrl(theme.logoUrl);
       })
       .catch(() => {});
 
@@ -276,8 +278,12 @@ export function AppSidebar() {
           <SidebarMenuItem>
             <SidebarMenuButton size="lg" asChild>
               <Link href="/">
-                <div className="bg-primary text-primary-foreground flex size-8 items-center justify-center rounded-lg">
-                  <Bot className="size-4" />
+                <div className="bg-primary text-primary-foreground overflow-hidden flex size-8 items-center justify-center rounded-lg">
+                  {logoUrl ? (
+                    <img src={logoUrl} alt={appName} className="size-5 object-contain" />
+                  ) : (
+                    <Bot className="size-5" />
+                  )}
                 </div>
                 <div className="grid flex-1 text-left text-sm leading-tight">
                   <span className="truncate font-bold">
