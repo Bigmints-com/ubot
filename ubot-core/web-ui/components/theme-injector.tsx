@@ -4,13 +4,10 @@
  * ThemeInjector
  *
  * Fetches the active custom app theme from /api/app/theme at startup
- * and injects it as CSS custom properties on :root.
- *
- * Covers:
- *   - Base colors: --primary, --background, --foreground, --accent, --border
- *   - Sidebar variants: --sidebar, --sidebar-primary, --sidebar-accent,
- *     --sidebar-border, --sidebar-ring (derived from theme colors)
- *   - Document title and favicon
+ * and applies it:
+ *   - Loads cssUrl as a <link> stylesheet (full CSS theme with :root + .dark)
+ *   - Falls back to inline cssVars / colors if no CSS file
+ *   - Updates document title and favicon
  *
  * Noop for vanilla UBOT when no theme is configured.
  */
@@ -24,29 +21,44 @@ export function ThemeInjector() {
       try {
         const res = await fetch('/api/app/theme');
         if (!res.ok) return;
-        const { theme } = await res.json() as { theme: (AppTheme & { cssVars?: Record<string, string> }) | null };
+        const { theme } = await res.json() as { theme: (AppTheme & { cssUrl?: string; cssVars?: Record<string, string> }) | null };
         if (!theme) return;
 
-        const root = document.documentElement;
-
-        // Apply base CSS vars from server-computed cssVars map
-        if (theme.cssVars) {
-          for (const [key, value] of Object.entries(theme.cssVars)) {
-            root.style.setProperty(key, value);
+        // If a full CSS theme file is available, inject it as a <link> stylesheet.
+        // This is the preferred approach — the CSS file contains proper :root and .dark
+        // selectors so light/dark mode works correctly.
+        if (theme.cssUrl) {
+          const existingLink = document.querySelector<HTMLLinkElement>('link[data-theme-css]');
+          if (existingLink) {
+            existingLink.href = theme.cssUrl;
+          } else {
+            const link = document.createElement('link');
+            link.rel = 'stylesheet';
+            link.href = theme.cssUrl;
+            link.setAttribute('data-theme-css', 'true');
+            document.head.appendChild(link);
           }
-        }
+        } else {
+          // Fallback: apply individual CSS vars (legacy approach)
+          const root = document.documentElement;
 
-        // Derive sidebar variants from theme colors so nav uses the brand palette
-        const c = theme.colors;
-        if (c) {
-          if (c.sidebar)    root.style.setProperty('--sidebar',                c.sidebar);
-          if (c.primary)    root.style.setProperty('--sidebar-primary',        c.primary);
-          if (c.foreground) root.style.setProperty('--sidebar-primary-foreground', c.foreground);
-          if (c.accent)     root.style.setProperty('--sidebar-accent',         c.accent);
-          if (c.foreground) root.style.setProperty('--sidebar-accent-foreground', c.foreground);
-          if (c.border)     root.style.setProperty('--sidebar-border',         c.border);
-          if (c.primary)    root.style.setProperty('--sidebar-ring',           c.primary);
-          if (c.foreground) root.style.setProperty('--sidebar-foreground',     c.foreground);
+          if (theme.cssVars) {
+            for (const [key, value] of Object.entries(theme.cssVars)) {
+              root.style.setProperty(key, value);
+            }
+          }
+
+          const c = theme.colors;
+          if (c) {
+            if (c.sidebar)    root.style.setProperty('--sidebar',                c.sidebar);
+            if (c.primary)    root.style.setProperty('--sidebar-primary',        c.primary);
+            if (c.foreground) root.style.setProperty('--sidebar-primary-foreground', c.foreground);
+            if (c.accent)     root.style.setProperty('--sidebar-accent',         c.accent);
+            if (c.foreground) root.style.setProperty('--sidebar-accent-foreground', c.foreground);
+            if (c.border)     root.style.setProperty('--sidebar-border',         c.border);
+            if (c.primary)    root.style.setProperty('--sidebar-ring',           c.primary);
+            if (c.foreground) root.style.setProperty('--sidebar-foreground',     c.foreground);
+          }
         }
 
         // Update document title
@@ -67,7 +79,7 @@ export function ThemeInjector() {
           }
         }
 
-        console.log(`[Theme] Applied theme: ${theme.appName}`);
+        console.log(`[Theme] Applied theme: ${theme.appName}${theme.cssUrl ? ' (CSS)' : ''}`);
       } catch {
         // Silently ignore — vanilla UBOT without theme config is fine
       }
