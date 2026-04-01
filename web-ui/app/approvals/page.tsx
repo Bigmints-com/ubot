@@ -117,7 +117,7 @@ export default function ApprovalsPage() {
       {pending.length > 0 ? (
         <div className="space-y-4">
           <div className="flex items-center gap-2">
-            <Clock className="size-4 text-yellow-500" />
+            <Clock className="size-4 text-yellow-600 dark:text-yellow-500" />
             <h2 className="text-lg font-semibold">
               Pending
             </h2>
@@ -181,7 +181,7 @@ export default function ApprovalsPage() {
       ) : (
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-12 text-center">
-            <ShieldCheck className="size-12 text-green-500 mb-4" />
+            <ShieldCheck className="size-12 text-green-600 dark:text-green-500 mb-4" />
             <h3 className="text-lg font-semibold">All clear</h3>
             <p className="text-sm text-muted-foreground mt-1">
               No pending approval requests. This page auto-refreshes every 5 seconds.
@@ -194,7 +194,7 @@ export default function ApprovalsPage() {
       {resolved.length > 0 && (
         <div className="space-y-4">
           <div className="flex items-center gap-2">
-            <CheckCircle2 className="size-4 text-green-500" />
+            <CheckCircle2 className="size-4 text-green-600 dark:text-green-500" />
             <h2 className="text-lg font-semibold">Resolved</h2>
             <Badge variant="secondary">{resolved.length}</Badge>
             <div className="flex-1" />

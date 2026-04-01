@@ -428,7 +428,7 @@ export function ProviderList({
                     disabled={modelsLoading}
                   />
                 )}
-                {modelsError && <p className="text-xs text-amber-500">Could not fetch models. Type a model name manually.</p>}
+                {modelsError && <p className="text-xs text-amber-700 dark:text-amber-500">Could not fetch models. Type a model name manually.</p>}
               </div>
             )}
 

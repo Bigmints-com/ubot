@@ -97,7 +97,7 @@ export default function ProfilePage() {
   const isLocal = profile?.authMode === "local";
 
   return (
-    <div className="p-6 space-y-6 max-w-2xl">
+    <div className="p-6 space-y-6 max-w-4xl mx-auto">
       {/* Header */}
       <div>
         <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
@@ -134,7 +134,7 @@ export default function ProfilePage() {
                   {isLocal ? "Local Auth" : "SSO"}
                 </Badge>
                 {authRequired && (
-                  <Badge variant="outline" className="text-xs text-emerald-400 border-emerald-500/30">
+                  <Badge variant="outline" className="text-xs text-emerald-700 dark:text-emerald-400 border-emerald-500/30">
                     Authenticated
                   </Badge>
                 )}

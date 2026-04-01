@@ -50,7 +50,7 @@ const SERVICES = [
     name: "Gmail",
     description: "Read, send, search, and manage emails",
     icon: Mail,
-    color: "text-red-400",
+    color: "text-red-600 dark:text-red-400",
     bgColor: "bg-red-500/10",
     borderColor: "border-red-500/20",
   },
@@ -59,7 +59,7 @@ const SERVICES = [
     name: "Google Drive",
     description: "Browse, upload, download, and share files",
     icon: HardDrive,
-    color: "text-yellow-400",
+    color: "text-yellow-600 dark:text-yellow-400",
     bgColor: "bg-yellow-500/10",
     borderColor: "border-yellow-500/20",
   },
@@ -68,7 +68,7 @@ const SERVICES = [
     name: "Google Sheets",
     description: "Read and write spreadsheet data",
     icon: Sheet,
-    color: "text-green-400",
+    color: "text-green-600 dark:text-green-400",
     bgColor: "bg-green-500/10",
     borderColor: "border-green-500/20",
   },
@@ -77,7 +77,7 @@ const SERVICES = [
     name: "Google Docs",
     description: "Read and create documents",
     icon: FileText,
-    color: "text-blue-400",
+    color: "text-blue-600 dark:text-blue-400",
     bgColor: "bg-blue-500/10",
     borderColor: "border-blue-500/20",
   },
@@ -86,7 +86,7 @@ const SERVICES = [
     name: "Google Contacts",
     description: "List, search, and create contacts",
     icon: Users,
-    color: "text-cyan-400",
+    color: "text-cyan-600 dark:text-cyan-400",
     bgColor: "bg-cyan-500/10",
     borderColor: "border-cyan-500/20",
   },
@@ -95,7 +95,7 @@ const SERVICES = [
     name: "Google Calendar",
     description: "View, create, and manage events",
     icon: Calendar,
-    color: "text-purple-400",
+    color: "text-purple-600 dark:text-purple-400",
     bgColor: "bg-purple-500/10",
     borderColor: "border-purple-500/20",
   },
@@ -104,7 +104,7 @@ const SERVICES = [
     name: "Google Places",
     description: "Search places, get details, find nearby",
     icon: MapPin,
-    color: "text-orange-400",
+    color: "text-orange-600 dark:text-orange-400",
     bgColor: "bg-orange-500/10",
     borderColor: "border-orange-500/20",
   },
@@ -196,7 +196,7 @@ export default function GooglePage() {
     ? "bg-emerald-500"
     : connecting
       ? "bg-amber-500"
-      : "bg-zinc-500";
+      : "bg-muted-foreground";
 
   const statusText = isConnected
     ? "Connected"
@@ -205,11 +205,11 @@ export default function GooglePage() {
       : "Disconnected";
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-6 space-y-6 max-w-4xl mx-auto">
       {/* Header */}
       <div className="flex items-center gap-3">
         <div className="flex items-center justify-center h-10 w-10 rounded-xl bg-gradient-to-br from-blue-500 to-green-500 shadow-lg shadow-blue-500/20">
-          <Globe className="h-5 w-5 text-white" />
+          <Globe className="size-5 text-white" />
         </div>
         <div>
           <h1 className="text-2xl font-bold">Google Apps</h1>
@@ -222,14 +222,14 @@ export default function GooglePage() {
 
       {/* Alerts */}
       {error && (
-        <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-sm flex items-center gap-2">
-          <XCircle className="h-4 w-4 shrink-0" />
+        <div className="p-3 rounded-lg bg-destructive/10 border border-destructive/20 text-destructive text-sm flex items-center gap-2">
+          <XCircle className="size-4 shrink-0" />
           {error}
         </div>
       )}
       {successMsg && (
-        <div className="p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-sm flex items-center gap-2">
-          <CheckCircle2 className="h-4 w-4 shrink-0" />
+        <div className="p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-700 dark:text-emerald-400 text-sm flex items-center gap-2">
+          <CheckCircle2 className="size-4 shrink-0" />
           {successMsg}
         </div>
       )}
@@ -240,9 +240,9 @@ export default function GooglePage() {
           <CardTitle className="flex items-center justify-between">
             <span className="flex items-center gap-2">
               {isConnected ? (
-                <Wifi className="h-5 w-5 text-emerald-400" />
+                <Wifi className="size-5 text-emerald-600 dark:text-emerald-400" />
               ) : (
-                <WifiOff className="h-5 w-5 text-zinc-400" />
+                <WifiOff className="size-5 text-muted-foreground" />
               )}
               Connection Status
             </span>
@@ -260,13 +260,13 @@ export default function GooglePage() {
                 className={`flex items-center gap-2 p-3 rounded-lg border text-sm ${
                   authStatus.hasCredentials
                     ? "bg-emerald-500/5 border-emerald-500/20"
-                    : "bg-zinc-500/5 border-zinc-500/20"
+                    : "bg-muted/50 border-border"
                 }`}
               >
                 {authStatus.hasCredentials ? (
-                  <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0" />
+                  <CheckCircle2 className="size-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
                 ) : (
-                  <XCircle className="h-4 w-4 text-zinc-400 shrink-0" />
+                  <XCircle className="size-4 text-muted-foreground shrink-0" />
                 )}
                 <span>OAuth Credentials</span>
               </div>
@@ -274,13 +274,13 @@ export default function GooglePage() {
                 className={`flex items-center gap-2 p-3 rounded-lg border text-sm ${
                   authStatus.hasToken
                     ? "bg-emerald-500/5 border-emerald-500/20"
-                    : "bg-zinc-500/5 border-zinc-500/20"
+                    : "bg-muted/50 border-border"
                 }`}
               >
                 {authStatus.hasToken ? (
-                  <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0" />
+                  <CheckCircle2 className="size-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
                 ) : (
-                  <XCircle className="h-4 w-4 text-zinc-400 shrink-0" />
+                  <XCircle className="size-4 text-muted-foreground shrink-0" />
                 )}
                 <span>Saved Token</span>
               </div>
@@ -288,13 +288,13 @@ export default function GooglePage() {
                 className={`flex items-center gap-2 p-3 rounded-lg border text-sm ${
                   authStatus.isAuthenticated
                     ? "bg-emerald-500/5 border-emerald-500/20"
-                    : "bg-zinc-500/5 border-zinc-500/20"
+                    : "bg-muted/50 border-border"
                 }`}
               >
                 {authStatus.isAuthenticated ? (
-                  <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0" />
+                  <CheckCircle2 className="size-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
                 ) : (
-                  <XCircle className="h-4 w-4 text-zinc-400 shrink-0" />
+                  <XCircle className="size-4 text-muted-foreground shrink-0" />
                 )}
                 <span>Authenticated</span>
               </div>
@@ -306,8 +306,8 @@ export default function GooglePage() {
             <div className="space-y-4">
               {!authStatus?.hasCredentials && (
                 <div className="p-4 rounded-lg bg-amber-500/10 border border-amber-500/20 text-sm space-y-2">
-                  <div className="flex items-center gap-2 font-medium text-amber-300">
-                    <AlertTriangle className="h-4 w-4" />
+                  <div className="flex items-center gap-2 font-medium text-amber-700 dark:text-amber-300">
+                    <AlertTriangle className="size-4" />
                     Setup Required
                   </div>
                   <ol className="list-decimal list-inside space-y-1 text-muted-foreground">
@@ -317,7 +317,7 @@ export default function GooglePage() {
                         href="https://console.cloud.google.com/apis/credentials"
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="text-blue-400 hover:underline"
+                        className="text-primary hover:underline"
                       >
                         Google Cloud Console → Credentials
                       </a>
@@ -341,9 +341,9 @@ export default function GooglePage() {
                 className="gap-2"
               >
                 {connecting ? (
-                  <RefreshCw className="h-4 w-4 animate-spin" />
+                  <RefreshCw className="size-4 animate-spin" />
                 ) : (
-                  <Power className="h-4 w-4" />
+                  <Power className="size-4" />
                 )}
                 {connecting
                   ? "Connecting... (check your browser)"
@@ -366,11 +366,11 @@ export default function GooglePage() {
                 onClick={handleDisconnect}
                 className="gap-2"
               >
-                <PowerOff className="h-4 w-4" />
+                <PowerOff className="size-4" />
                 Disconnect
               </Button>
               <Button variant="ghost" size="sm" onClick={fetchStatus}>
-                <RefreshCw className="h-4 w-4" />
+                <RefreshCw className="size-4" />
               </Button>
             </div>
           )}
@@ -397,24 +397,24 @@ export default function GooglePage() {
                   key={service.key}
                   className={`flex items-center gap-3 p-4 rounded-xl border transition-all ${
                     !isConnected
-                      ? "opacity-50 border-zinc-800"
+                      ? "opacity-50 border-border"
                       : enabled
                         ? `${service.bgColor} ${service.borderColor}`
-                        : "border-zinc-800 bg-zinc-900/50"
+                        : "border-border bg-muted/30"
                   }`}
                 >
                   <div
                     className={`flex items-center justify-center h-10 w-10 rounded-lg shrink-0 ${
                       enabled && isConnected
                         ? `${service.bgColor}`
-                        : "bg-zinc-800"
+                        : "bg-muted"
                     }`}
                   >
                     <Icon
                       className={`h-5 w-5 ${
                         enabled && isConnected
                           ? service.color
-                          : "text-zinc-500"
+                          : "text-muted-foreground"
                       }`}
                     />
                   </div>

@@ -66,21 +66,21 @@ function StatusDot({ status }: { status: string }) {
       return (
         <div className="flex items-center gap-1.5">
           <div className="size-1.5 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.4)]" />
-          <span className="text-[11px] font-medium text-emerald-400">Active</span>
+          <span className="text-[11px] font-medium text-emerald-600 dark:text-emerald-400">Active</span>
         </div>
       );
     case "disconnected":
       return (
         <div className="flex items-center gap-1.5">
           <div className="size-1.5 rounded-full bg-amber-500" />
-          <span className="text-[11px] font-medium text-amber-400">Offline</span>
+          <span className="text-[11px] font-medium text-amber-600 dark:text-amber-400">Offline</span>
         </div>
       );
     case "error":
       return (
         <div className="flex items-center gap-1.5">
           <div className="size-1.5 rounded-full bg-red-500" />
-          <span className="text-[11px] font-medium text-red-400">Error</span>
+          <span className="text-[11px] font-medium text-red-600 dark:text-red-400">Error</span>
         </div>
       );
     default:

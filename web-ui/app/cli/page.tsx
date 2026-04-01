@@ -70,10 +70,10 @@ interface SessionDetail {
 }
 
 const STATUS_CONFIG: Record<string, { icon: typeof Circle; color: string; bg: string; label: string }> = {
-  running: { icon: RefreshCw, color: "text-blue-400", bg: "bg-blue-400/10 border-blue-400/20", label: "Running" },
-  completed: { icon: CheckCircle2, color: "text-emerald-400", bg: "bg-emerald-400/10 border-emerald-400/20", label: "Completed" },
-  failed: { icon: XCircle, color: "text-red-400", bg: "bg-red-400/10 border-red-400/20", label: "Failed" },
-  stopped: { icon: Square, color: "text-amber-400", bg: "bg-amber-400/10 border-amber-400/20", label: "Stopped" },
+  running: { icon: RefreshCw, color: "text-blue-600 dark:text-blue-400", bg: "bg-blue-500/10 border-blue-500/20", label: "Running" },
+  completed: { icon: CheckCircle2, color: "text-emerald-600 dark:text-emerald-400", bg: "bg-emerald-500/10 border-emerald-500/20", label: "Completed" },
+  failed: { icon: XCircle, color: "text-red-600 dark:text-red-400", bg: "bg-red-500/10 border-red-500/20", label: "Failed" },
+  stopped: { icon: Square, color: "text-amber-600 dark:text-amber-400", bg: "bg-amber-500/10 border-amber-500/20", label: "Stopped" },
 };
 
 const PROVIDERS = [
@@ -245,7 +245,7 @@ export default function CliPage() {
   }
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-6 space-y-6 max-w-4xl mx-auto">
       {/* Header */}
       <div>
         <h1 className="text-2xl font-bold tracking-tight">CLI Agents</h1>
@@ -284,7 +284,7 @@ export default function CliPage() {
           <CardContent className="space-y-5 pt-0">
             {/* Security notice */}
             <div className="flex items-start gap-2.5 rounded-md bg-amber-500/5 border border-amber-500/20 px-3 py-2.5">
-              <AlertTriangle className="size-4 text-amber-500 mt-0.5 shrink-0" />
+              <AlertTriangle className="size-4 text-amber-600 dark:text-amber-500 mt-0.5 shrink-0" />
               <p className="text-xs text-muted-foreground">
                 CLI sessions execute commands on your machine. Only the owner can trigger them via the AI agent.
               </p>
@@ -325,7 +325,7 @@ export default function CliPage() {
                 <Cpu className="size-4 text-muted-foreground" />
                 <span className="text-sm flex-1">Installed</span>
                 {status.providerAvailable ? (
-                  <Badge variant="outline" className="text-emerald-400 border-emerald-400/30 bg-emerald-400/5 gap-1">
+                  <Badge variant="outline" className="text-emerald-600 dark:text-emerald-400 border-emerald-500/30 bg-emerald-500/5 gap-1">
                     <CheckCircle2 className="size-3" />
                     Yes
                   </Badge>
@@ -349,7 +349,7 @@ export default function CliPage() {
                 <KeyRound className="size-4 text-muted-foreground" />
                 <span className="text-sm flex-1">Authenticated</span>
                 {status.providerAuthenticated ? (
-                  <Badge variant="outline" className="text-emerald-400 border-emerald-400/30 bg-emerald-400/5 gap-1">
+                  <Badge variant="outline" className="text-emerald-600 dark:text-emerald-400 border-emerald-500/30 bg-emerald-500/5 gap-1">
                     <CheckCircle2 className="size-3" />
                     Yes
                   </Badge>
@@ -394,7 +394,7 @@ export default function CliPage() {
               </div>
               <div className="flex items-center gap-2">
                 {runningCount > 0 && (
-                  <Badge className="bg-blue-500/10 text-blue-400 border-blue-500/20 gap-1">
+                  <Badge className="bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20 gap-1">
                     <RefreshCw className="size-3 animate-spin" />
                     {runningCount} running
                   </Badge>
@@ -471,7 +471,7 @@ export default function CliPage() {
                               <Button
                                 variant="ghost"
                                 size="sm"
-                                className="h-7 px-2 text-xs text-red-400 hover:text-red-300 shrink-0"
+                                className="h-7 px-2 text-xs text-destructive hover:text-destructive shrink-0"
                                 onClick={(e) => handleStopSession(session.id, e)}
                               >
                                 <Square className="size-3 mr-1" />
@@ -485,7 +485,7 @@ export default function CliPage() {
                       {/* Expanded log view */}
                       {isExpanded && (
                         <div className="border-t">
-                          <div className="bg-[#0d1117] px-4 py-3 font-mono text-xs leading-relaxed max-h-[350px] overflow-y-auto">
+                          <div className="bg-muted px-4 py-3 font-mono text-xs leading-relaxed max-h-[350px] overflow-y-auto">
                             {output.length === 0 ? (
                               <span className="text-muted-foreground/50">
                                 {session.status === "running"
@@ -498,12 +498,12 @@ export default function CliPage() {
                                   key={i}
                                   className={
                                     line.startsWith("[stderr]")
-                                      ? "text-red-400/80"
+                                      ? "text-red-600 dark:text-red-400/80"
                                       : line.startsWith("[error]")
-                                      ? "text-red-500"
+                                      ? "text-red-700 dark:text-red-500"
                                       : line.startsWith("[system]")
-                                      ? "text-amber-400/80 italic"
-                                      : "text-slate-300"
+                                      ? "text-amber-600 dark:text-amber-400/80 italic"
+                                      : "text-foreground"
                                   }
                                 >
                                   {line}

@@ -99,7 +99,7 @@ export function LocalTtsCard() {
               <div className="flex items-center gap-2">
                 Local Piper TTS
                 {status?.available ? (
-                  <Badge className="bg-emerald-500/15 text-emerald-500 border-emerald-500/25 text-xs">
+                  <Badge className="bg-emerald-500/15 text-emerald-700 dark:text-emerald-500 border-emerald-500/25 text-xs">
                     <CheckCircle2 className="size-3 mr-1" /> Active
                   </Badge>
                 ) : (

@@ -68,28 +68,28 @@ const CHANNEL_CONFIG: Record<
   whatsapp: {
     label: "WhatsApp",
     icon: MessageCircle,
-    color: "text-green-400",
+    color: "text-green-600 dark:text-green-400",
     bgColor: "bg-green-500/10",
     borderColor: "border-green-500/20",
   },
   telegram: {
     label: "Telegram",
     icon: Send,
-    color: "text-blue-400",
+    color: "text-blue-600 dark:text-blue-400",
     bgColor: "bg-blue-500/10",
     borderColor: "border-blue-500/20",
   },
   web: {
     label: "Web Console",
     icon: Monitor,
-    color: "text-purple-400",
+    color: "text-purple-600 dark:text-purple-400",
     bgColor: "bg-purple-500/10",
     borderColor: "border-purple-500/20",
   },
   google: {
     label: "Google APIs",
     icon: Globe,
-    color: "text-amber-400",
+    color: "text-amber-600 dark:text-amber-400",
     bgColor: "bg-amber-500/10",
     borderColor: "border-amber-500/20",
   },
@@ -156,10 +156,10 @@ export default function DashboardPage() {
     : [];
 
   return (
-    <div className="p-6 space-y-6 max-w-6xl mx-auto">
+    <div className="p-6 space-y-6">
       {/* Header */}
       <div className="flex items-center gap-3">
-        <BarChart3 className="h-8 w-8 text-sky-400" />
+        <BarChart3 className="h-8 w-8 text-primary" />
         <div>
           <h1 className="text-2xl font-bold">Dashboard</h1>
           <p className="text-sm text-muted-foreground">
@@ -175,7 +175,7 @@ export default function DashboardPage() {
             <CardTitle className="text-sm font-medium">
               Messages In
             </CardTitle>
-            <ArrowDown className="size-4 text-emerald-400" />
+            <ArrowDown className="size-4 text-emerald-600 dark:text-emerald-400" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{totals.messagesIn}</div>
@@ -190,7 +190,7 @@ export default function DashboardPage() {
             <CardTitle className="text-sm font-medium">
               Messages Out
             </CardTitle>
-            <ArrowUp className="size-4 text-blue-400" />
+            <ArrowUp className="size-4 text-blue-600 dark:text-blue-400" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{totals.messagesOut}</div>
@@ -201,13 +201,13 @@ export default function DashboardPage() {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Tool Calls</CardTitle>
-            <Wrench className="size-4 text-amber-400" />
+            <Wrench className="size-4 text-amber-600 dark:text-amber-400" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{totals.toolCalls}</div>
             <p className="text-xs text-muted-foreground">
               {totals.toolErrors > 0 ? (
-                <span className="text-red-400">
+                <span className="text-destructive">
                   {totals.toolErrors} error
                   {totals.toolErrors !== 1 ? "s" : ""}
                 </span>
@@ -259,9 +259,9 @@ export default function DashboardPage() {
                         className="gap-1 text-xs"
                       >
                         {connected ? (
-                          <Wifi className="size-3 text-emerald-400" />
+                          <Wifi className="size-3 text-emerald-600 dark:text-emerald-400" />
                         ) : (
-                          <WifiOff className="size-3 text-zinc-400" />
+                          <WifiOff className="size-3 text-muted-foreground" />
                         )}
                         {connected ? "Connected" : "Offline"}
                       </Badge>
@@ -271,14 +271,14 @@ export default function DashboardPage() {
                 <CardContent>
                   <div className="flex items-center gap-6">
                     <div className="flex items-center gap-1.5">
-                      <ArrowDown className="size-3 text-emerald-400" />
+                      <ArrowDown className="size-3 text-emerald-600 dark:text-emerald-400" />
                       <span className="text-lg font-bold">
                         {ch?.messagesIn ?? 0}
                       </span>
                       <span className="text-xs text-muted-foreground">in</span>
                     </div>
                     <div className="flex items-center gap-1.5">
-                      <ArrowUp className="size-3 text-blue-400" />
+                      <ArrowUp className="size-3 text-blue-600 dark:text-blue-400" />
                       <span className="text-lg font-bold">
                         {ch?.messagesOut ?? 0}
                       </span>
@@ -336,7 +336,7 @@ export default function DashboardPage() {
                       <div className="flex items-center gap-3">
                         <span className="font-bold">{t.calls}</span>
                         {errorRate > 0 && (
-                          <span className="text-xs text-red-400 flex items-center gap-0.5">
+                          <span className="text-xs text-destructive flex items-center gap-0.5">
                             <AlertTriangle className="size-3" />
                             {errorRate}%
                           </span>

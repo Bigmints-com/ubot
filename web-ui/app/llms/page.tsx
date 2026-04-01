@@ -332,7 +332,7 @@ export default function ModelsPage() {
   // ── Render ─────────────────────────────────────────────────
 
   return (
-    <div className="p-6 space-y-8 max-w-4xl">
+    <div className="p-6 space-y-6 max-w-4xl mx-auto">
       {/* Header */}
       <div>
         <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
@@ -527,7 +527,7 @@ export default function ModelsPage() {
                   <TrendingUp className="size-3 text-muted-foreground" />
                   <p className="text-xs text-muted-foreground">Est. Cost</p>
                 </div>
-                <p className="text-xl font-bold text-green-400">
+                <p className="text-xl font-bold text-primary">
                   ${(usage.totalCost || 0).toFixed(4)}
                 </p>
               </CardContent>
@@ -551,7 +551,7 @@ export default function ModelsPage() {
                       </div>
                       <div className="text-right">
                         <span className="text-xs text-muted-foreground">{(data.inputTokens + data.outputTokens).toLocaleString()} tokens</span>
-                        <span className="text-xs font-mono text-green-400 ml-2">${data.cost.toFixed(4)}</span>
+                        <span className="text-xs font-mono text-primary ml-2">${data.cost.toFixed(4)}</span>
                       </div>
                     </div>
                   ))}
@@ -572,7 +572,7 @@ export default function ModelsPage() {
                         <span className="text-xs font-mono">{model}</span>
                         <span className="text-xs text-muted-foreground ml-2">{data.calls} calls</span>
                       </div>
-                      <span className="text-xs font-mono text-green-400">${data.cost.toFixed(4)}</span>
+                      <span className="text-xs font-mono text-primary">${data.cost.toFixed(4)}</span>
                     </div>
                   ))}
                 </CardContent>
@@ -667,7 +667,7 @@ function ProviderCard({
             </Badge>
           )}
           {(provider.apiKey || provider.authType === 'vertex-sa') ? (
-            <Badge variant="secondary" className="text-[10px] text-green-400 bg-green-500/10 border-green-500/20">
+            <Badge variant="secondary" className="text-[10px] text-emerald-700 dark:text-emerald-400 bg-emerald-500/10 border-emerald-500/20">
               ✓ {provider.authType === 'vertex-sa' ? 'Service Account' : 'Configured'}
             </Badge>
           ) : (
@@ -679,7 +679,7 @@ function ProviderCard({
         <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
           {provider.model && <span className="font-mono">{provider.model}</span>}
           {provider.authType === 'vertex-sa' ? (
-            <span className="font-mono text-blue-400/70">☁️ Vertex AI Service Account</span>
+            <span className="font-mono text-muted-foreground">☁️ Vertex AI Service Account</span>
           ) : provider.apiKey ? (
             <button
               onClick={() => setShowKey(!showKey)}
@@ -923,7 +923,7 @@ function AddProviderDialog({
                     </span>
                   </label>
                   {serviceAccountJson && (
-                    <Badge variant="secondary" className="text-xs text-green-400 bg-green-500/10">
+                    <Badge variant="secondary" className="text-xs text-emerald-700 dark:text-emerald-400 bg-emerald-500/10">
                       ✓ File loaded
                     </Badge>
                   )}

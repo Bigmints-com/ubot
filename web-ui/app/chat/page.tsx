@@ -54,9 +54,9 @@ const ACCEPTED_TYPES = [
 ];
 
 const CHANNEL_META: Record<string, { icon: typeof Globe; label: string; color: string }> = {
-  web: { icon: Globe, label: "Web", color: "text-blue-500" },
-  whatsapp: { icon: Smartphone, label: "WhatsApp", color: "text-green-500" },
-  telegram: { icon: SendIcon, label: "Telegram", color: "text-sky-500" },
+  web: { icon: Globe, label: "Web", color: "text-blue-600 dark:text-blue-500" },
+  whatsapp: { icon: Smartphone, label: "WhatsApp", color: "text-green-600 dark:text-green-500" },
+  telegram: { icon: SendIcon, label: "Telegram", color: "text-sky-600 dark:text-sky-500" },
 };
 
 export default function ChatPage() {

@@ -144,13 +144,13 @@ export default function WhatsAppPage() {
     ? "bg-emerald-500"
     : isConnecting
       ? "bg-amber-500"
-      : "bg-zinc-500";
+      : "bg-muted-foreground";
 
   return (
     <div className="p-6 space-y-6 max-w-4xl mx-auto">
       {/* Header — matches Telegram / Google */}
       <div className="flex items-center gap-3">
-        <MessageCircle className="h-8 w-8 text-green-400" />
+        <MessageCircle className="h-8 w-8 text-green-600 dark:text-green-400" />
         <div>
           <h1 className="text-2xl font-bold">WhatsApp</h1>
           <p className="text-sm text-muted-foreground">
@@ -165,9 +165,9 @@ export default function WhatsAppPage() {
           <CardTitle className="flex items-center justify-between">
             <span className="flex items-center gap-2">
               {isConnected ? (
-                <Wifi className="h-5 w-5 text-emerald-400" />
+                <Wifi className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
               ) : (
-                <WifiOff className="h-5 w-5 text-zinc-400" />
+                <WifiOff className="h-5 w-5 text-muted-foreground" />
               )}
               Connection Status
             </span>
@@ -180,9 +180,9 @@ export default function WhatsAppPage() {
         <CardContent className="space-y-4">
           {isConnected && (
             <div className="flex items-center gap-4 p-4 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
-              <Smartphone className="h-10 w-10 text-emerald-400 shrink-0" />
+              <Smartphone className="h-10 w-10 text-emerald-600 dark:text-emerald-400 shrink-0" />
               <div className="flex-1 min-w-0">
-                <p className="font-semibold text-emerald-300">
+                <p className="font-semibold text-emerald-700 dark:text-emerald-300">
                   WhatsApp Connected
                 </p>
                 {user ? (
@@ -208,7 +208,7 @@ export default function WhatsAppPage() {
           )}
 
           {error && (
-            <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-sm">
+            <div className="p-3 rounded-lg bg-destructive/10 border border-destructive/20 text-destructive text-sm">
               {error}
             </div>
           )}
