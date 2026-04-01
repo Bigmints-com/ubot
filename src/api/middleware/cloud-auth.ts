@@ -9,11 +9,18 @@
 
 import http from 'http';
 import { isCloud, RAW_MODE } from '../../lib/features.js';
+import { loadUbotConfig, resolveAuthConfig } from '../../data/config.js';
 import type { AuthResult } from './auth.js';
 
 const SESSION_COOKIE_NAME = 'session';
 
-const AUTH_APP_URL = process.env.SSO_AUTH_URL || 'http://localhost:3010';
+/** Resolve auth URL from env var → config.json → empty (will fail explicitly) */
+function getAuthAppUrl(): string {
+  if (process.env.SSO_AUTH_URL) return process.env.SSO_AUTH_URL;
+  const cfg = loadUbotConfig();
+  const auth = resolveAuthConfig(cfg);
+  return auth.auth_url || '';
+}
 
 /** Cache of verified sessions to avoid hitting Firebase on every request */
 const sessionCache = new Map<string, { userId: string; email?: string; tenantId?: string; expiresAt: number }>();
@@ -28,9 +35,6 @@ function parseCookie(req: http.IncomingMessage, name: string): string | undefine
   const match = header.split(';').find(c => c.trim().startsWith(`${name}=`));
   return match ? match.trim().slice(name.length + 1) : undefined;
 }
-
-import { createServerClient } from '@supabase/ssr';
-import { getDb } from '@saveaday/shared-db';
 
 /**
  * Parses the cookie string from the request into an array of objects for Supabase SSR.
@@ -216,7 +220,7 @@ export function extractTenantId(req: http.IncomingMessage): string | undefined {
  * Get the login redirect URL for unauthenticated users.
  */
 export function getLoginRedirectUrl(returnTo?: string): string {
-  const loginUrl = `${AUTH_APP_URL}/login`;
+  const loginUrl = `${getAuthAppUrl()}/login`;
   if (returnTo) {
     return `${loginUrl}?returnUrl=${encodeURIComponent(returnTo)}`;
   }
