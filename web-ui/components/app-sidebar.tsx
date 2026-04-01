@@ -270,7 +270,7 @@ export function AppSidebar() {
   const filteredCapabilities = filterItems(getGroupItems('Capabilities', [...capabilityItems, ...dynamicModules]));
 
   return (
-    <Sidebar collapsible="icon">
+    <Sidebar collapsible="icon" variant="inset">
       <SidebarHeader>
         <SidebarMenu>
           <SidebarMenuItem>

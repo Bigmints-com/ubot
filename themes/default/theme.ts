@@ -14,16 +14,6 @@ const defaultTheme: AppTheme = {
   logoUrl: undefined,
   faviconUrl: undefined,
 
-  colors: {
-    // Base — shadcn dark defaults (oklch expressed as hsl for compat)
-    primary:    'hsl(210 40% 98%)',
-    background: 'hsl(222 47% 11%)',
-    foreground: 'hsl(210 40% 98%)',
-    sidebar:    'hsl(222 47% 8%)',
-    accent:     'hsl(217 33% 17%)',
-    border:     'hsl(217 33% 17%)',
-  },
-
   fonts: {
     heading: 'Geist',
     body:    'Geist',

@@ -6,6 +6,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster } from "@/components/ui/sonner";
 import { CoreLayoutWrapper } from "@/components/layout-wrapper";
 import { ThemeInjector } from "@/components/theme-injector";
+import { ThemeProvider } from "@/components/theme-provider";
 import { ExtensionsLoader } from "@/lib/extensions";
 
 const geistSans = Geist({
@@ -34,12 +35,14 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        <ExtensionsLoader />
-        <TooltipProvider>
-          <CoreLayoutWrapper>{children}</CoreLayoutWrapper>
-        </TooltipProvider>
-        <ThemeInjector />
-        <Toaster />
+        <ThemeProvider>
+          <ExtensionsLoader />
+          <TooltipProvider>
+            <CoreLayoutWrapper>{children}</CoreLayoutWrapper>
+          </TooltipProvider>
+          <ThemeInjector />
+          <Toaster />
+        </ThemeProvider>
       </body>
     </html>
   );

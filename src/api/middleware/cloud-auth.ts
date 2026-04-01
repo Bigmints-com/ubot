@@ -11,6 +11,7 @@ import http from 'http';
 import { isCloud, RAW_MODE } from '../../lib/features.js';
 import { loadUbotConfig, resolveAuthConfig } from '../../data/config.js';
 import type { AuthResult } from './auth.js';
+import { createServerClient } from '@supabase/ssr';
 
 const SESSION_COOKIE_NAME = 'session';
 
@@ -130,24 +131,23 @@ export async function authenticateCloud(
   const url = req.url?.split('?')[0] || '';
   if (publicPaths.some(p => url === p)) return null;
 
-  // Check: session cookie → Bearer token → X-SSO-Token header
-  const sessionCookie = parseCookie(req, SESSION_COOKIE_NAME);
+  // Check: Bearer token → X-SSO-Token header
   const authHeader = req.headers['authorization'];
   const ssoToken = req.headers['x-sso-token'] as string | undefined;
-  const token = sessionCookie || ssoToken || (authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : undefined);
+  const explicitToken = ssoToken || (authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : undefined);
 
-  if (!token) {
+  const allCookies = parseCookiesForSSR(req);
+  const hasAnySession = allCookies.some(c => c.name.startsWith(SESSION_COOKIE_NAME));
+
+  if (!explicitToken && !hasAnySession) {
     return {
       authenticated: false,
       error: 'Authentication required. Please log in.',
     };
   }
 
-  // If the request had a session cookie natively, we can just omit explicitToken 
-  // since SSR client will pick it up automatically. We only pass the explicit token
-  // if it's derived from Authorization or X headers.
-  const isAuthHeaderOrSso = !!(authHeader || ssoToken);
-  const result = await verifySupabaseSession(req, isAuthHeaderOrSso ? token : undefined);
+  // Use explicit token if present, otherwise let SSR client use parsed cookies natively
+  const result = await verifySupabaseSession(req, explicitToken);
 
   if (!result) {
     return { authenticated: false, error: 'Invalid or expired session. Please log in again.' };
@@ -190,8 +190,7 @@ export async function checkCloudSession(req: http.IncomingMessage): Promise<{
   }
 
   // If we have an explicit token (SSO header/Bearer), use it; otherwise let SSR client use cookies
-  const isAuthHeaderOrSso = !!(authHeader || ssoToken);
-  const result = await verifySupabaseSession(req, isAuthHeaderOrSso ? token : undefined);
+  const result = await verifySupabaseSession(req, token);
 
   return result;
 }
