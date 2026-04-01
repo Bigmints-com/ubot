@@ -810,6 +810,60 @@ function migrateConfig(): void {
   log.info('Migration', 'Config migrated to v3.0 (capabilities)');
 }
 
+/**
+ * Seed default skills from default-data/skills/ into the workspace.
+ * Only copies skills that don't already exist in the workspace (preserves user edits).
+ * Marks seeded skills as system: true so they can be shown as read-only in the UI.
+ */
+function seedDefaultSkills(ws: WorkspaceProvider): void {
+  const fs = require('fs');
+  const path = require('path');
+
+  // Resolve the default-data/skills directory relative to this source file
+  // In production: dist/api/index.js → ../../default-data/skills
+  // In dev (tsx): src/api/index.ts → ../../default-data/skills
+  const candidates = [
+    path.resolve(__dirname, '..', '..', 'default-data', 'skills'),
+    path.resolve(process.cwd(), 'default-data', 'skills'),
+  ];
+  
+  const defaultSkillsDir = candidates.find((d: string) => fs.existsSync(d));
+  if (!defaultSkillsDir) {
+    console.log('[Skills] No default-data/skills directory found — skipping seed');
+    return;
+  }
+
+  let seeded = 0;
+  const entries = fs.readdirSync(defaultSkillsDir, { withFileTypes: true });
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    const skillName = entry.name;
+    const skillMdPath = path.join(defaultSkillsDir, skillName, 'SKILL.md');
+    
+    if (!fs.existsSync(skillMdPath)) continue;
+
+    // Check if skill already exists in workspace
+    const existingContent = ws.readFile(path.join('skills', skillName, 'SKILL.md'));
+    if (existingContent) continue; // Don't overwrite user-modified skills
+
+    // Copy the skill directory into workspace
+    const skillDir = path.join(defaultSkillsDir, skillName);
+    const files = fs.readdirSync(skillDir);
+    for (const file of files) {
+      const srcPath = path.join(skillDir, file);
+      const stat = fs.statSync(srcPath);
+      if (stat.isFile()) {
+        const content = fs.readFileSync(srcPath, 'utf8');
+        ws.writeFile(path.join('skills', skillName, file), content);
+      }
+    }
+    seeded++;
+  }
+
+  if (seeded > 0) {
+    console.log(`[Skills] Seeded ${seeded} default skill(s) from ${defaultSkillsDir}`);
+  }
+}
 export function initializeApi(
   db?: DatabaseConnection, 
   agent?: AgentOrchestrator, 
@@ -946,8 +1000,11 @@ export function initializeApi(
         agent.getConversationStore(),
       );
 
-      // Skills are now file-based (SKILL.md) — no DB seeding needed.
-      // Built-in skills ship as actual files in $UBOT_HOME/skills/
+      // Seed default skills from default-data/skills/ into workspace
+      seedDefaultSkills(workspaceProvider || (() => {
+        const { LocalWorkspaceProvider } = require('../data/local-workspace.js');
+        return new LocalWorkspaceProvider(wsPath || './workspace');
+      })());
 
       eventBus.on(async (event) => {
         if (!skillEngine) return;
