@@ -20,6 +20,7 @@ import {
   BarChart3,
 } from "lucide-react";
 import { api } from "@/lib/api";
+import { useHomePageOverride } from "@/lib/extensions";
 
 interface ChannelMetrics {
   messagesIn: number;
@@ -95,6 +96,9 @@ const CHANNEL_CONFIG: Record<
 };
 
 export default function DashboardPage() {
+  const Override = useHomePageOverride();
+  if (Override) return <Override />;
+
   const [metrics, setMetrics] = useState<MetricsSummary | null>(null);
   const [waStatus, setWaStatus] = useState<WAStatus | null>(null);
   const [tgStatus, setTGStatus] = useState<TGStatus | null>(null);

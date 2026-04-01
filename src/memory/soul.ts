@@ -8,9 +8,8 @@
  * 3. Contact Souls — Profiles for each person the owner interacts with
  */
 
-import fs from 'fs';
-import path from 'path';
 import type { MemoryStore } from './memory-store.js';
+import type { WorkspaceProvider } from '../data/workspace-provider.js';
 
 /* ------------------------------------------------------------------ */
 /*  Constants                                                          */
@@ -77,47 +76,42 @@ export interface Soul {
 /*  Implementation                                                     */
 /* ------------------------------------------------------------------ */
 
-export function createSoul(memoryStore: MemoryStore, workspacePath?: string): Soul {
-  // Ensure workspace directory exists if provided
-  if (workspacePath && !fs.existsSync(workspacePath)) {
-    fs.mkdirSync(workspacePath, { recursive: true });
-  }
-
-  // File cache to avoid frequent disk reads
+export function createSoul(memoryStore: MemoryStore, workspacePath?: string, workspace?: WorkspaceProvider): Soul {
+  // File cache to avoid frequent reads
   const fileCache: Record<string, string> = {};
 
-  const getFilePath = (personaId: string): string | null => {
-    if (!workspacePath) return null;
+  /** Get workspace-relative path for a persona file, or null if not a mapped persona */
+  const getRelativePath = (personaId: string): string | null => {
     const filename = SOUL_FILE_MAP[personaId];
     if (!filename) return null;
-    return path.join(workspacePath, filename);
+    return filename; // e.g. 'IDENTITY.md', 'SOUL.md' — relative to workspace root
   };
 
   const loadFile = (personaId: string): string | null => {
-    const filePath = getFilePath(personaId);
-    if (!filePath || !fs.existsSync(filePath)) return null;
+    if (!workspace) return null;
+    const relPath = getRelativePath(personaId);
+    if (!relPath) return null;
     try {
-      const content = fs.readFileSync(filePath, 'utf8');
-      fileCache[personaId] = content;
-      return content;
+      const content = workspace.readFile(relPath);
+      if (content) {
+        fileCache[personaId] = content;
+        return content;
+      }
+      return null;
     } catch (err) {
-      console.error(`[Soul] Error reading file ${filePath}:`, err);
+      console.error(`[Soul] Error reading ${relPath}:`, err);
       return null;
     }
   };
 
-  // Setup file watching
-  if (workspacePath) {
-    Object.values(SOUL_FILE_MAP).forEach(filename => {
-      const filePath = path.join(workspacePath, filename);
-      if (fs.existsSync(filePath)) {
-        fs.watch(filePath, (event) => {
+  // Setup file watching (only works for local workspace providers)
+  if (workspace?.watch) {
+    Object.entries(SOUL_FILE_MAP).forEach(([personaId, filename]) => {
+      if (workspace.exists(filename)) {
+        workspace.watch!(filename, (event) => {
           if (event === 'change') {
-            const personaId = Object.keys(SOUL_FILE_MAP).find(key => SOUL_FILE_MAP[key] === filename);
-            if (personaId) {
-              console.log(`[Soul] 🔄 Reloading ${filename} due to external change`);
-              loadFile(personaId);
-            }
+            console.log(`[Soul] 🔄 Reloading ${filename} due to external change`);
+            loadFile(personaId);
           }
         });
       }
@@ -150,14 +144,16 @@ export function createSoul(memoryStore: MemoryStore, workspacePath?: string): So
     saveDocument(personaId: string, content: string): void {
       memoryStore.saveDocument(personaId, content);
       
-      // Also write to file if it's a mapped persona
-      const filePath = getFilePath(personaId);
-      if (filePath) {
-        try {
-          fs.writeFileSync(filePath, content, 'utf8');
-          fileCache[personaId] = content;
-        } catch (err) {
-          console.error(`[Soul] Error writing to file ${filePath}:`, err);
+      // Also write to workspace if it's a mapped persona
+      if (workspace) {
+        const relPath = getRelativePath(personaId);
+        if (relPath) {
+          try {
+            workspace.writeFile(relPath, content);
+            fileCache[personaId] = content;
+          } catch (err) {
+            console.error(`[Soul] Error writing ${relPath}:`, err);
+          }
         }
       }
     },
@@ -295,15 +291,15 @@ NEVER share with visitors:
     },
 
     syncToFilesystem(): void {
-      if (!workspacePath) return;
+      if (!workspace) return;
       
       Object.keys(SOUL_FILE_MAP).forEach(personaId => {
-        const filePath = getFilePath(personaId);
-        if (filePath && !fs.existsSync(filePath)) {
-          console.log(`[Soul] 📂 Exporting ${personaId} to ${filePath}`);
+        const relPath = getRelativePath(personaId);
+        if (relPath && !workspace.exists(relPath)) {
+          console.log(`[Soul] 📂 Exporting ${personaId} to ${relPath}`);
           const content = this.getDocument(personaId);
           if (content) {
-            fs.writeFileSync(filePath, content, 'utf8');
+            workspace.writeFile(relPath, content);
           }
         }
       });

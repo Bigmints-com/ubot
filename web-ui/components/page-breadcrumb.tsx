@@ -30,6 +30,7 @@ const coreRouteNames: Record<string, string> = {
   "/approvals": "Approvals",
   "/webchat": "Web Chat",
   "/apple": "Apple Services",
+  "/profile": "Profile",
 };
 
 // ── Extension Points ────────────────────────────────────
@@ -47,7 +48,7 @@ export function registerBreadcrumbRoutes(routes: Record<string, string>): void {
 
 /**
  * Register feature routes for hierarchical breadcrumbs.
- * e.g., { prefix: '/saveaday/catalogues', label: 'Catalogues', listHref: '/saveaday/catalogues' }
+ * e.g., { prefix: '/myapp/contacts', label: 'Contacts', listHref: '/myapp/contacts' }
  */
 export function registerFeatureRoutes(routes: { prefix: string; label: string; listHref: string }[]): void {
   extFeatureRoutes.push(...routes);

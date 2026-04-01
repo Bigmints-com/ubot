@@ -50,13 +50,13 @@ export async function handleVaultRoutes(
     return true;
   }
 
-  const workspacePath = ctx.workspacePath;
-  if (!workspacePath) {
+  const workspaceProvider = ctx.workspaceProvider;
+  if (!workspaceProvider) {
     error(res, 'Workspace not configured', 500);
     return true;
   }
 
-  const vault = getVaultService(workspacePath);
+  const vault = getVaultService(workspaceProvider);
 
   // ── GET /api/vault — list or search ────────────────────
   if (url.startsWith('/api/vault') && !url.includes('/api/vault/') && method === 'GET') {
@@ -95,7 +95,6 @@ export async function handleVaultRoutes(
     return true;
   }
 
-  // ── POST /api/vault/document — store document ──────────
   if (url === '/api/vault/document' && method === 'POST') {
     try {
       const body = await parseBody(req) as any;
@@ -104,21 +103,20 @@ export async function handleVaultRoutes(
         return true;
       }
 
-      let filePath: string;
+      let fileData: Buffer;
+      let filename: string;
 
       if (body.file_data && body.filename) {
         // Browser upload: base64 encoded file data
+        fileData = Buffer.from(body.file_data, 'base64');
+        filename = String(body.filename);
+      } else if (body.file_path) {
+        // Tool/CLI: file path on disk — read the file
         const fs = await import('fs');
         const path = await import('path');
-        const uploadsDir = path.join(workspacePath, 'uploads');
-        if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
-        const tempPath = path.join(uploadsDir, `vault-${Date.now()}-${body.filename}`);
-        const buffer = Buffer.from(body.file_data, 'base64');
-        fs.writeFileSync(tempPath, buffer);
-        filePath = tempPath;
-      } else if (body.file_path) {
-        // Tool/CLI: file path on disk
-        filePath = String(body.file_path);
+        const filePath = String(body.file_path);
+        fileData = fs.readFileSync(filePath);
+        filename = path.basename(filePath);
       } else {
         error(res, 'file_data+filename or file_path is required', 400);
         return true;
@@ -127,15 +125,11 @@ export async function handleVaultRoutes(
       const metadata = body.notes ? { notes: String(body.notes) } : undefined;
       const item = vault.storeDocument(
         String(body.label),
-        filePath,
+        fileData,
+        filename,
         String(body.category || 'documents'),
         metadata,
       );
-
-      // Clean up temp file after encryption (the vault has its own encrypted copy)
-      if (body.file_data) {
-        try { (await import('fs')).unlinkSync(filePath); } catch {}
-      }
 
       json(res, { item }, 201);
     } catch (err: any) {

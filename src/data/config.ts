@@ -91,12 +91,54 @@ export interface CapabilitiesConfig {
   [key: string]: unknown;  // extensible for future capabilities
 }
 
+// ─── Auth Config ─────────────────────────────────────────
+
+export type AuthMode = 'local' | 'sso';
+
+export interface AuthConfig {
+  /** 'local' = username/password login, 'sso' = external SSO provider.
+   *  Default: 'local'. When 'local', password is auto-generated if missing. */
+  mode?: AuthMode;
+  /** Local auth username. Default: 'admin' */
+  username?: string;
+  /** Local auth password. Auto-generated on first boot if missing. */
+  password?: string;
+  /** SSO provider name (e.g. 'supabase'). Only used when mode is 'sso'. */
+  provider?: string;
+  /** SSO auth URL (e.g. 'https://auth.example.com'). Only used when mode is 'sso'. */
+  auth_url?: string;
+  /** SSO cookie name. Default: 'session'. Only used when mode is 'sso'. */
+  cookie_name?: string;
+}
+
 // ─── Config Interface ────────────────────────────────────
 
 export interface UbotConfig {
   meta?: { version?: string };
-  server?: { port?: number; access_username?: string; access_password?: string };
+  server?: {
+    port?: number;
+    frontend_port?: number;
+    mode?: 'local' | 'cloud' | 'cloud-shared';
+    auth?: AuthConfig;
+    /** @deprecated Use server.auth.username */
+    access_username?: string;
+    /** @deprecated Use server.auth.password */
+    access_password?: string;
+  };
   database?: { path?: string };
+
+  /** Workspace storage configuration */
+  workspace?: {
+    /** Storage provider: 'local' (filesystem) or 'gcs' (Google Cloud Storage) */
+    provider?: 'local' | 'gcs';
+    /** Local: relative or absolute path. GCS: bucket name. Default: './workspace' */
+    path?: string;
+    /** GCS: key prefix for tenant isolation */
+    prefix?: string;
+  };
+
+  /** Path to custom apps directory. Default: 'custom/apps' */
+  apps_dir?: string;
 
   owner?: {
     phone?: string;
@@ -148,6 +190,22 @@ export interface UbotConfig {
   integrations?: any;
   /** @deprecated */
   mcp?: any;
+
+  // ─── Extension / Fork Fields ──────────────────────────
+  // Forks can add arbitrary top-level keys to config.json.
+  // Common pattern: { theme: { appName, colors, fonts }, app: { ... } }
+  // Use getHooks() + config to read these in your fork's startup hook.
+  theme?: {
+    app_name?: string;
+    description?: string;
+    logo_url?: string;
+    favicon_url?: string;
+    colors?: Record<string, string>;
+    fonts?: Record<string, string>;
+    [key: string]: unknown;
+  };
+  app?: Record<string, unknown>;
+  [key: string]: unknown;
 }
 
 // ─── Config File I/O ─────────────────────────────────────
@@ -199,4 +257,37 @@ export function getDefaultProvider(section?: ProvidersSection): { key: string; c
     if (config.enabled !== false) return { key, config };
   }
   return entries.length > 0 ? { key: entries[0][0], config: entries[0][1] } : null;
+}
+
+// ─── Helper: Resolve Auth Config ──────────────────────────
+
+export interface ResolvedAuth {
+  mode: AuthMode;
+  // Local
+  username: string;
+  password: string | undefined;
+  // SSO
+  provider?: string;
+  auth_url?: string;
+  cookie_name?: string;
+}
+
+/**
+ * Resolve auth config with backward compatibility.
+ * Reads from server.auth (new) or server.access_* (deprecated flat fields).
+ */
+export function resolveAuthConfig(config: UbotConfig): ResolvedAuth {
+  const auth = config.server?.auth;
+  const mode: AuthMode = auth?.mode ?? 'local';
+
+  return {
+    mode,
+    // Local auth — new fields first, then deprecated flat fields
+    username: auth?.username ?? config.server?.access_username ?? 'admin',
+    password: auth?.password ?? config.server?.access_password,
+    // SSO
+    provider: auth?.provider,
+    auth_url: auth?.auth_url,
+    cookie_name: auth?.cookie_name ?? 'session',
+  };
 }

@@ -39,6 +39,7 @@ import { runSubagent } from './subagent-runner.js';
 import { createTaskPlan, getExecutionOrder, type TaskPlan, type TaskStep } from './task-planner.js';
 import { saveTaskPlan, updateStepStatus, updatePlanStatus, getTaskPlan } from './plan-store.js';
 import { getPromptExperiments } from './prompt-experiment.js';
+import { getHooks } from '../hooks/extensions.js';
 
 /**
  * Find recent outbound messages sent TO a specific contact by the owner.
@@ -154,6 +155,28 @@ export function createAgentOrchestrator(
   skillEngine?: SkillEngine,
 ): AgentOrchestrator {
   let currentConfig = { ...config };
+
+  // ── Apply engine hook extensions at creation time ──────
+  // Custom apps inject extra providers and routing via EngineHook.
+  // This keeps all product-specific provider config out of the engine core.
+  const engineHook = getHooks().engine;
+  if (engineHook) {
+    const extraProviders = engineHook.getExtraProviders?.() ?? [];
+    if (extraProviders.length > 0) {
+      const existingIds = new Set((currentConfig.llmProviders ?? []).map(p => p.id));
+      const newProviders = extraProviders.filter(p => !existingIds.has(p.id));
+      currentConfig.llmProviders = [...(currentConfig.llmProviders ?? []), ...newProviders];
+      console.log(`[Orchestrator] 🔌 Engine hook: ${newProviders.length} extra provider(s) injected: ${newProviders.map(p => p.id).join(', ')}`);
+    }
+
+    const extraRouting = engineHook.getDefaultModelRouting?.() ?? {};
+    // Only apply hook routing if the config has no routing set (hook = default, user config = override)
+    if (Object.keys(extraRouting).length > 0 && Object.keys(currentConfig.modelRouting ?? {}).length === 0) {
+      currentConfig.modelRouting = { ...extraRouting };
+      console.log(`[Orchestrator] 🗺  Engine hook: applied default routing: ${JSON.stringify(extraRouting)}`);
+    }
+  }
+
   const toolRegistry = createToolRegistry();
   const continuationCount = new Map<string, number>();
   

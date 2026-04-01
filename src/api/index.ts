@@ -22,6 +22,7 @@ import { TelegramMessagingProvider } from '../channels/telegram/messaging-provid
 import { MessagingRegistry } from '../channels/registry.js';
 import { createFileSkillRepository } from '../agents/skills/file-skill-repository.js';
 import type { SkillRepository } from '../agents/skills/skill-repository.js';
+import type { WorkspaceProvider } from '../data/workspace-provider.js';
 import { createSkillEngine, type SkillEngine } from '../agents/skills/skill-engine.js';
 import { createEventBus, type EventBus } from '../agents/skills/event-bus.js';
 import { loadUbotConfig, saveUbotConfig } from '../data/config.js';
@@ -99,6 +100,7 @@ let safetyRules: SafetyRule[] = DEFAULT_SAFETY_RULES.map((r, i) => ({
 })) as SafetyRule[];
 let whatsappConfig: Partial<WhatsAppConnectionConfig> = { ...DEFAULT_WHATSAPP_CONFIG };
 let workspacePath: string | null = null;
+let workspaceProvider: WorkspaceProvider | null = null;
 
 // WhatsApp connection state
 let waConnection: WhatsAppConnection | null = null;
@@ -812,19 +814,28 @@ export function initializeApi(
   db?: DatabaseConnection, 
   agent?: AgentOrchestrator, 
   wsPath?: string, 
-  followUpStore?: any
+  followUpStore?: any,
+  workspace?: WorkspaceProvider,
 ): { skillRepo: SkillRepository | null, skillEngine: SkillEngine | null } {
   migrateConfig();
   workspacePath = wsPath || null;
+  if (workspace) workspaceProvider = workspace;
   if (db) {
 
-    // File-based skills: stored as SKILL.md files in workspace/skills/
-    const skillsDir = wsPath
-      ? require('path').join(wsPath, 'skills')
-      : (process.env.UBOT_HOME
-        ? require('path').join(process.env.UBOT_HOME, 'workspace', 'skills')
-        : './skills');
-    skillRepo = createFileSkillRepository(skillsDir);
+    // File-based skills via workspace provider (or legacy path fallback)
+    if (workspaceProvider) {
+      skillRepo = createFileSkillRepository(workspaceProvider, 'skills');
+    } else {
+      // Legacy: build skills dir from wsPath
+      const skillsDir = wsPath
+        ? require('path').join(wsPath, 'skills')
+        : (process.env.UBOT_HOME
+          ? require('path').join(process.env.UBOT_HOME, 'workspace', 'skills')
+          : './skills');
+      const { LocalWorkspaceProvider } = require('../data/local-workspace.js');
+      const fallbackWs = new LocalWorkspaceProvider(wsPath || './workspace');
+      skillRepo = createFileSkillRepository(fallbackWs, 'skills');
+    }
     coreDb = db as unknown as DatabaseConnection;
     asyncJobStore = createAsyncJobStore(coreDb);
     asyncJobStore.failAllProcessingJobs('Server restarted while job was processing');
@@ -1065,6 +1076,7 @@ async function registerAgentTools(agent: AgentOrchestrator): Promise<void> {
     getAgent: () => agent,
     getEventBus: () => eventBus,
     getWorkspacePath: () => workspacePath,
+    getWorkspaceProvider: () => workspaceProvider,
     getCliService: () => null, // CLI service is lazily loaded in the tool module
     getFollowUpStore: () => followUpStoreInstance,
     getSpawnedSessionStore: () => spawnedSessionStore,
@@ -1133,6 +1145,7 @@ function getApiContext(): ApiContext {
     safetyRules,
     mcpManager,
     workspacePath,
+    workspaceProvider,
     saveConfigValue,
     loadConfigValue: (key: string) => {
       const c = loadUbotConfig();
@@ -1660,7 +1673,46 @@ async function handleChannelRoutes(
     return true;
   }
 
+  // ── App Theme ─────────────────────────────────────────
+  // Returns the active custom app's theme metadata for branding injection.
+  // Returns { theme: null } for vanilla UBOT (uses built-in skin).
+  if (url === '/api/app/theme' && method === 'GET') {
+    const { getActiveTheme } = await import('../lib/app-loader.js');
+    const theme = getActiveTheme();
+    // Add cssUrl if the theme has a CSS file
+    const response: any = { theme };
+    if (theme?.cssPath) {
+      response.theme = { ...theme, cssUrl: '/api/app/theme.css' };
+    }
+    json(res, response);
+    return true;
+  }
 
+  // ── App Theme CSS ────────────────────────────────────
+  // Serves the active theme's CSS file for <link> injection.
+  if (url === '/api/app/theme.css' && method === 'GET') {
+    const { getActiveTheme } = await import('../lib/app-loader.js');
+    const theme = getActiveTheme();
+    if (theme?.cssPath) {
+      try {
+        const { readFileSync } = await import('fs');
+        const css = readFileSync(theme.cssPath, 'utf-8');
+        res.writeHead(200, {
+          'Content-Type': 'text/css',
+          'Cache-Control': 'public, max-age=3600',
+        });
+        res.end(css);
+        return true;
+      } catch {
+        res.writeHead(404, { 'Content-Type': 'text/plain' });
+        res.end('Theme CSS not found');
+        return true;
+      }
+    }
+    res.writeHead(404, { 'Content-Type': 'text/plain' });
+    res.end('No theme CSS configured');
+    return true;
+  }
 
   return false;
 }

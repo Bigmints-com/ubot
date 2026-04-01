@@ -21,6 +21,7 @@ import type { McpServerManager } from '../capabilities/mcp/mcp-manager.js';
 import type { SkillRepository } from '../agents/skills/skill-repository.js';
 import type { AsyncJobStore } from './job-store.js';
 import type { SpawnedSessionStore } from '../engine/spawned-session-store.js';
+import type { WorkspaceProvider } from '../data/workspace-provider.js';
 
 export interface ApiContext {
   // Core
@@ -62,6 +63,7 @@ export interface ApiContext {
 
   // Workspace
   workspacePath: string | null;
+  workspaceProvider: WorkspaceProvider | null;
 
   // Helpers
   saveConfigValue: (key: string, value: string) => void;

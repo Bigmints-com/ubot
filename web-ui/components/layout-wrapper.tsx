@@ -29,6 +29,33 @@ function isPublicPage(pathname: string | null): boolean {
   return publicPagePatterns.some(p => p.test(pathname));
 }
 
+// ── Layout Wrapper Extensions ───────────────────────────
+
+/**
+ * A function that wraps children — used to inject guards or providers
+ * (e.g., OnboardingGuard) without modifying layout.tsx.
+ */
+export type LayoutWrapperFn = (children: React.ReactNode) => React.ReactNode;
+
+const _layoutWrappers: LayoutWrapperFn[] = [];
+
+/**
+ * Register a layout wrapper that wraps the main authenticated content.
+ * Call at module load time from an extension file.
+ * Wrappers are applied in registration order (outermost first).
+ */
+export function registerLayoutWrapper(wrapper: LayoutWrapperFn): void {
+  _layoutWrappers.push(wrapper);
+}
+
+function applyLayoutWrappers(content: React.ReactNode): React.ReactNode {
+  // Apply in reverse so first registered = outermost wrapper
+  return [..._layoutWrappers].reverse().reduce(
+    (acc, wrap) => <>{wrap(acc)}</>,
+    content
+  );
+}
+
 function AuthGate({ children }: { children: React.ReactNode }) {
   const { authenticated, authRequired, loading } = useAuth();
 
@@ -64,20 +91,24 @@ export function CoreLayoutWrapper({ children }: { children: React.ReactNode }) {
     );
   }
 
+  const mainContent = (
+    <SidebarProvider>
+      <AppSidebar />
+      <SidebarInset>
+        <header className="flex h-12 shrink-0 items-center gap-2 border-b px-4">
+          <SidebarTrigger className="-ml-1" />
+          <Separator orientation="vertical" className="mr-2 h-4" />
+          <PageBreadcrumb />
+        </header>
+        <main className="flex-1 min-h-0 overflow-auto">{children}</main>
+      </SidebarInset>
+    </SidebarProvider>
+  );
+
   return (
     <AuthProvider>
       <AuthGate>
-        <SidebarProvider>
-          <AppSidebar />
-          <SidebarInset>
-            <header className="flex h-12 shrink-0 items-center gap-2 border-b px-4">
-              <SidebarTrigger className="-ml-1" />
-              <Separator orientation="vertical" className="mr-2 h-4" />
-              <PageBreadcrumb />
-            </header>
-            <main className="flex-1 min-h-0 overflow-auto">{children}</main>
-          </SidebarInset>
-        </SidebarProvider>
+        {applyLayoutWrappers(mainContent)}
       </AuthGate>
     </AuthProvider>
   );

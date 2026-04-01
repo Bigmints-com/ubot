@@ -29,7 +29,7 @@ export interface AuthResult {
 }
 
 /** Paths that skip authentication */
-const PUBLIC_PATHS = ['/api/health'];
+const PUBLIC_PATHS = ['/api/health', '/api/app/theme', '/api/app/theme.css', '/api/auth/status', '/api/features', '/api/modules'];
 
 /**
  * Load API keys from config.

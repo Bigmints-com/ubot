@@ -28,6 +28,8 @@ import {
   type LucideIcon,
   Zap,
   LogOut,
+  User,
+  ChevronsUpDown,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -46,6 +48,14 @@ import {
   SidebarMenuItem,
   SidebarFooter,
 } from "@/components/ui/sidebar";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useFeatures, type Features } from "@/hooks/use-features";
 
 // ── Nav Item Types ──────────────────────────────────────
@@ -165,6 +175,25 @@ export function AppSidebar() {
   const { features, isSaaS, isCloud, mode } = useFeatures();
   const { authRequired, logout } = useAuth();
 
+  const [appName, setAppName] = useState("Ubot");
+  const [appTagline, setAppTagline] = useState("Agent Core");
+  const [username, setUsername] = useState("");
+
+  useEffect(() => {
+    fetch('/api/app/theme')
+      .then(r => r.json())
+      .then(({ theme }) => {
+        if (theme?.appName) setAppName(theme.appName);
+        if (theme?.appName && theme.appName !== 'Ubot') setAppTagline('AI Command Center');
+      })
+      .catch(() => {});
+
+    // Fetch current user profile
+    api<{ username: string }>('/api/auth/profile')
+      .then(data => { if (data?.username) setUsername(data.username); })
+      .catch(() => {});
+  }, []);
+
   const ctx = { mode, features, isCloud, isSaaS };
 
   const [dynamicModules, setDynamicModules] = useState<NavItem[]>([]);
@@ -248,10 +277,10 @@ export function AppSidebar() {
                 </div>
                 <div className="grid flex-1 text-left text-sm leading-tight">
                   <span className="truncate font-bold">
-                    {isSaaS ? "SaveADay" : "Ubot"}
+                    {appName}
                   </span>
                   <span className="truncate text-xs text-muted-foreground">
-                    {isSaaS ? "AI Command Center" : "Agent Core"}
+                    {appTagline}
                   </span>
                 </div>
               </Link>
@@ -349,18 +378,50 @@ export function AppSidebar() {
               </Link>
             </SidebarMenuButton>
           </SidebarMenuItem>
-          {authRequired && (
-            <SidebarMenuItem>
-              <SidebarMenuButton tooltip="Sign out" onClick={() => logout()}>
-                <LogOut />
-                <span>Sign out</span>
-              </SidebarMenuButton>
-            </SidebarMenuItem>
-          )}
           <SidebarMenuItem>
-            <SidebarMenuButton size="sm" className="text-xs text-muted-foreground">
-              <span>v1.0.0{isSaaS ? " · SaaS" : mode === "cloud" ? " · Cloud" : ""}</span>
-            </SidebarMenuButton>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <SidebarMenuButton
+                  size="lg"
+                  className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
+                  tooltip={username || "Account"}
+                >
+                  <Avatar className="size-8 rounded-lg">
+                    <AvatarFallback className="rounded-lg bg-primary/10 text-primary font-semibold">
+                      {(username || "U").charAt(0).toUpperCase()}
+                    </AvatarFallback>
+                  </Avatar>
+                  <div className="grid flex-1 text-left text-sm leading-tight">
+                    <span className="truncate font-semibold">{username || "User"}</span>
+                    <span className="truncate text-xs text-muted-foreground">
+                      v1.0.0{isSaaS ? " · SaaS" : mode === "cloud" ? " · Cloud" : ""}
+                    </span>
+                  </div>
+                  <ChevronsUpDown className="ml-auto size-4" />
+                </SidebarMenuButton>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                side="top"
+                align="start"
+                className="w-[--radix-dropdown-menu-trigger-width] min-w-56 rounded-lg"
+              >
+                <DropdownMenuItem asChild>
+                  <Link href="/profile" className="flex items-center gap-2">
+                    <User className="size-4" />
+                    Profile
+                  </Link>
+                </DropdownMenuItem>
+                {authRequired && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onClick={() => logout()} className="text-destructive focus:text-destructive">
+                      <LogOut className="size-4" />
+                      Sign out
+                    </DropdownMenuItem>
+                  </>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
           </SidebarMenuItem>
         </SidebarMenu>
       </SidebarFooter>

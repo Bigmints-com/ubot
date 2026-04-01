@@ -11,6 +11,7 @@ import { getVaultService } from './service.js';
 import { getSafetyService } from '../safety/service.js';
 import { loadUbotConfig } from '../../data/config.js';
 import path from 'path';
+import fs from 'fs';
 
 const CATEGORIES = ['general', 'credentials', 'identity', 'finance', 'documents', 'keys', 'notes'];
 
@@ -72,12 +73,13 @@ const vaultToolModule: ToolModule = {
   tools: vaultTools,
   register(registry: ToolRegistry, ctx: ToolContext) {
     const workspacePath = ctx.getWorkspacePath();
-    if (!workspacePath) {
-      console.warn('[VaultTool] Workspace path not defined. Vault tools disabled.');
+    const workspaceProvider = ctx.getWorkspaceProvider();
+    if (!workspacePath && !workspaceProvider) {
+      console.warn('[VaultTool] Workspace not defined. Vault tools disabled.');
       return;
     }
 
-    const vault = getVaultService(workspacePath);
+    const vault = getVaultService(workspaceProvider);
     const safety = getSafetyService();
 
     // ─── vault_store ─────────────────────────────────────────────────────
@@ -124,9 +126,12 @@ const vaultToolModule: ToolModule = {
 
       try {
         // Validate path security
-        const safePath = safety.validatePathWithAllowedPaths(filePath, workspacePath, getAllowedPaths());
+        const safePath = safety.validatePathWithAllowedPaths(filePath, workspacePath || '', getAllowedPaths());
+        // Read the file from local filesystem (agent tool works with local files)
+        const fileData = fs.readFileSync(safePath);
+        const filename = path.basename(safePath);
         const metadata = notes ? { notes } : undefined;
-        const item = vault.storeDocument(label, safePath, category, metadata);
+        const item = vault.storeDocument(label, fileData, filename, category, metadata);
         return {
           toolName: 'vault_store_document',
           success: true,

@@ -10,6 +10,45 @@
  */
 
 import http from 'http';
+import type { LLMProviderConfig } from '../engine/types.js';
+import type { WorkspaceProvider } from '../data/workspace-provider.js';
+
+// ── Engine Hook ─────────────────────────────────────────
+
+export type UserRole = 'superadmin' | 'owner' | 'manager' | 'staff' | 'visitor';
+export type ModelRouting = Record<string, string>;
+
+export interface EngineHook {
+  /** Extra LLM providers injected alongside user config (e.g. MANAGED_AI_PROVIDERS) */
+  getExtraProviders?(): LLMProviderConfig[];
+
+  /** Default model routing overrides (purpose → providerId) */
+  getDefaultModelRouting?(): Partial<ModelRouting>;
+
+  /**
+   * Resolve the role for a session.
+   * Return null to fall back to UBOT default (owner/visitor binary).
+   */
+  resolveRole?(sessionId: string, source: string, isOwnerDetected: boolean): UserRole | null;
+
+  /**
+   * Return an identity verification prompt to inject for a session/role.
+   * Return null to skip.
+   */
+  getIdentityPrompt?(sessionId: string, role: UserRole): string | null;
+
+  /** Extra tool module routing descriptions merged into the LLM router. */
+  getExtraToolModules?(): Record<string, string>;
+
+  /** Module IDs always included regardless of LLM routing decision. */
+  getAlwaysOnModules?(): string[];
+
+  /**
+   * Load skill context for a named default skill (returns SKILL.md content).
+   * Return null if the skill isn't found.
+   */
+  loadSkillContext?(skillName: string): Promise<string | null>;
+}
 
 // ── Auth Hook ──────────────────────────────────────────
 
@@ -104,15 +143,32 @@ export interface DatabaseHook {
   }): any | null;
 }
 
+// ── Workspace Hook ─────────────────────────────────────
+
+export interface WorkspaceHook {
+  /**
+   * Provide a custom workspace provider instead of the default local filesystem.
+   * Called once at startup. Return a WorkspaceProvider, or null to use default.
+   */
+  createWorkspaceProvider(context: {
+    defaultPath: string;
+    ubotHome: string;
+  }): WorkspaceProvider | null;
+}
+
 // ── Registered Hooks ───────────────────────────────────
 
-interface RegisteredHooks {
+export interface RegisteredHooks {
   auth?: AuthHook;
   middleware?: MiddlewareHook;
   routes?: RouteHook;
   startup?: StartupHook;
   toolRegistry?: ToolRegistryHook;
   database?: DatabaseHook;
+  /** Engine behaviour extensions — providers, routing, RBAC, skill loading */
+  engine?: EngineHook;
+  /** Override default filesystem-based workspace with a custom provider (e.g. GCS) */
+  workspace?: WorkspaceHook;
 }
 
 let _hooks: RegisteredHooks = {};

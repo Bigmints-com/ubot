@@ -7,6 +7,7 @@
  */
 
 import type { ToolDefinition, ToolExecutionResult, ToolCallResult } from '../engine/types.js';
+import type { WorkspaceProvider } from '../data/workspace-provider.js';
 
 // Re-export for convenience
 export type { ToolDefinition, ToolExecutionResult, ToolCallResult };
@@ -38,6 +39,7 @@ export interface ToolContext {
   getAgent(): any | null;
   getEventBus(): any | null;
   getWorkspacePath(): string | null;
+  getWorkspaceProvider(): WorkspaceProvider | null;
   getCliService(): any | null;
   getFollowUpStore(): any | null;
   getSpawnedSessionStore(): any | null;

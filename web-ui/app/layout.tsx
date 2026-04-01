@@ -5,6 +5,8 @@ import "./globals.css";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster } from "@/components/ui/sonner";
 import { CoreLayoutWrapper } from "@/components/layout-wrapper";
+import { ThemeInjector } from "@/components/theme-injector";
+import { ExtensionsLoader } from "@/lib/extensions";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -16,9 +18,10 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+// Static SSR defaults — ThemeInjector overrides at runtime from config.json theme
 export const metadata: Metadata = {
-  title: "Ubot Core",
-  description: "Agent Core System — Command Center",
+  title: "Ubot",
+  description: "AI Agent Platform",
 };
 
 export default function RootLayout({
@@ -31,9 +34,11 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
+        <ExtensionsLoader />
         <TooltipProvider>
           <CoreLayoutWrapper>{children}</CoreLayoutWrapper>
         </TooltipProvider>
+        <ThemeInjector />
         <Toaster />
       </body>
     </html>
