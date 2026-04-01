@@ -57,7 +57,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useFeatures, type Features } from "@/hooks/use-features";
-import { ThemeToggle } from "@/components/theme-toggle";
+
 
 // ── Nav Item Types ──────────────────────────────────────
 
@@ -200,18 +200,21 @@ export function AppSidebar() {
   const [dynamicModules, setDynamicModules] = useState<NavItem[]>([]);
 
   useEffect(() => {
-    api<{ modules: any[] }>('/api/modules')
+    interface DynamicModule {
+      ui?: { title: string; href: string; icon: string; };
+    }
+    api<{ modules: DynamicModule[] }>('/api/modules')
       .then(data => {
         if (data.modules && Array.isArray(data.modules)) {
           const ICONS: Record<string, LucideIcon> = {
             Sparkles, Bot, Globe, FolderOpen, Plug, Search, Calendar, Apple, Terminal, Zap
           };
           const items: NavItem[] = data.modules
-            .filter((m: any) => m.ui)
-            .map((m: any) => ({
-              title: m.ui.title,
-              href: m.ui.href,
-              icon: ICONS[m.ui.icon] || Plug,
+            .filter((m) => m.ui)
+            .map((m) => ({
+              title: m.ui!.title,
+              href: m.ui!.href,
+              icon: ICONS[m.ui!.icon] || Plug,
             }));
           setDynamicModules(items);
         }
@@ -371,9 +374,7 @@ export function AppSidebar() {
             .filter(e => !e.condition || e.condition({ isCloud, isSaaS }))
             .flatMap(e => e.items)
             .map(renderItem)}
-          <SidebarMenuItem>
-            <ThemeToggle />
-          </SidebarMenuItem>
+
           <SidebarMenuItem>
             <SidebarMenuButton asChild isActive={pathname === "/settings"} tooltip="Settings">
               <Link href="/settings">

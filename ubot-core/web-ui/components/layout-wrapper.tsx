@@ -10,6 +10,7 @@ import { LoginScreen } from '@/components/login-screen';
 import { Loader2 } from 'lucide-react';
 import React from 'react';
 import { ThemeProvider } from '@/components/theme-provider';
+import { ThemeToggle } from '@/components/theme-toggle';
 
 /**
  * Patterns for paths that should render without the sidebar shell.
@@ -102,6 +103,8 @@ export function CoreLayoutWrapper({ children }: { children: React.ReactNode }) {
           <SidebarTrigger className="-ml-1" />
           <Separator orientation="vertical" className="mr-2 h-4" />
           <PageBreadcrumb />
+          <div className="flex-1" />
+          <ThemeToggle />
         </header>
         <main className="flex-1 min-h-0 overflow-auto">{children}</main>
       </SidebarInset>

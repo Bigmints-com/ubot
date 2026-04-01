@@ -29,7 +29,7 @@ const SERVICES = [
     name: "Apple Calendar",
     description: "List, create, and delete calendar events",
     icon: Calendar,
-    color: "text-red-400",
+    color: "text-red-600 dark:text-red-400",
     bgColor: "bg-red-500/10",
     borderColor: "border-red-500/20",
   },
@@ -38,7 +38,7 @@ const SERVICES = [
     name: "Apple Contacts",
     description: "Search and list contacts from macOS Contacts app",
     icon: Users,
-    color: "text-blue-400",
+    color: "text-blue-600 dark:text-blue-400",
     bgColor: "bg-blue-500/10",
     borderColor: "border-blue-500/20",
   },
@@ -47,7 +47,7 @@ const SERVICES = [
     name: "Apple Notes",
     description: "Read, create, and list notes in Apple Notes",
     icon: StickyNote,
-    color: "text-yellow-400",
+    color: "text-yellow-600 dark:text-yellow-400",
     bgColor: "bg-yellow-500/10",
     borderColor: "border-yellow-500/20",
   },
@@ -56,7 +56,7 @@ const SERVICES = [
     name: "Apple Mail",
     description: "Read, search, and send emails via Apple Mail",
     icon: Mail,
-    color: "text-cyan-400",
+    color: "text-cyan-600 dark:text-cyan-400",
     bgColor: "bg-cyan-500/10",
     borderColor: "border-cyan-500/20",
   },
@@ -115,7 +115,7 @@ export default function ApplePage() {
   const isMacOS = true; // We're always on macOS for the agent
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-6 space-y-6 max-w-4xl mx-auto">
       {/* Header */}
       <div className="flex items-center gap-3">
         <div className="flex items-center justify-center h-10 w-10 rounded-xl bg-gradient-to-br from-zinc-600 to-zinc-800 shadow-lg shadow-zinc-500/20">
@@ -139,7 +139,7 @@ export default function ApplePage() {
             </span>
             <div className="flex items-center gap-3">
               <Badge variant="outline" className="gap-1.5">
-                <span className={`h-2 w-2 rounded-full ${config.enabled ? "bg-emerald-500" : "bg-zinc-500"}`} />
+                <span className={`h-2 w-2 rounded-full ${config.enabled ? "bg-emerald-500" : "bg-muted-foreground"}`} />
                 {config.enabled ? "Enabled" : "Disabled"}
               </Badge>
               <Switch
@@ -152,11 +152,11 @@ export default function ApplePage() {
         <CardContent className="space-y-3">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="flex items-center gap-2 p-3 rounded-lg border bg-emerald-500/5 border-emerald-500/20 text-sm">
-              <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0" />
+              <CheckCircle2 className="size-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
               <span>macOS Detected</span>
             </div>
             <div className="flex items-center gap-2 p-3 rounded-lg border bg-amber-500/5 border-amber-500/20 text-sm">
-              <AlertTriangle className="h-4 w-4 text-amber-400 shrink-0" />
+              <AlertTriangle className="size-4 text-amber-600 dark:text-amber-400 shrink-0" />
               <span>Contacts & Mail need Full Disk Access</span>
             </div>
           </div>
@@ -182,24 +182,24 @@ export default function ApplePage() {
                   key={service.key}
                   className={`flex items-center gap-3 p-4 rounded-xl border transition-all ${
                     !config.enabled
-                      ? "opacity-50 border-zinc-800"
+                      ? "opacity-50 border-border"
                       : enabled
                         ? `${service.bgColor} ${service.borderColor}`
-                        : "border-zinc-800 bg-zinc-900/50"
+                        : "border-border bg-muted/30"
                   }`}
                 >
                   <div
                     className={`flex items-center justify-center h-10 w-10 rounded-lg shrink-0 ${
                       enabled && config.enabled
                         ? `${service.bgColor}`
-                        : "bg-zinc-800"
+                        : "bg-muted"
                     }`}
                   >
                     <Icon
                       className={`h-5 w-5 ${
                         enabled && config.enabled
                           ? service.color
-                          : "text-zinc-500"
+                          : "text-muted-foreground"
                       }`}
                     />
                   </div>

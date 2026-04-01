@@ -115,13 +115,13 @@ export default function WebchatPage() {
     ? "bg-emerald-500"
     : isConnecting
       ? "bg-amber-500"
-      : "bg-zinc-500";
+      : "bg-muted-foreground";
 
   return (
     <div className="p-6 space-y-6 max-w-4xl mx-auto">
       {/* Header — matches WhatsApp / Telegram */}
       <div className="flex items-center gap-3">
-        <Globe className="h-8 w-8 text-indigo-400" />
+        <Globe className="h-8 w-8 text-indigo-600 dark:text-indigo-400" />
         <div>
           <h1 className="text-2xl font-bold">Web Chat</h1>
           <p className="text-sm text-muted-foreground">
@@ -136,9 +136,9 @@ export default function WebchatPage() {
           <CardTitle className="flex items-center justify-between">
             <span className="flex items-center gap-2">
               {isConnected ? (
-                <Wifi className="h-5 w-5 text-emerald-400" />
+                <Wifi className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
               ) : (
-                <WifiOff className="h-5 w-5 text-zinc-400" />
+                <WifiOff className="h-5 w-5 text-muted-foreground" />
               )}
               Connection Status
             </span>
@@ -151,9 +151,9 @@ export default function WebchatPage() {
         <CardContent className="space-y-4">
           {isConnected && (
             <div className="flex items-center gap-3 p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
-              <Globe className="h-8 w-8 text-emerald-400" />
+              <Globe className="h-8 w-8 text-emerald-600 dark:text-emerald-400" />
               <div>
-                <p className="font-medium text-emerald-300">
+                <p className="font-medium text-emerald-700 dark:text-emerald-300">
                   Connected to Relay
                 </p>
                 <p className="text-sm text-muted-foreground font-mono">
@@ -164,7 +164,7 @@ export default function WebchatPage() {
           )}
 
           {connStatus?.error && (
-            <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-sm">
+            <div className="p-3 rounded-lg bg-destructive/10 border border-destructive/20 text-destructive text-sm">
               {connStatus.error}
             </div>
           )}

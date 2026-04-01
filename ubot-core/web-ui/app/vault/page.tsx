@@ -91,13 +91,13 @@ const CATEGORY_ICONS: Record<string, typeof KeyRound> = {
 };
 
 const CATEGORY_COLORS: Record<string, string> = {
-  credentials: "bg-amber-500/10 text-amber-400 border-amber-500/20",
-  identity: "bg-blue-500/10 text-blue-400 border-blue-500/20",
-  documents: "bg-purple-500/10 text-purple-400 border-purple-500/20",
-  finance: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
-  keys: "bg-red-500/10 text-red-400 border-red-500/20",
-  notes: "bg-slate-500/10 text-slate-400 border-slate-500/20",
-  general: "bg-zinc-500/10 text-zinc-400 border-zinc-500/20",
+  credentials: "bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/20",
+  identity: "bg-blue-500/10 text-blue-700 dark:text-blue-400 border-blue-500/20",
+  documents: "bg-purple-500/10 text-purple-700 dark:text-purple-400 border-purple-500/20",
+  finance: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/20",
+  keys: "bg-red-500/10 text-red-700 dark:text-red-400 border-red-500/20",
+  notes: "bg-slate-500/10 text-slate-600 dark:text-slate-400 border-slate-500/20",
+  general: "bg-muted text-muted-foreground border-border",
 };
 
 export default function VaultPage() {

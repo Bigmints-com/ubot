@@ -380,7 +380,7 @@ export default function McpServersPage() {
       ? "bg-emerald-500"
       : s === "error"
         ? "bg-red-500"
-        : "bg-zinc-500";
+        : "bg-muted-foreground";
 
   const statusText = (s: McpServer["status"]) =>
     s === "connected"
@@ -392,7 +392,7 @@ export default function McpServersPage() {
   // ── Render ──────────────────────────────────────────────
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-6 space-y-6 max-w-4xl mx-auto">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
@@ -432,13 +432,13 @@ export default function McpServersPage() {
 
             <div className="space-y-4">
               {/* Mode Toggle */}
-              <div className="flex gap-1 p-1 rounded-lg bg-zinc-900 border border-zinc-800">
+              <div className="flex gap-1 p-1 rounded-lg bg-muted border">
                 <button
                   onClick={() => { setInputMode("json"); setValidated(false); }}
                   className={`flex-1 text-sm py-1.5 px-3 rounded-md transition-all ${
                     inputMode === "json"
-                      ? "bg-zinc-800 text-white font-medium shadow-sm"
-                      : "text-zinc-400 hover:text-zinc-300"
+                      ? "bg-secondary text-foreground font-medium shadow-sm"
+                      : "text-muted-foreground hover:text-foreground"
                   }`}
                 >
                   JSON Config
@@ -447,8 +447,8 @@ export default function McpServersPage() {
                   onClick={() => { setInputMode("form"); setValidated(false); }}
                   className={`flex-1 text-sm py-1.5 px-3 rounded-md transition-all ${
                     inputMode === "form"
-                      ? "bg-zinc-800 text-white font-medium shadow-sm"
-                      : "text-zinc-400 hover:text-zinc-300"
+                      ? "bg-secondary text-foreground font-medium shadow-sm"
+                      : "text-muted-foreground hover:text-foreground"
                   }`}
                 >
                   Form
@@ -477,7 +477,7 @@ export default function McpServersPage() {
                     rows={8}
                   />
                   {jsonError && (
-                    <p className="text-xs text-red-400 flex items-center gap-1.5">
+                    <p className="text-xs text-destructive flex items-center gap-1.5">
                       <XCircle className="h-3 w-3 shrink-0" />
                       {jsonError}
                     </p>
@@ -556,7 +556,7 @@ export default function McpServersPage() {
                 {validating ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
                 ) : validated ? (
-                  <CheckCircle2 className="h-4 w-4 text-emerald-400" />
+                  <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
                 ) : (
                   <Search className="h-4 w-4" />
                 )}
@@ -569,7 +569,7 @@ export default function McpServersPage() {
 
               {/* Validate Error */}
               {validateError && (
-                <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-sm flex items-center gap-2">
+                <div className="p-3 rounded-lg bg-destructive/10 border border-destructive/20 text-destructive text-sm flex items-center gap-2">
                   <XCircle className="h-4 w-4 shrink-0" />
                   {validateError}
                 </div>
@@ -603,14 +603,14 @@ export default function McpServersPage() {
                       </Button>
                     </div>
                   </div>
-                  <div className="space-y-2 max-h-60 overflow-y-auto rounded-lg border border-zinc-800 p-3">
+                  <div className="space-y-2 max-h-60 overflow-y-auto rounded-lg border p-3">
                     {discoveredTools.map((tool) => (
                       <div
                         key={tool.name}
                         className={`flex items-start gap-3 p-2.5 rounded-lg transition-all cursor-pointer ${
                           selectedTools.has(tool.name)
-                            ? "bg-violet-500/10 border border-violet-500/20"
-                            : "border border-transparent hover:bg-zinc-800/50"
+                            ? "bg-primary/10 border border-primary/20"
+                            : "border border-transparent hover:bg-muted/50"
                         }`}
                         onClick={() => {
                           const next = new Set(selectedTools);
@@ -652,7 +652,7 @@ export default function McpServersPage() {
               )}
 
               {validated && discoveredTools.length === 0 && (
-                <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-400 text-sm flex items-center gap-2">
+                <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-700 dark:text-amber-400 text-sm flex items-center gap-2">
                   <AlertTriangle className="h-4 w-4 shrink-0" />
                   Server connected but no tools were discovered.
                 </div>
@@ -688,14 +688,14 @@ export default function McpServersPage() {
 
       {/* Alerts */}
       {error && (
-        <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-sm flex items-center gap-2">
-          <XCircle className="h-4 w-4 shrink-0" />
+        <div className="p-3 rounded-lg bg-destructive/10 border border-destructive/20 text-destructive text-sm flex items-center gap-2">
+          <XCircle className="size-4 shrink-0" />
           {error}
         </div>
       )}
       {successMsg && (
-        <div className="p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-sm flex items-center gap-2">
-          <CheckCircle2 className="h-4 w-4 shrink-0" />
+        <div className="p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-700 dark:text-emerald-400 text-sm flex items-center gap-2">
+          <CheckCircle2 className="size-4 shrink-0" />
           {successMsg}
         </div>
       )}
@@ -737,7 +737,7 @@ export default function McpServersPage() {
           <CardHeader>
             <CardTitle className="flex items-center justify-between">
               <span className="flex items-center gap-2">
-                <Plug className="h-5 w-5 text-violet-400" />
+                <Plug className="size-5 text-primary" />
                 {server.name}
               </span>
               <div className="flex items-center gap-2">
@@ -760,8 +760,8 @@ export default function McpServersPage() {
           <CardContent className="space-y-4">
             {/* Error */}
             {server.error && (
-              <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-sm flex items-center gap-2">
-                <AlertTriangle className="h-4 w-4 shrink-0" />
+              <div className="p-3 rounded-lg bg-destructive/10 border border-destructive/20 text-destructive text-sm flex items-center gap-2">
+                <AlertTriangle className="size-4 shrink-0" />
                 {server.error}
               </div>
             )}
@@ -782,24 +782,24 @@ export default function McpServersPage() {
                         key={tool.name}
                         className={`flex items-center gap-3 p-3 rounded-xl border transition-all ${
                           server.status !== "connected"
-                            ? "opacity-50 border-zinc-800"
+                            ? "opacity-50 border-border"
                             : enabled
-                              ? "bg-violet-500/10 border-violet-500/20"
-                              : "border-zinc-800 bg-zinc-900/50"
+                              ? "bg-primary/10 border-primary/20"
+                              : "border-border bg-muted/30"
                         }`}
                       >
                         <div
                           className={`flex items-center justify-center h-8 w-8 rounded-lg shrink-0 ${
                             enabled && server.status === "connected"
-                              ? "bg-violet-500/10"
-                              : "bg-zinc-800"
+                              ? "bg-primary/10"
+                              : "bg-muted"
                           }`}
                         >
                           <Wrench
                             className={`h-4 w-4 ${
                               enabled && server.status === "connected"
-                                ? "text-violet-400"
-                                : "text-zinc-500"
+                                ? "text-primary"
+                                : "text-muted-foreground"
                             }`}
                           />
                         </div>

@@ -106,7 +106,7 @@ export default function SchedulerPage() {
             <CardTitle className="text-sm font-medium">Active</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-green-500">
+            <div className="text-2xl font-bold text-green-600 dark:text-green-500">
               {tasks.filter((t) => t.enabled && t.status !== 'completed' && t.status !== 'failed').length}
             </div>
           </CardContent>

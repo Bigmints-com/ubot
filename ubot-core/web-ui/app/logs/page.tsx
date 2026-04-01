@@ -25,23 +25,23 @@ interface LogsResponse {
 }
 
 const LEVEL_COLORS: Record<string, string> = {
-  info: "text-emerald-400",
-  warn: "text-amber-400",
-  error: "text-red-400",
+  info: "text-emerald-600 dark:text-emerald-400",
+  warn: "text-amber-600 dark:text-amber-400",
+  error: "text-red-600 dark:text-red-400",
 };
 
 const TAG_COLORS: Record<string, string> = {
-  Browser: "bg-purple-500/20 text-purple-300 border-purple-500/30",
-  Agent: "bg-sky-500/20 text-sky-300 border-sky-500/30",
-  WhatsApp: "bg-green-500/20 text-green-300 border-green-500/30",
-  Telegram: "bg-blue-500/20 text-blue-300 border-blue-500/30",
-  Approvals: "bg-amber-500/20 text-amber-300 border-amber-500/30",
-  Config: "bg-zinc-500/20 text-zinc-300 border-zinc-500/30",
-  Server: "bg-indigo-500/20 text-indigo-300 border-indigo-500/30",
+  Browser: "bg-purple-500/20 text-purple-700 dark:text-purple-300 border-purple-500/30",
+  Agent: "bg-sky-500/20 text-sky-700 dark:text-sky-300 border-sky-500/30",
+  WhatsApp: "bg-green-500/20 text-green-700 dark:text-green-300 border-green-500/30",
+  Telegram: "bg-blue-500/20 text-blue-700 dark:text-blue-300 border-blue-500/30",
+  Approvals: "bg-amber-500/20 text-amber-700 dark:text-amber-300 border-amber-500/30",
+  Config: "bg-muted text-muted-foreground border-border",
+  Server: "bg-indigo-500/20 text-indigo-700 dark:text-indigo-300 border-indigo-500/30",
 };
 
 function getTagStyle(tag: string): string {
-  return TAG_COLORS[tag] || "bg-zinc-500/20 text-zinc-300 border-zinc-500/30";
+  return TAG_COLORS[tag] || "bg-muted text-muted-foreground border-border";
 }
 
 export default function LogsPage() {
@@ -113,7 +113,7 @@ export default function LogsPage() {
       {/* Toolbar */}
       <div className="flex items-center justify-between px-4 py-2 border-b bg-background/95 backdrop-blur">
         <div className="flex items-center gap-2">
-          <ScrollText className="size-5 text-sky-400" />
+          <ScrollText className="size-5 text-primary" />
           <h1 className="text-sm font-semibold">Live Logs</h1>
           <Badge variant="outline" className="text-xs tabular-nums">
             {filtered.length} entries
@@ -161,9 +161,9 @@ export default function LogsPage() {
             title={paused ? "Resume" : "Pause"}
           >
             {paused ? (
-              <Play className="size-4 text-emerald-400" />
+              <Play className="size-4 text-emerald-600 dark:text-emerald-400" />
             ) : (
-              <Pause className="size-4 text-amber-400" />
+              <Pause className="size-4 text-amber-600 dark:text-amber-400" />
             )}
           </button>
 
@@ -184,7 +184,7 @@ export default function LogsPage() {
       {/* Log output */}
       <div
         ref={containerRef}
-        className="flex-1 overflow-auto bg-zinc-950 font-mono text-[13px] leading-6 p-2"
+        className="flex-1 overflow-auto bg-zinc-50 dark:bg-zinc-950 font-mono text-[13px] leading-6 p-2"
       >
         {filtered.length === 0 ? (
           <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
@@ -196,10 +196,10 @@ export default function LogsPage() {
           filtered.map((entry) => (
             <div
               key={entry.id}
-              className="flex items-start gap-2 hover:bg-zinc-900/50 px-2 rounded group"
+              className="flex items-start gap-2 hover:bg-zinc-200/50 dark:hover:bg-zinc-900/50 px-2 rounded group"
             >
               {/* Timestamp */}
-              <span className="text-zinc-500 shrink-0 tabular-nums select-none">
+              <span className="text-muted-foreground shrink-0 tabular-nums select-none">
                 {formatTime(entry.ts)}
               </span>
 
@@ -225,10 +225,10 @@ export default function LogsPage() {
               <span
                 className={`break-all ${
                   entry.level === "error"
-                    ? "text-red-300"
+                    ? "text-red-700 dark:text-red-300"
                     : entry.level === "warn"
-                    ? "text-amber-200"
-                    : "text-zinc-200"
+                    ? "text-amber-700 dark:text-amber-200"
+                    : "text-foreground"
                 }`}
               >
                 {entry.message}
@@ -241,7 +241,7 @@ export default function LogsPage() {
 
       {/* Status bar */}
       {paused && (
-        <div className="px-4 py-1 border-t bg-amber-500/10 text-amber-400 text-xs flex items-center gap-2">
+        <div className="px-4 py-1 border-t bg-amber-500/10 text-amber-700 dark:text-amber-400 text-xs flex items-center gap-2">
           <Pause className="size-3" />
           Paused — new entries won&apos;t appear until you resume
         </div>

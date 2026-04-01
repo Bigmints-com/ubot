@@ -90,12 +90,12 @@ export default function TelegramPage() {
       ? "bg-emerald-500"
       : status === "connecting"
         ? "bg-amber-500"
-        : "bg-zinc-500";
+        : "bg-muted-foreground";
 
   return (
     <div className="p-6 space-y-6 max-w-4xl mx-auto">
       <div className="flex items-center gap-3">
-        <Send className="h-8 w-8 text-blue-400" />
+        <Send className="h-8 w-8 text-blue-600 dark:text-blue-400" />
         <div>
           <h1 className="text-2xl font-bold">Telegram</h1>
           <p className="text-sm text-muted-foreground">
@@ -110,9 +110,9 @@ export default function TelegramPage() {
           <CardTitle className="flex items-center justify-between">
             <span className="flex items-center gap-2">
               {status === "connected" ? (
-                <Wifi className="h-5 w-5 text-emerald-400" />
+                <Wifi className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
               ) : (
-                <WifiOff className="h-5 w-5 text-zinc-400" />
+                <WifiOff className="h-5 w-5 text-muted-foreground" />
               )}
               Connection Status
             </span>
@@ -125,9 +125,9 @@ export default function TelegramPage() {
         <CardContent className="space-y-4">
           {status === "connected" && botUsername && (
             <div className="flex items-center gap-3 p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
-              <Bot className="h-8 w-8 text-emerald-400" />
+              <Bot className="h-8 w-8 text-emerald-600 dark:text-emerald-400" />
               <div>
-                <p className="font-medium text-emerald-300">
+                <p className="font-medium text-emerald-700 dark:text-emerald-300">
                   @{botUsername}
                 </p>
                 <p className="text-sm text-muted-foreground">{botName}</p>
@@ -136,7 +136,7 @@ export default function TelegramPage() {
           )}
 
           {error && (
-            <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-sm">
+            <div className="p-3 rounded-lg bg-destructive/10 border border-destructive/20 text-destructive text-sm">
               {error}
             </div>
           )}
@@ -158,7 +158,7 @@ export default function TelegramPage() {
                     href="https://t.me/BotFather"
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-blue-400 hover:underline"
+                    className="text-primary hover:underline"
                   >
                     @BotFather
                   </a>{" "}

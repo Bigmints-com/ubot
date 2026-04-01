@@ -47,9 +47,9 @@ interface ThreadSidebarProps {
 type ChannelFilter = "all" | "web" | "whatsapp" | "telegram";
 
 const CHANNEL_CONFIG: Record<string, { icon: typeof MessageSquare; label: string; color: string }> = {
-  web: { icon: Globe, label: "Web", color: "text-blue-500" },
-  whatsapp: { icon: Smartphone, label: "WhatsApp", color: "text-green-500" },
-  telegram: { icon: Send, label: "Telegram", color: "text-sky-500" },
+  web: { icon: Globe, label: "Web", color: "text-blue-600 dark:text-blue-500" },
+  whatsapp: { icon: Smartphone, label: "WhatsApp", color: "text-green-600 dark:text-green-500" },
+  telegram: { icon: Send, label: "Telegram", color: "text-sky-600 dark:text-sky-500" },
 
 };
 

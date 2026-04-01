@@ -129,7 +129,7 @@ export function LocalTranscriptionCard() {
               <div className="flex items-center gap-2">
                 Local Whisper Model
                 {status?.available ? (
-                  <Badge className="bg-emerald-500/15 text-emerald-500 border-emerald-500/25 text-xs">
+                  <Badge className="bg-emerald-500/15 text-emerald-700 dark:text-emerald-500 border-emerald-500/25 text-xs">
                     <CheckCircle2 className="size-3 mr-1" /> Active
                   </Badge>
                 ) : (
@@ -179,11 +179,11 @@ export function LocalTranscriptionCard() {
                   <span>FFmpeg</span>
                 </div>
                 {status.ffmpeg ? (
-                  <Badge variant="outline" className="text-xs text-emerald-500 border-emerald-500/30">
+                  <Badge variant="outline" className="text-xs text-emerald-700 dark:text-emerald-500 border-emerald-500/30">
                     <CheckCircle2 className="size-3 mr-1" /> Available
                   </Badge>
                 ) : (
-                  <Badge variant="outline" className="text-xs text-amber-500 border-amber-500/30">
+                  <Badge variant="outline" className="text-xs text-amber-700 dark:text-amber-500 border-amber-500/30">
                     <XCircle className="size-3 mr-1" /> Missing
                   </Badge>
                 )}

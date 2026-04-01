@@ -117,7 +117,7 @@ function DocumentEditor({
           </div>
           <div className="flex gap-2 items-center">
             {hasChanges && (
-              <Badge variant="outline" className="text-yellow-500 border-yellow-500/50">
+              <Badge variant="outline" className="text-yellow-600 dark:text-yellow-500 border-yellow-500/50">
                 Unsaved changes
               </Badge>
             )}
@@ -533,7 +533,7 @@ function OwnerProfileFields() {
           </div>
           <div className="flex gap-2 items-center">
             {hasChanges && (
-              <Badge variant="outline" className="text-yellow-500 border-yellow-500/50">
+              <Badge variant="outline" className="text-yellow-600 dark:text-yellow-500 border-yellow-500/50">
                 Unsaved
               </Badge>
             )}
