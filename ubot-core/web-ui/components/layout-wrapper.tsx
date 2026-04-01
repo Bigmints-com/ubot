@@ -9,6 +9,7 @@ import { AuthProvider, useAuth } from '@/hooks/use-auth';
 import { LoginScreen } from '@/components/login-screen';
 import { Loader2 } from 'lucide-react';
 import React from 'react';
+import { ThemeProvider } from '@/components/theme-provider';
 
 /**
  * Patterns for paths that should render without the sidebar shell.
@@ -83,11 +84,13 @@ export function CoreLayoutWrapper({ children }: { children: React.ReactNode }) {
 
   if (isPublicPage(pathname)) {
     return (
-      <AuthProvider>
-        <AuthGate>
-          <main className="flex-1 w-[100vw] bg-background min-h-[100dvh] flex flex-col items-center">{children}</main>
-        </AuthGate>
-      </AuthProvider>
+      <ThemeProvider>
+        <AuthProvider>
+          <AuthGate>
+            <main className="flex-1 w-[100vw] bg-background min-h-[100dvh] flex flex-col items-center">{children}</main>
+          </AuthGate>
+        </AuthProvider>
+      </ThemeProvider>
     );
   }
 
@@ -106,10 +109,12 @@ export function CoreLayoutWrapper({ children }: { children: React.ReactNode }) {
   );
 
   return (
-    <AuthProvider>
-      <AuthGate>
-        {applyLayoutWrappers(mainContent)}
-      </AuthGate>
-    </AuthProvider>
+    <ThemeProvider>
+      <AuthProvider>
+        <AuthGate>
+          {applyLayoutWrappers(mainContent)}
+        </AuthGate>
+      </AuthProvider>
+    </ThemeProvider>
   );
 }
