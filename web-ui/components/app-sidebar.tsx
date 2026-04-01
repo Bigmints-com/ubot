@@ -57,6 +57,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useFeatures, type Features } from "@/hooks/use-features";
+import { ThemeToggle } from "@/components/theme-toggle";
 
 // ── Nav Item Types ──────────────────────────────────────
 
@@ -370,6 +371,9 @@ export function AppSidebar() {
             .filter(e => !e.condition || e.condition({ isCloud, isSaaS }))
             .flatMap(e => e.items)
             .map(renderItem)}
+          <SidebarMenuItem>
+            <ThemeToggle />
+          </SidebarMenuItem>
           <SidebarMenuItem>
             <SidebarMenuButton asChild isActive={pathname === "/settings"} tooltip="Settings">
               <Link href="/settings">
