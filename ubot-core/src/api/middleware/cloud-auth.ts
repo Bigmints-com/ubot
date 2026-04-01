@@ -13,10 +13,7 @@ import type { AuthResult } from './auth.js';
 
 const SESSION_COOKIE_NAME = 'session';
 
-const AUTH_APP_URL = process.env.SSO_AUTH_URL
-  || (process.env.NODE_ENV === 'production'
-    ? 'https://auth.example.com'
-    : 'http://localhost:3010');
+const AUTH_APP_URL = process.env.SSO_AUTH_URL || 'http://localhost:3010';
 
 /** Cache of verified sessions to avoid hitting Firebase on every request */
 const sessionCache = new Map<string, { userId: string; email?: string; tenantId?: string; expiresAt: number }>();
