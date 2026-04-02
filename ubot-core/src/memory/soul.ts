@@ -51,22 +51,22 @@ const DEFAULT_OWNER_SOUL = `# Owner Profile
 
 export interface Soul {
   /** Get the raw YAML document for a persona */
-  getDocument(personaId: string): string;
+  getDocument(personaId: string): Promise<string>;
 
   /** Save a YAML document for a persona */
-  saveDocument(personaId: string, content: string): void;
+  saveDocument(personaId: string, content: string): Promise<void>;
 
   /** Delete a persona document */
-  deleteDocument(personaId: string): boolean;
+  deleteDocument(personaId: string): Promise<boolean>;
 
   /** List all persona IDs with metadata */
-  listPersonas(): Array<{ id: string; label: string; updatedAt: Date; contentLength: number }>;
+  listPersonas(): Promise<Array<{ id: string; label: string; updatedAt: Date; contentLength: number }>>;
 
   /** Build a comprehensive system prompt section from all soul documents */
-  buildSoulPrompt(contactId?: string, isOwner?: boolean): string;
+  buildSoulPrompt(contactId?: string, isOwner?: boolean): Promise<string>;
 
   /** Sync documents from SQLite to filesystem if they don't exist */
-  syncToFilesystem(): void;
+  syncToFilesystem(): Promise<void>;
 
   /** Get the raw memory store for direct access */
   getStore(): MemoryStore;
@@ -119,30 +119,32 @@ export function createSoul(memoryStore: MemoryStore, workspacePath?: string, wor
   }
 
   // Seed default documents if not already present in memoryStore
-  const existingBot = memoryStore.getDocument(BOT_SOUL_ID);
-  if (!existingBot) {
-    memoryStore.saveDocument(BOT_SOUL_ID, DEFAULT_BOT_SOUL);
-    console.log('[Soul] 🧠 Seeded default bot persona document');
-  }
+  memoryStore.getDocument(BOT_SOUL_ID).then(existingBot => {
+    if (!existingBot) {
+      memoryStore.saveDocument(BOT_SOUL_ID, DEFAULT_BOT_SOUL);
+      console.log('[Soul] 🧠 Seeded default bot persona document');
+    }
+  });
 
-  const existingOwner = memoryStore.getDocument(OWNER_SOUL_ID);
-  if (!existingOwner) {
-    memoryStore.saveDocument(OWNER_SOUL_ID, DEFAULT_OWNER_SOUL);
-    console.log('[Soul] 🧠 Seeded default owner profile document');
-  }
+  memoryStore.getDocument(OWNER_SOUL_ID).then(existingOwner => {
+    if (!existingOwner) {
+      memoryStore.saveDocument(OWNER_SOUL_ID, DEFAULT_OWNER_SOUL);
+      console.log('[Soul] 🧠 Seeded default owner profile document');
+    }
+  });
 
   return {
-    getDocument(personaId: string): string {
+    async getDocument(personaId: string): Promise<string> {
       // Prioritize file-based identity if matched and exists
       const fileContent = loadFile(personaId);
       if (fileContent) return fileContent;
 
-      const doc = memoryStore.getDocument(personaId);
+      const doc = await memoryStore.getDocument(personaId);
       return doc?.content || '';
     },
 
-    saveDocument(personaId: string, content: string): void {
-      memoryStore.saveDocument(personaId, content);
+    async saveDocument(personaId: string, content: string): Promise<void> {
+      await memoryStore.saveDocument(personaId, content);
       
       // Also write to workspace if it's a mapped persona
       if (workspace) {
@@ -158,13 +160,13 @@ export function createSoul(memoryStore: MemoryStore, workspacePath?: string, wor
       }
     },
 
-    deleteDocument(personaId: string): boolean {
-      return memoryStore.deleteDocument(personaId);
+    async deleteDocument(personaId: string): Promise<boolean> {
+      return await memoryStore.deleteDocument(personaId);
     },
 
-    listPersonas(): Array<{ id: string; label: string; updatedAt: Date; contentLength: number }> {
-      const docs = memoryStore.listDocuments();
-      return docs.map(d => {
+    async listPersonas(): Promise<Array<{ id: string; label: string; updatedAt: Date; contentLength: number }>> {
+      const docs = await memoryStore.listDocuments();
+      return docs.map((d: any) => {
         let label = d.personaId;
         if (d.personaId === BOT_SOUL_ID) {
           label = 'Bot Persona';
@@ -194,18 +196,18 @@ export function createSoul(memoryStore: MemoryStore, workspacePath?: string, wor
       });
     },
 
-    buildSoulPrompt(contactId?: string, isOwner?: boolean): string {
+    async buildSoulPrompt(contactId?: string, isOwner?: boolean): Promise<string> {
       const sections: string[] = [];
 
       // 1. Bot persona
-      const botDoc = memoryStore.getDocument(BOT_SOUL_ID);
+      const botDoc = await memoryStore.getDocument(BOT_SOUL_ID);
       if (botDoc && botDoc.content.trim()) {
         sections.push('## Your Identity');
         sections.push(botDoc.content.trim());
       }
 
       // 2. Owner profile — framing depends on who we're talking to
-      const ownerDoc = memoryStore.getDocument(OWNER_SOUL_ID);
+      const ownerDoc = await memoryStore.getDocument(OWNER_SOUL_ID);
       if (ownerDoc && ownerDoc.content.trim() && ownerDoc.content !== DEFAULT_OWNER_SOUL) {
         if (isOwner) {
           sections.push('\n## About Your Owner (You Are Talking To Them Right Now)');
@@ -219,8 +221,8 @@ export function createSoul(memoryStore: MemoryStore, workspacePath?: string, wor
 
       // 2b. Owner's rolling chat summary — long-term conversational memory
       if (isOwner) {
-        const ownerSummaries = memoryStore.getMemories(OWNER_SOUL_ID, 'summary');
-        const ownerDigest = ownerSummaries.find(m => m.key === 'chat_digest');
+        const ownerSummaries = await memoryStore.getMemories(OWNER_SOUL_ID, 'summary');
+        const ownerDigest = ownerSummaries.find((m: any) => m.key === 'chat_digest');
         if (ownerDigest && ownerDigest.value.trim()) {
           sections.push('\n## Recent Conversation History');
           sections.push('Key topics and actions from previous conversations:');
@@ -254,7 +256,7 @@ NEVER share with visitors:
       // 3. Contact layers (if replying to a specific person, not the owner)
       if (contactId && contactId !== OWNER_SOUL_ID && contactId !== BOT_SOUL_ID) {
         // Layer 1: Persona (qualitative)
-        const contactDoc = memoryStore.getDocument(contactId);
+        const contactDoc = await memoryStore.getDocument(contactId);
         if (contactDoc && contactDoc.content.trim()) {
           sections.push('\n## About This Contact');
           sections.push('### Personality & Style');
@@ -262,8 +264,8 @@ NEVER share with visitors:
         }
 
         // Layer 2: Personal Details (from agent_memories)
-        const memories = memoryStore.getMemories(contactId);
-        const detailMemories = memories.filter(m => m.category !== 'summary');
+        const memories = await memoryStore.getMemories(contactId);
+        const detailMemories = memories.filter((m: any) => m.category !== 'summary');
         if (detailMemories.length > 0) {
           if (!contactDoc || !contactDoc.content.trim()) {
             sections.push('\n## About This Contact');
@@ -275,8 +277,8 @@ NEVER share with visitors:
         }
 
         // Layer 3: Chat Summary (rolling digest)
-        const summaryMemories = memories.filter(m => m.category === 'summary');
-        const chatDigest = summaryMemories.find(m => m.key === 'chat_digest');
+        const summaryMemories = memories.filter((m: any) => m.category === 'summary');
+        const chatDigest = summaryMemories.find((m: any) => m.key === 'chat_digest');
         if (chatDigest && chatDigest.value.trim()) {
           sections.push('\n### Conversation History');
           sections.push(chatDigest.value.trim());
@@ -290,19 +292,19 @@ NEVER share with visitors:
       return sections.join('\n');
     },
 
-    syncToFilesystem(): void {
+    async syncToFilesystem(): Promise<void> {
       if (!workspace) return;
       
-      Object.keys(SOUL_FILE_MAP).forEach(personaId => {
+      for (const personaId of Object.keys(SOUL_FILE_MAP)) {
         const relPath = getRelativePath(personaId);
         if (relPath && !workspace.exists(relPath)) {
           console.log(`[Soul] 📂 Exporting ${personaId} to ${relPath}`);
-          const content = this.getDocument(personaId);
+          const content = await this.getDocument(personaId);
           if (content) {
             workspace.writeFile(relPath, content);
           }
         }
-      });
+      }
     },
 
     getStore(): MemoryStore {

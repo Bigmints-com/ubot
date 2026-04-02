@@ -21,7 +21,7 @@ export async function handleMemoryRoutes(
       json(res, { personas: [] });
       return true;
     }
-    const soulPersonas = ctx.agentOrchestrator.getSoul().listPersonas();
+    const soulPersonas = await ctx.agentOrchestrator.getSoul().listPersonas();
     const agents = ctx.agentOrchestrator.listAgents().map(a => ({
       id: a.id,
       label: a.name || a.id,
@@ -38,7 +38,7 @@ export async function handleMemoryRoutes(
     if (!ctx.agentOrchestrator) { json(res, { content: '' }); return true; }
     const parts = url.split('/');
     const personaId = decodeURIComponent(parts[3]);
-    let content = ctx.agentOrchestrator.getSoul().getDocument(personaId);
+    let content = await ctx.agentOrchestrator.getSoul().getDocument(personaId);
     
     if (!content && personaId !== BOT_SOUL_ID && personaId !== OWNER_SOUL_ID) {
       content = ctx.agentOrchestrator.getAgentMarkdown(personaId) || '';
@@ -58,8 +58,9 @@ export async function handleMemoryRoutes(
       return true;
     }
     
-    if (personaId === BOT_SOUL_ID || personaId === OWNER_SOUL_ID || ctx.agentOrchestrator.getSoul().getDocument(personaId)) {
-      ctx.agentOrchestrator.getSoul().saveDocument(personaId, body.content);
+    const existingDoc = await ctx.agentOrchestrator.getSoul().getDocument(personaId);
+    if (personaId === BOT_SOUL_ID || personaId === OWNER_SOUL_ID || existingDoc) {
+      await ctx.agentOrchestrator.getSoul().saveDocument(personaId, body.content);
     } else {
       ctx.agentOrchestrator.saveAgentMarkdown(personaId, body.content);
     }
@@ -72,7 +73,7 @@ export async function handleMemoryRoutes(
     if (!ctx.agentOrchestrator) { json(res, { error: 'Agent not initialized' }, 500); return true; }
     const parts = url.split('/');
     const personaId = decodeURIComponent(parts[3]);
-    const deleted = ctx.agentOrchestrator.getSoul().deleteDocument(personaId);
+    const deleted = await ctx.agentOrchestrator.getSoul().deleteDocument(personaId);
     json(res, { deleted, personaId });
     return true;
   }
@@ -82,7 +83,7 @@ export async function handleMemoryRoutes(
   // Bulk fetch: all memories grouped by contactId
   if (url === '/api/memories' && method === 'GET') {
     if (!ctx.agentOrchestrator) { json(res, { memoriesByContact: {} }); return true; }
-    const all = ctx.agentOrchestrator.getMemoryStore().getAllMemories();
+    const all = await ctx.agentOrchestrator.getMemoryStore().getAllMemories();
     const grouped: Record<string, typeof all> = {};
     for (const m of all) {
       if (!grouped[m.contactId]) grouped[m.contactId] = [];
@@ -96,7 +97,7 @@ export async function handleMemoryRoutes(
     if (!ctx.agentOrchestrator) { json(res, { memories: [] }); return true; }
     const parts = url.split('/');
     const contactId = decodeURIComponent(parts[3]);
-    const memories = ctx.agentOrchestrator.getMemoryStore().getMemories(contactId);
+    const memories = await ctx.agentOrchestrator.getMemoryStore().getMemories(contactId);
     json(res, { memories });
     return true;
   }
@@ -108,7 +109,7 @@ export async function handleMemoryRoutes(
       json(res, { error: 'contactId, category, key, and value are required' }, 400);
       return true;
     }
-    const memory = ctx.agentOrchestrator.getMemoryStore().saveMemory(
+    const memory = await ctx.agentOrchestrator.getMemoryStore().saveMemory(
       body.contactId, body.category, body.key, body.value, body.source || 'manual', body.confidence || 1.0
     );
     json(res, { memory });
@@ -119,7 +120,7 @@ export async function handleMemoryRoutes(
     if (!ctx.agentOrchestrator) { json(res, { error: 'Agent not initialized' }, 500); return true; }
     const parts = url.split('/');
     const memoryId = decodeURIComponent(parts[3]);
-    const deleted = ctx.agentOrchestrator.getMemoryStore().deleteMemory(memoryId);
+    const deleted = await ctx.agentOrchestrator.getMemoryStore().deleteMemory(memoryId);
     json(res, { deleted });
     return true;
   }
@@ -153,7 +154,7 @@ export async function handleMemoryRoutes(
     }
     const params = new URLSearchParams(url.split('?')[1] || '');
     const status = params.get('status');
-    const approvals = status === 'pending' ? ctx.approvalStore.getPending() : ctx.approvalStore.getAll();
+    const approvals = status === 'pending' ? await ctx.approvalStore.getPending() : await ctx.approvalStore.getAll();
     json(res, { approvals });
     return true;
   }
@@ -173,13 +174,13 @@ export async function handleMemoryRoutes(
       return true;
     }
 
-    const approval = ctx.approvalStore.getById(approvalId);
+    const approval = await ctx.approvalStore.getById(approvalId);
     if (!approval) {
       notFound(res);
       return true;
     }
 
-    const resolved = ctx.approvalStore.resolve(approvalId, response);
+    const resolved = await ctx.approvalStore.resolve(approvalId, response);
 
     if (approval.requesterJid && ctx.agentOrchestrator) {
       const source = approval.requesterJid.startsWith('telegram:') ? 'telegram' : 'whatsapp';
@@ -212,7 +213,7 @@ export async function handleMemoryRoutes(
     }
     const parts = url.split('/');
     const approvalId = decodeURIComponent(parts[3]);
-    const approval = ctx.approvalStore.getById(approvalId);
+    const approval = await ctx.approvalStore.getById(approvalId);
     if (!approval) {
       notFound(res);
       return true;
@@ -228,7 +229,7 @@ export async function handleMemoryRoutes(
     }
     const parts = url.split('/');
     const approvalId = decodeURIComponent(parts[3]);
-    const deleted = ctx.approvalStore.delete(approvalId);
+    const deleted = await ctx.approvalStore.delete(approvalId);
     if (!deleted) {
       notFound(res);
       return true;

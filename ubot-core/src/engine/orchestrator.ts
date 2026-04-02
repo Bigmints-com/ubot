@@ -46,11 +46,11 @@ import { getHooks } from '../hooks/extensions.js';
  * Searches all sessions for send_message tool calls targeting this contact.
  * Also searches by contact name since LID-based contacts can't be matched by phone.
  */
-function findRecentOutboundMessages(
+async function findRecentOutboundMessages(
   contactSessionId: string,
   conversationStore: ConversationStore,
   contactName?: string,
-): string[] {
+): Promise<string[]> {
   const outbound: string[] = [];
 
   // Build search terms: phone number, LID number, contact name
@@ -62,7 +62,7 @@ function findRecentOutboundMessages(
   }
 
   try {
-    const sessions = conversationStore.listSessions();
+    const sessions = await conversationStore.listSessions();
     const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000); // Last 24 hours
 
     for (const session of sessions) {
@@ -70,7 +70,7 @@ function findRecentOutboundMessages(
       if (session.updatedAt < cutoff) continue;
       if (session.type !== 'web') continue;
 
-      const history = conversationStore.getHistory(session.id, 30);
+      const history = await conversationStore.getHistory(session.id, 30);
       for (const msg of history) {
         if (msg.role !== 'assistant') continue;
         const content = msg.content || '';
@@ -487,8 +487,8 @@ export function createAgentOrchestrator(
 
   type ChatMsg = OpenAI.Chat.Completions.ChatCompletionMessageParam;
 
-  function buildMessages(sessionId: string, userMessage: string, isOwner: boolean = false, attachments?: Attachment[]): ChatMsg[] {
-    const rawHistory = conversationStore.getHistory(sessionId, currentConfig.maxHistoryMessages);
+  async function buildMessages(sessionId: string, userMessage: string, isOwner: boolean = false, attachments?: Attachment[]): Promise<ChatMsg[]> {
+    const rawHistory = await conversationStore.getHistory(sessionId, currentConfig.maxHistoryMessages);
     const history = filterStaleErrors(rawHistory);
     const activeAgentId = sessionAgents.get(sessionId);
     
@@ -509,7 +509,7 @@ Inform the user about this possibility if it's relevant to the current conversat
       SkillDetectorMiddleware.markAsShown(sessionId);
     }
 
-    const soulPrompt = soul.buildSoulPrompt(sessionId, isOwner);
+    const soulPrompt = await soul.buildSoulPrompt(sessionId, isOwner);
     if (soulPrompt) {
       systemPrompt += '\n\n' + soulPrompt;
     }
@@ -520,8 +520,8 @@ Inform the user about this possibility if it's relevant to the current conversat
 
     // Inject session-level rolling summary as context preamble
     // This provides long-term memory beyond the message history window
-    const sessionSummary = soul.getStore().getMemories(sessionId, 'summary')
-      .find(m => m.key === 'chat_digest');
+    const memories = await soul.getStore().getMemories(sessionId, 'summary');
+    const sessionSummary = memories.find((m: any) => m.key === 'chat_digest');
     if (sessionSummary && sessionSummary.value.trim()) {
       messages.push({
         role: 'user',
@@ -636,9 +636,9 @@ Inform the user about this possibility if it's relevant to the current conversat
           }),
 
           // Layer 3: Chat summary (rolling digest)
-          (() => {
-            const existingSummary = memoryStore.getMemories(OWNER_SOUL_ID, 'summary')
-              .find(m => m.key === 'chat_digest');
+          (async () => {
+            const memories = await memoryStore.getMemories(OWNER_SOUL_ID, 'summary');
+            const existingSummary = memories.find((m: any) => m.key === 'chat_digest');
             return client.chat.completions.create({
               model: extractionModel,
               messages: [
@@ -658,8 +658,8 @@ Inform the user about this possibility if it's relevant to the current conversat
         if (mergeResult.status === 'fulfilled') {
           const newFacts = mergeResult.value.choices[0]?.message?.content || '';
           if (newFacts.trim() && newFacts.trim() !== 'NO_NEW_FACTS') {
-            const merged = mergeIntoOwnerDoc(currentDoc, newFacts);
-            if (merged !== currentDoc) {
+            const merged = mergeIntoOwnerDoc(await currentDoc, newFacts);
+            if (merged !== await currentDoc) {
               soul.saveDocument(OWNER_SOUL_ID, merged);
               console.log(`[Soul] ✏️ Merged new facts into owner profile (${merged.length} chars)`);
             }
@@ -707,7 +707,7 @@ Inform the user about this possibility if it's relevant to the current conversat
         const currentDoc = soul.getDocument(personaId);
 
         // Read owner name for context
-        const ownerDoc = soul.getDocument(OWNER_SOUL_ID);
+        const ownerDoc = await soul.getDocument(OWNER_SOUL_ID);
         const ownerNameMatch = ownerDoc?.match(/name:\s*(.+)/i);
         const ownerName = ownerNameMatch ? ownerNameMatch[1].trim() : '';
 
@@ -760,9 +760,9 @@ Inform the user about this possibility if it's relevant to the current conversat
           }),
 
           // Layer 3: Chat summary (rolling digest)
-          (() => {
-            const existingSummary = memoryStore.getMemories(personaId, 'summary')
-              .find(m => m.key === 'chat_digest');
+          (async () => {
+            const memories = await memoryStore.getMemories(personaId, 'summary');
+            const existingSummary = memories.find((m: any) => m.key === 'chat_digest');
             return client.chat.completions.create({
               model: extractionModel,
               messages: [
@@ -838,6 +838,7 @@ Inform the user about this possibility if it's relevant to the current conversat
     toolCalls: Array<{ id: string; toolName: string; arguments: Record<string, unknown> }>;
     usage?: { promptTokens: number; completionTokens: number; totalTokens: number };
     model?: string;
+    thinking?: string;
   }> {
     const { client, model: routedModel, providerId } = await getClientForPurpose(purpose);
     
@@ -862,6 +863,32 @@ Inform the user about this possibility if it's relevant to the current conversat
     log.info('Agent', `Tools available: ${filteredTools.length} (isOwner: ${isOwner}${preSelectedTools ? ', phase-2 selected' : ''})`);
 
     
+    // Build provider-specific thinking config for chat purpose
+    // Each provider has its own way of requesting thinking content:
+    //   - Gemini/Vertex: google.thinking_config.include_thoughts
+    //   - Ollama (Qwen3, etc.): think: true → returns reasoning_content
+    //   - OpenAI o-series: built-in, no extra config needed
+    let thinkingConfig: Record<string, unknown> = {};
+    if (purpose === 'chat') {
+      const isGeminiProvider = ['gemini', 'vertex'].includes(providerId);
+      const isOllamaProvider = providerId === 'ollama';
+
+      if (isGeminiProvider) {
+        thinkingConfig = {
+          extra_body: {
+            google: {
+              thinking_config: {
+                include_thoughts: true,
+              },
+            },
+          },
+        };
+      } else if (isOllamaProvider) {
+        // Ollama exposes thinking via think: true in the request body
+        thinkingConfig = { think: true };
+      }
+    }
+
     try {
       const completion = await client.chat.completions.create({
         model: routedModel,
@@ -869,7 +896,8 @@ Inform the user about this possibility if it's relevant to the current conversat
         temperature: currentConfig.temperature,
         max_tokens: currentConfig.maxTokens,
         ...(tools ? { tools } : {}),
-      });
+        ...thinkingConfig,
+      } as any);
 
       const choice = completion.choices?.[0];
       if (!choice) {
@@ -906,6 +934,43 @@ Inform the user about this possibility if it's relevant to the current conversat
         log.info('Agent', `Tool calls: ${toolCalls.map(tc => `${tc.toolName}(${JSON.stringify(tc.arguments)})`).join(', ')}`);
       }
 
+      // ── Extract thinking/reasoning content ──────────────────────
+      // Different providers surface thinking content differently via the OpenAI compat layer:
+      //   - Gemini: returns thought summaries via include_thoughts (extra field or inline)
+      //   - OpenAI o-series: returns reasoning in reasoning_content
+      //   - DeepSeek R1: returns reasoning_content
+      //   - Qwen3 (thinking mode): wraps in <think> tags
+      // We normalize all of these into a single 'thinking' field.
+      let thinking: string | undefined;
+
+      // 1. Check for reasoning_content on the message (OpenAI o-series, DeepSeek, Gemini)
+      const rawMessage = choice.message as any;
+      if (rawMessage?.reasoning_content && typeof rawMessage.reasoning_content === 'string') {
+        thinking = rawMessage.reasoning_content;
+      }
+
+      // 2. Check for <think> or <thought> tags in the content (Qwen3, DeepSeek inline, etc.)
+      if (!thinking && content) {
+        const thinkMatch = content.match(/<think>([\s\S]*?)<\/think>/i)
+          || content.match(/<thought>([\s\S]*?)<\/thought>/i);
+        if (thinkMatch) {
+          thinking = thinkMatch[1].trim();
+        }
+      }
+
+      if (thinking) {
+        log.info('Agent', `Thinking content captured: ${thinking.length} chars`);
+      }
+
+      // Strip <think>/<thought> blocks from the visible content
+      let cleanContent = content;
+      if (content) {
+        cleanContent = content
+          .replace(/<think>[\s\S]*?<\/think>/gi, '')
+          .replace(/<thought>[\s\S]*?<\/thought>/gi, '')
+          .trim();
+      }
+
       // Record metering
       try {
         const meter = getMetering();
@@ -914,7 +979,7 @@ Inform the user about this possibility if it's relevant to the current conversat
         }
       } catch { /* metering should never block LLM calls */ }
 
-      return { content, toolCalls, usage, model: routedModel };
+      return { content: cleanContent, toolCalls, usage, model: routedModel, thinking };
     } catch (err: any) {
       log.error('Agent', `LLM call failed [${purpose}/${routedModel}]: ${err.message}`);
       throw new Error(`LLM call failed: ${err.message}`);
@@ -951,14 +1016,14 @@ Inform the user about this possibility if it's relevant to the current conversat
       metricsCollector.recordMessage(source || 'web', 'in');
 
       // Ensure session exists
-      const session = conversationStore.getOrCreateSession(
+      const session = await conversationStore.getOrCreateSession(
         sessionId,
         source || 'web',
         source === 'web' ? 'Command Center' : contactName || sessionId
       );
       // Update session name if we now have a better name (e.g. pushName resolved)
       if (contactName && session.name !== contactName && source !== 'web' && !session.name?.startsWith(contactName)) {
-        conversationStore.renameSession(sessionId, contactName);
+        await conversationStore.renameSession(sessionId, contactName);
       }
 
       // Store the user message
@@ -968,21 +1033,21 @@ Inform the user about this possibility if it's relevant to the current conversat
         contactName,
         attachments,
       };
-      conversationStore.addMessage(sessionId, 'user', message, userMetadata);
+      await conversationStore.addMessage(sessionId, 'user', message, userMetadata);
 
       // isOwner is now passed in by the unified message handler.
       // Fallback: if not explicitly provided, assume web === owner (backward compat)
       const ownerFlag = isOwner ?? (source === 'web');
 
       // Build the messages array with history (pass isOwner for soul prompt framing)
-      let messages = buildMessages(sessionId, message, ownerFlag, attachments);
+      let messages = await buildMessages(sessionId, message, ownerFlag, attachments);
 
       // ── Prompt Experiment A/B Testing ───────────────────────
       const experiments = getPromptExperiments();
       let activeExperiment = null;
       let assignedVariant = null;
       if (experiments) {
-        activeExperiment = experiments.getActiveExperiment();
+        activeExperiment = await experiments.getActiveExperiment();
         if (activeExperiment) {
           assignedVariant = experiments.assignVariant(sessionId, activeExperiment);
           const systemMsg = messages.find(m => m.role === 'system');
@@ -1000,7 +1065,7 @@ Inform the user about this possibility if it's relevant to the current conversat
       // This keeps skill instructions out of conversation history while giving the LLM context.
       if (skillContext) {
         // Find recent outbound messages TO this contact for thread context
-        const recentOutbound = findRecentOutboundMessages(sessionId, conversationStore, contactName);
+        const recentOutbound = await findRecentOutboundMessages(sessionId, conversationStore, contactName);
         
         // Insert skill context as a system message before the last user message
         const lastUserMsgIdx = messages.length - 1;
@@ -1095,23 +1160,92 @@ Inform the user about this possibility if it's relevant to the current conversat
       }
       // ── Skill-First Routing ──────────────────────────────────
       // Check if any saved skills match this request.
-      // If so, inject a hint so the LLM uses run_skill instead of manual execution.
+      // If so, inject a STRONG directive so the LLM uses run_skill instead of manual execution.
       if (ownerFlag && skillEngine && !skillContext) {
         try {
           const skills = skillEngine.getSkills();
-          if (skills.length > 0) {
-            const skillSummary = skills
-              .filter((s: any) => s.enabled)
+          const enabledSkills = skills.filter((s: any) => s.enabled);
+          if (enabledSkills.length > 0) {
+            // Build keyword index from each skill's name, description, and instructions
+            const messageLower = message.toLowerCase();
+            const messageWords = messageLower.split(/\s+/);
+
+            // Score each skill by keyword overlap with the user's message
+            const scored = enabledSkills.map((s: any) => {
+              const haystack = [
+                s.name || '',
+                s.description || '',
+                (s.processor?.instructions || '').slice(0, 300),
+              ].join(' ').toLowerCase();
+
+              // Extract meaningful keywords (skip common words)
+              const skipWords = new Set(['a', 'an', 'the', 'to', 'and', 'or', 'in', 'on', 'for', 'of', 'is', 'it', 'this', 'that', 'with', 'from', 'at', 'by', 'as', 'if', 'new', 'use', 'all']);
+              const skillWords = haystack.split(/[\s\-_\/]+/).filter(w => w.length > 2 && !skipWords.has(w));
+              
+              let score = 0;
+              for (const word of messageWords) {
+                if (word.length <= 2) continue;
+                if (skillWords.some(sw => sw.includes(word) || word.includes(sw))) {
+                  score++;
+                }
+                // Bonus for exact name match
+                if (s.name && s.name.toLowerCase().includes(word)) {
+                  score += 2;
+                }
+              }
+              // Bonus for skill ID appearing in message (e.g. user says "substack")
+              if (s.id && messageLower.includes(s.id.replace(/-/g, ' '))) {
+                score += 5;
+              }
+              // Also check hyphenated form (e.g. "substack-writer" keywords individually)
+              for (const part of (s.id || '').split('-')) {
+                if (part.length > 2 && messageLower.includes(part)) {
+                  score += 3;
+                }
+              }
+              return { skill: s, score };
+            });
+
+            // Sort by score descending
+            scored.sort((a, b) => b.score - a.score);
+            const bestMatch = scored[0];
+
+            const skillSummary = enabledSkills
               .map((s: any) => `• "${s.name}" (${s.id}) — ${s.processor?.instructions?.slice(0, 80) || 'no description'}`)
               .join('\n');
-            if (skillSummary) {
-              // Insert BEFORE the last user message
-              const insertIdx = messages.length - 1;
+
+            const insertIdx = messages.length - 1;
+
+            if (bestMatch && bestMatch.score >= 3) {
+              // STRONG match — inject a mandatory directive
+              const s = bestMatch.skill;
               messages.splice(insertIdx, 0, {
                 role: 'system',
-                content: `## Available Skills\nYou have pre-built automation skills. Before doing a task manually, check if a skill already handles it and use run_skill:\n${skillSummary}\n\nIf a skill matches the user's request, call run_skill with the skill ID. Otherwise, proceed normally.`,
+                content: `## MANDATORY: Use Skill for This Task
+You have a pre-built skill that handles this exact type of request:
+
+**"${s.name}" (ID: ${s.id})**
+Instructions: ${(s.processor?.instructions || '').slice(0, 200)}...
+
+⚠️ You MUST call \`run_skill\` with skill_id="${s.id}" and pass the user's request as the message.
+Do NOT attempt this task manually with browser tools, CLI, or other tools.
+The skill contains tested, step-by-step instructions that are more reliable than ad-hoc execution.
+
+Other available skills:
+${skillSummary}`,
               } as ChatMsg);
-              log.info('Agent', `Skill-first: injected ${skills.filter((s: any) => s.enabled).length} skill hints`);
+              log.info('Agent', `Skill-first: STRONG match → "${s.name}" (${s.id}) with score ${bestMatch.score}`);
+            } else {
+              // No strong match — inject a softer hint
+              messages.splice(insertIdx, 0, {
+                role: 'system',
+                content: `## Available Skills
+You have pre-built automation skills. Before doing a task manually, check if a skill already handles it and use run_skill:
+${skillSummary}
+
+If a skill matches the user's request, call run_skill with the skill ID. Otherwise, proceed normally.`,
+              } as ChatMsg);
+              log.info('Agent', `Skill-first: injected ${enabledSkills.length} skill hints (no strong match, best score: ${bestMatch?.score || 0})`);
             }
           }
         } catch { /* skills not available */ }
@@ -1121,6 +1255,7 @@ Inform the user about this possibility if it's relevant to the current conversat
       let iteration = 0;
       let finalContent = '';
       let lastModel = currentConfig.llmModel;
+      let thinkingContent: string | undefined;
       const loopDetector = new LoopDetector();
 
       while (iteration < currentConfig.maxToolIterations) {
@@ -1130,6 +1265,10 @@ Inform the user about this possibility if it's relevant to the current conversat
         const llmResult = await callLLM(messages, ownerFlag, activeAgentId, selectedTools, 'chat');
         lastUsage = llmResult.usage;
         lastModel = llmResult.model || currentConfig.llmModel;
+        // Capture thinking from the first iteration (where real reasoning happens)
+        if (llmResult.thinking && !thinkingContent) {
+          thinkingContent = llmResult.thinking;
+        }
 
         if (llmResult.toolCalls.length === 0) {
           // No tool calls — check if this is an "I can't" response
@@ -1301,8 +1440,8 @@ Inform the user about this possibility if it's relevant to the current conversat
         if (iteration >= currentConfig.maxToolIterations) {
           finalContent = llmResult.content || 'I completed the requested actions.';
 
-          const todos = getTodos(sessionId, db);
-          const pendingCount = todos.filter(t => t.status === 'pending' || t.status === 'in_progress').length;
+          const todos = await getTodos(sessionId, db);
+          const pendingCount = todos.filter((t: any) => t.status === 'pending' || t.status === 'in_progress').length;
 
           if (pendingCount > 0) {
             const currentCount = continuationCount.get(sessionId) || 0;
@@ -1441,6 +1580,7 @@ REQUIREMENTS:
         } : undefined,
         usage: lastUsage,
         model: lastModel,
+        thinking: thinkingContent,
       };
       conversationStore.addMessage(sessionId, 'assistant', finalContent, assistantMetadata);
 
@@ -1474,6 +1614,7 @@ REQUIREMENTS:
         model: lastModel,
         duration,
         attachments,
+        thinking: thinkingContent,
       };
     },
 
@@ -1600,14 +1741,14 @@ REQUIREMENTS:
     async resumeActivePlans(): Promise<void> {
       if (!db) return;
       try {
-        const rows = db.query<{ id: string }>('SELECT id FROM task_plans WHERE status IN (?, ?)', ['executing', 'planning']);
-        if (rows.length === 0) return;
+        const { data: rows, error } = await db.get_client().from('ubot_task_plans').select('id').in('status', ['executing', 'planning']);
+        if (error || !rows || rows.length === 0) return;
 
         console.log(`[Orchestrator] 🔄 Resuming ${rows.length} interrupted task plans...`);
         
         for (const row of rows) {
           try {
-            const plan = getTaskPlan(row.id, db);
+            const plan = await getTaskPlan(row.id, db);
             if (!plan) continue;
 
             console.log(`[Orchestrator]   - Resuming plan: ${plan.id} (${plan.originalRequest.substring(0, 50)}...)`);

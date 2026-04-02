@@ -33,28 +33,10 @@ export interface PendingApproval {
   resolvedAt: Date | null;
 }
 
-/* ------------------------------------------------------------------ */
-/*  DB Schema                                                          */
-/* ------------------------------------------------------------------ */
+
 
 function generateId(): string {
   return `apr_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-}
-
-export function ensureApprovalsTable(db: DatabaseConnection): void {
-  db.execute(`
-    CREATE TABLE IF NOT EXISTS pending_approvals (
-      id TEXT PRIMARY KEY,
-      question TEXT NOT NULL,
-      context TEXT NOT NULL DEFAULT '',
-      requester_jid TEXT NOT NULL,
-      session_id TEXT NOT NULL DEFAULT '',
-      status TEXT NOT NULL DEFAULT 'pending',
-      owner_response TEXT,
-      created_at TEXT NOT NULL,
-      resolved_at TEXT
-    )
-  `);
 }
 
 /* ------------------------------------------------------------------ */
@@ -98,74 +80,91 @@ export interface ApprovalStore {
     context: string;
     requesterJid: string;
     sessionId: string;
-  }): PendingApproval;
+  }): Promise<PendingApproval>;
 
   /** Get all pending approvals */
-  getPending(): PendingApproval[];
+  getPending(): Promise<PendingApproval[]>;
 
   /** Get all approvals (any status) */
-  getAll(): PendingApproval[];
+  getAll(): Promise<PendingApproval[]>;
 
   /** Get a specific approval by ID */
-  getById(id: string): PendingApproval | null;
+  getById(id: string): Promise<PendingApproval | null>;
 
   /** Resolve an approval with the owner's response */
-  resolve(id: string, ownerResponse: string): PendingApproval | null;
+  resolve(id: string, ownerResponse: string): Promise<PendingApproval | null>;
 
   /** Delete an approval by ID */
-  delete(id: string): boolean;
+  delete(id: string): Promise<boolean>;
 }
 
 export function createApprovalStore(db: DatabaseConnection): ApprovalStore {
-  ensureApprovalsTable(db);
-
   return {
-    create(data) {
+    async create(data) {
       const id = generateId();
       const now = new Date().toISOString();
-      db.execute(
-        `INSERT INTO pending_approvals (id, question, context, requester_jid, session_id, status, created_at)
-         VALUES (?, ?, ?, ?, ?, 'pending', ?)`,
-        [id, data.question, data.context, data.requesterJid, data.sessionId, now]
-      );
-      return this.getById(id)!;
+      await db.get_client().from('ubot_pending_approvals').insert({
+        id,
+        question: data.question,
+        context: data.context,
+        requester_jid: data.requesterJid,
+        session_id: data.sessionId,
+        status: 'pending',
+        created_at: now
+      });
+      return (await this.getById(id))!;
     },
 
-    getPending() {
-      const rows = db.query<ApprovalRow>(
-        `SELECT * FROM pending_approvals WHERE status = 'pending' ORDER BY created_at DESC`
-      );
-      return rows.map(rowToApproval);
+    async getPending() {
+      const { data, error } = await db.get_client()
+        .from('ubot_pending_approvals')
+        .select('*')
+        .eq('status', 'pending')
+        .order('created_at', { ascending: false });
+        
+      if (error || !data) return [];
+      return data.map(rowToApproval);
     },
 
-    getAll() {
-      const rows = db.query<ApprovalRow>(
-        `SELECT * FROM pending_approvals ORDER BY created_at DESC`
-      );
-      return rows.map(rowToApproval);
+    async getAll() {
+      const { data, error } = await db.get_client()
+        .from('ubot_pending_approvals')
+        .select('*')
+        .order('created_at', { ascending: false });
+        
+      if (error || !data) return [];
+      return data.map(rowToApproval);
     },
 
-    getById(id: string) {
-      const row = db.queryOne<ApprovalRow>(
-        `SELECT * FROM pending_approvals WHERE id = ?`,
-        [id]
-      );
-      return row ? rowToApproval(row) : null;
+    async getById(id: string) {
+      const { data, error } = await db.get_client()
+        .from('ubot_pending_approvals')
+        .select('*')
+        .eq('id', id)
+        .single();
+        
+      if (error || !data) return null;
+      return rowToApproval(data);
     },
 
-    resolve(id: string, ownerResponse: string) {
+    async resolve(id: string, ownerResponse: string) {
       const now = new Date().toISOString();
-      db.execute(
-        `UPDATE pending_approvals SET status = 'resolved', owner_response = ?, resolved_at = ? WHERE id = ?`,
-        [ownerResponse, now, id]
-      );
+      await db.get_client()
+        .from('ubot_pending_approvals')
+        .update({
+          status: 'resolved',
+          owner_response: ownerResponse,
+          resolved_at: now
+        })
+        .eq('id', id);
+        
       return this.getById(id);
     },
 
-    delete(id: string) {
-      const existing = this.getById(id);
+    async delete(id: string) {
+      const existing = await this.getById(id);
       if (!existing) return false;
-      db.execute(`DELETE FROM pending_approvals WHERE id = ?`, [id]);
+      await db.get_client().from('ubot_pending_approvals').delete().eq('id', id);
       return true;
     },
   };

@@ -31,6 +31,8 @@ export interface ChatMessageMetadata {
   model?: string;
   /** File attachments (images, documents) */
   attachments?: Attachment[];
+  /** LLM thinking/reasoning content (from thinking-enabled models like Gemini 2.5+) */
+  thinking?: string;
 }
 
 export interface ConversationSession {
@@ -182,11 +184,12 @@ export const DEFAULT_PROVIDER_MODELS: Record<string, Partial<Record<ModelPurpose
     tts:              'openai/tts-1-hd',
   },
   ollama: {
-    chat:             'llama3.3',      // Best local model (Dec 2024, 7B equiv quality)
-    router:           'llama3.2:3b',   // Lightest for fast routing
-    extraction:       'llama3.2:3b',
-    generation:       'llama3.3',
-    transcription:    'whisper',
+    chat:             'qwen3.5:9b',      // Best local model (Dec 2024, 7B equiv quality)
+    router:           'qwen3.5:9b',   // Lightest for fast routing
+    extraction:       'qwen3.5:9b',
+    generation:       'qwen3.5:9b',
+    transcription:    'qwen3.5:9b',
+    tts:              'qwen3.5:9b',
   },
 };
 
@@ -265,6 +268,8 @@ export interface AgentResponse {
   duration: number;
   /** Attachments that were part of this interaction */
   attachments?: Attachment[];
+  /** LLM thinking/reasoning content (from thinking-enabled models) */
+  thinking?: string;
 }
 
 export interface AgentDefinition {

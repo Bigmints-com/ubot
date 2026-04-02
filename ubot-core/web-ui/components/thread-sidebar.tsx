@@ -197,7 +197,7 @@ export function ThreadSidebar({
   }
 
   return (
-    <div className="flex flex-col w-72 h-full border-r bg-sidebar shrink-0 overflow-hidden">
+    <div className="flex flex-col w-72 h-full border-r shrink-0 overflow-hidden">
       {/* Header */}
       <div className="flex items-center justify-between px-3 py-2 border-b">
         <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">

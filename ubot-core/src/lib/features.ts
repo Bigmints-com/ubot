@@ -86,7 +86,7 @@ export type FeatureName = string;
 export function overrideFeatures(overrides: Partial<Record<string, boolean>>): void {
   for (const [key, value] of Object.entries(overrides)) {
     if (key in FEATURES) {
-      FEATURES[key] = value;
+      FEATURES[key] = value ?? false;
     }
   }
 }

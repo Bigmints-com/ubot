@@ -163,8 +163,8 @@ const sessionsToolModule: ToolModule = {
 
     // ── sessions_list ─────────────────────────────────────
     registry.register('sessions_list', async () => {
-      const sessions = store ? store.list() : [];
-      const list = sessions.map(s => ({
+      const sessions = store ? await store.list() : [];
+      const list = sessions.map((s: any) => ({
         session_id: s.id,
         task: s.task.slice(0, 100),
         agent: s.agentId || 'default',
@@ -186,7 +186,7 @@ const sessionsToolModule: ToolModule = {
       const sessionId = String(args.session_id || '');
       if (!sessionId) return { toolName: 'sessions_status', success: false, error: 'Missing "session_id"', duration: 0 };
 
-      const session = store ? store.get(sessionId) : undefined;
+      const session = store ? await store.get(sessionId) : undefined;
       if (!session) {
         return { toolName: 'sessions_status', success: false, error: `Session "${sessionId}" not found`, duration: 0 };
       }
@@ -212,7 +212,7 @@ const sessionsToolModule: ToolModule = {
       if (!sessionId) return { toolName: 'sessions_send', success: false, error: 'Missing "session_id"', duration: 0 };
       if (!message) return { toolName: 'sessions_send', success: false, error: 'Missing "message"', duration: 0 };
 
-      const session = store ? store.get(sessionId) : undefined;
+      const session = store ? await store.get(sessionId) : undefined;
       if (!session) {
         return { toolName: 'sessions_send', success: false, error: `Session "${sessionId}" not found`, duration: 0 };
       }

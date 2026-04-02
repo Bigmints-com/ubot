@@ -125,7 +125,12 @@ export interface UbotConfig {
     /** @deprecated Use server.auth.password */
     access_password?: string;
   };
-  database?: { path?: string };
+  database?: {
+    provider?: 'sqlite' | 'supabase';
+    path?: string;
+    supabase_url?: string;
+    supabase_service_key?: string;
+  };
 
   /** Workspace storage configuration */
   workspace?: {

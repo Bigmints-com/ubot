@@ -87,127 +87,100 @@ export interface UsageSummary {
 
 export class MeteringService {
   private db: DatabaseConnection;
-  private initialized = false;
 
   constructor(db: DatabaseConnection) {
     this.db = db;
-    this.ensureTable();
-  }
-
-  private ensureTable() {
-    if (this.initialized) return;
-    this.db.execute(`
-      CREATE TABLE IF NOT EXISTS llm_usage (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        timestamp TEXT NOT NULL DEFAULT (datetime('now')),
-        model TEXT NOT NULL,
-        purpose TEXT NOT NULL DEFAULT 'chat',
-        provider_id TEXT NOT NULL DEFAULT 'default',
-        input_tokens INTEGER NOT NULL DEFAULT 0,
-        output_tokens INTEGER NOT NULL DEFAULT 0,
-        total_tokens INTEGER NOT NULL DEFAULT 0,
-        estimated_cost REAL NOT NULL DEFAULT 0
-      )
-    `);
-    // Index for time-range queries
-    this.db.execute(`CREATE INDEX IF NOT EXISTS idx_llm_usage_timestamp ON llm_usage(timestamp)`);
-    this.db.execute(`CREATE INDEX IF NOT EXISTS idx_llm_usage_purpose ON llm_usage(purpose)`);
-    this.initialized = true;
   }
 
   /** Record a single LLM call */
-  record(model: string, purpose: string, providerId: string, inputTokens: number, outputTokens: number) {
+  async record(model: string, purpose: string, providerId: string, inputTokens: number, outputTokens: number) {
     const totalTokens = inputTokens + outputTokens;
     const cost = calculateCost(model, inputTokens, outputTokens);
-    this.db.execute(
-      `INSERT INTO llm_usage (model, purpose, provider_id, input_tokens, output_tokens, total_tokens, estimated_cost)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [model, purpose, providerId, inputTokens, outputTokens, totalTokens, cost]
-    );
+    
+    // Fire and forget
+    this.db.get_client().from('ubot_llm_usage').insert({
+      model,
+      purpose,
+      provider_id: providerId,
+      input_tokens: inputTokens,
+      output_tokens: outputTokens,
+      total_tokens: totalTokens,
+      estimated_cost: cost,
+      timestamp: new Date().toISOString()
+    }).then(({ error }: any) => {
+      if (error) console.error('[Metering] Failed to record usage:', error.message);
+    });
   }
 
   /** Get usage summary for a time period */
-  getSummary(period: 'today' | '7d' | '30d' | 'all' = '30d'): UsageSummary {
+  async getSummary(period: 'today' | '7d' | '30d' | 'all' = '30d'): Promise<UsageSummary> {
     const since = this.getSinceDate(period);
 
-    // Totals
-    const totals = this.db.query<any>(
-      `SELECT COALESCE(SUM(input_tokens), 0) as input_tokens,
-              COALESCE(SUM(output_tokens), 0) as output_tokens,
-              COALESCE(SUM(total_tokens), 0) as total_tokens,
-              COALESCE(SUM(estimated_cost), 0) as total_cost
-       FROM llm_usage WHERE timestamp >= ?`,
-      [since]
-    );
-    const t = totals[0] || { input_tokens: 0, output_tokens: 0, total_tokens: 0, total_cost: 0 };
+    const { data: rows, error } = await this.db.get_client()
+      .from('ubot_llm_usage')
+      .select('*')
+      .gte('timestamp', since);
 
-    // By model
-    const byModelRows = this.db.query<any>(
-      `SELECT model,
-              SUM(input_tokens) as input_tokens,
-              SUM(output_tokens) as output_tokens,
-              SUM(estimated_cost) as cost,
-              COUNT(*) as calls
-       FROM llm_usage WHERE timestamp >= ?
-       GROUP BY model ORDER BY cost DESC`,
-      [since]
-    );
-    const byModel: UsageSummary['byModel'] = {};
-    for (const row of byModelRows) {
-      byModel[row.model] = {
-        inputTokens: row.input_tokens,
-        outputTokens: row.output_tokens,
-        cost: row.cost,
-        calls: row.calls,
-      };
-    }
-
-    // By purpose
-    const byPurposeRows = this.db.query<any>(
-      `SELECT purpose,
-              SUM(input_tokens) as input_tokens,
-              SUM(output_tokens) as output_tokens,
-              SUM(estimated_cost) as cost,
-              COUNT(*) as calls
-       FROM llm_usage WHERE timestamp >= ?
-       GROUP BY purpose ORDER BY cost DESC`,
-      [since]
-    );
-    const byPurpose: UsageSummary['byPurpose'] = {};
-    for (const row of byPurposeRows) {
-      byPurpose[row.purpose] = {
-        inputTokens: row.input_tokens,
-        outputTokens: row.output_tokens,
-        cost: row.cost,
-        calls: row.calls,
-      };
-    }
-
-    // Daily costs (last 30 days max)
-    const dailyRows = this.db.query<any>(
-      `SELECT date(timestamp) as date,
-              SUM(estimated_cost) as cost,
-              SUM(total_tokens) as tokens
-       FROM llm_usage WHERE timestamp >= ?
-       GROUP BY date(timestamp) ORDER BY date`,
-      [since]
-    );
-    const dailyCosts = dailyRows.map(row => ({
-      date: row.date,
-      cost: row.cost,
-      tokens: row.tokens,
-    }));
-
-    return {
+    const summary: UsageSummary = {
       period,
-      totalInputTokens: t.input_tokens,
-      totalOutputTokens: t.output_tokens,
-      totalTokens: t.total_tokens,
-      totalCost: t.total_cost,
-      byModel,
-      byPurpose,
-      dailyCosts,
+      totalInputTokens: 0,
+      totalOutputTokens: 0,
+      totalTokens: 0,
+      totalCost: 0,
+      byModel: {},
+      byPurpose: {},
+      dailyCosts: []
     };
+
+    if (error || !rows) return summary;
+
+    const dailyMap = new Map<string, { cost: number; tokens: number }>();
+
+    for (const row of rows) {
+      const input = row.input_tokens || 0;
+      const output = row.output_tokens || 0;
+      const total = row.total_tokens || 0;
+      const cost = row.estimated_cost || 0;
+      
+      summary.totalInputTokens += input;
+      summary.totalOutputTokens += output;
+      summary.totalTokens += total;
+      summary.totalCost += cost;
+
+      // By model
+      if (!summary.byModel[row.model]) {
+        summary.byModel[row.model] = { inputTokens: 0, outputTokens: 0, cost: 0, calls: 0 };
+      }
+      summary.byModel[row.model].inputTokens += input;
+      summary.byModel[row.model].outputTokens += output;
+      summary.byModel[row.model].cost += cost;
+      summary.byModel[row.model].calls += 1;
+
+      // By purpose
+      if (!summary.byPurpose[row.purpose]) {
+        summary.byPurpose[row.purpose] = { inputTokens: 0, outputTokens: 0, cost: 0, calls: 0 };
+      }
+      summary.byPurpose[row.purpose].inputTokens += input;
+      summary.byPurpose[row.purpose].outputTokens += output;
+      summary.byPurpose[row.purpose].cost += cost;
+      summary.byPurpose[row.purpose].calls += 1;
+
+      // Daily
+      const dateStr = row.timestamp.split('T')[0];
+      if (!dailyMap.has(dateStr)) {
+        dailyMap.set(dateStr, { cost: 0, tokens: 0 });
+      }
+      const day = dailyMap.get(dateStr)!;
+      day.cost += cost;
+      day.tokens += total;
+    }
+
+    // Convert daily map back to sorted array
+    summary.dailyCosts = Array.from(dailyMap.entries())
+      .map(([date, data]) => ({ date, cost: data.cost, tokens: data.tokens }))
+      .sort((a, b) => a.date.localeCompare(b.date));
+
+    return summary;
   }
 
   private getSinceDate(period: string): string {

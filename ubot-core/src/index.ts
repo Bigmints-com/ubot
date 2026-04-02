@@ -7,14 +7,9 @@ import { setSessionValidator } from './api/middleware/auth.js';
 import { metricsCollector } from './metrics/index.js';
 import { log } from './logger/ring-buffer.js';
 import { createConnection, createDefaultConfig } from './data/database/connection.js';
-import { defaultMigrations } from './data/database/migrations.js';
-import { createConversationStore, conversationMigrations } from './memory/conversation.js';
-import { createMemoryStore, memoryMigrations } from './memory/memory-store.js';
-import { createFollowUpStore, followUpMigrations } from './memory/followups.js';
-import { todoMigrations } from './engine/todo-store.js';
-import { asyncJobMigrations } from './api/job-store.js';
-import { spawnedSessionMigrations } from './engine/spawned-session-store.js';
-import { planMigrations } from './engine/plan-store.js';
+import { createConversationStore } from './memory/conversation.js';
+import { createMemoryStore } from './memory/memory-store.js';
+import { createFollowUpStore } from './memory/followups.js';
 import { initPromptExperiments } from './engine/prompt-experiment.js';
 import { initMetering } from './engine/metering.js';
 import { createSoul } from './memory/soul.js';
@@ -98,18 +93,7 @@ if (!fs.existsSync(dataDir)) {
 }
 
 const db = createConnection({
-  config: createDefaultConfig(dbPath),
-  migrations: [
-    ...defaultMigrations, 
-    ...conversationMigrations, 
-    ...memoryMigrations, 
-    ...followUpMigrations, 
-    ...todoMigrations, 
-    ...asyncJobMigrations, 
-    ...spawnedSessionMigrations,
-    ...planMigrations
-  ],
-  autoMigrate: true,
+  config: Object.assign({}, createDefaultConfig(), ubotConfig.database || {})
 });
 
 initPromptExperiments(db);
@@ -206,7 +190,7 @@ function getMimeType(filePath: string): string {
 // In production, serve the static Next.js export from UBOT_HOME/web-ui/
 // In development, serve from ./public
 const STATIC_DIRS = IS_PRODUCTION && UBOT_HOME
-  ? [path.join(UBOT_HOME, 'web-ui')]
+  ? [path.join(UBOT_HOME, 'web')]
   : [path.join(process.cwd(), 'public')];
 
 function serveStatic(filePath: string): Promise<{ content: Buffer; contentType: string } | null> {

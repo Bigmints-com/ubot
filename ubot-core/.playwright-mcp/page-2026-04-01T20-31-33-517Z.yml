@@ -1,0 +1,321 @@
+- generic [ref=e2]:
+  - generic [ref=e3]:
+    - navigation "Main navigation" [ref=e4]:
+      - button "Home" [ref=e6] [cursor=pointer]:
+        - img [ref=e8]
+      - generic [ref=e13]:
+        - button "Home" [ref=e15] [cursor=pointer]:
+          - img [ref=e17]
+        - generic "Subscriptions" [ref=e21] [cursor=pointer]:
+          - img [ref=e23]
+        - generic "Chat" [ref=e27] [cursor=pointer]:
+          - img [ref=e29]
+        - generic "Activity" [ref=e33] [cursor=pointer]:
+          - img [ref=e35]
+        - button "Explore" [ref=e39] [cursor=pointer]:
+          - img [ref=e41]
+        - generic "Profile" [ref=e45] [cursor=pointer]:
+          - img [ref=e47]
+        - button "Create" [ref=e51] [cursor=pointer]:
+          - img [ref=e52]
+    - generic [ref=e54]:
+      - generic [ref=e62]:
+        - generic [ref=e64]:
+          - heading "The app for independent voices" [level=3] [ref=e66]
+          - generic [ref=e67]:
+            - button "Get started" [ref=e68] [cursor=pointer]
+            - button "Learn more" [ref=e69] [cursor=pointer]
+        - button "For you" [ref=e72] [cursor=pointer]:
+          - text: For you
+          - img [ref=e73]
+        - region "Notes feed" [ref=e75]:
+          - article "Note" [ref=e76]:
+            - generic [ref=e79] [cursor=pointer]:
+              - link "Aaron Parnas's avatar" [ref=e80]:
+                - /url: /@aaronparnas?utm_source=substack-feed-item
+                - generic "Aaron Parnas" [ref=e83]:
+                  - img "Aaron Parnas's avatar" [ref=e85]
+              - generic [ref=e86]:
+                - generic [ref=e88]:
+                  - generic [ref=e89]:
+                    - generic [ref=e91]:
+                      - link "Aaron Parnas" [ref=e95]:
+                        - /url: /@aaronparnas
+                      - link "6d" [ref=e97]:
+                        - /url: /@aaronparnas/note/c-233934688
+                    - button "Subscribe" [ref=e98]
+                    - button "More options" [ref=e101]:
+                      - img [ref=e102]
+                  - generic [ref=e108]:
+                    - paragraph [ref=e109]: First 24 hours done, rocking my baby girl to bed.
+                    - paragraph [ref=e110]: Wouldn’t trade it for the world.
+                    - paragraph [ref=e111]: Thank you to all of you for your support and messages.
+                - generic [ref=e115]:
+                  - button "Like" [ref=e116]:
+                    - img [ref=e118]
+                    - generic [ref=e125]: 20.7K
+                  - button "Comment" [ref=e126]:
+                    - img [ref=e127]
+                    - generic [ref=e130]: 1.1K
+                  - button "Restack" [ref=e131]:
+                    - img [ref=e133]
+                    - generic [ref=e136]: "553"
+                  - button "Share" [ref=e137]:
+                    - img [ref=e138]
+          - article "Note" [ref=e141]:
+            - generic [ref=e144] [cursor=pointer]:
+              - link "The Conscious Lee's avatar" [ref=e145]:
+                - /url: /@theconsciouslee?utm_source=substack-feed-item
+                - generic "The Conscious Lee" [ref=e148]:
+                  - img "The Conscious Lee's avatar" [ref=e150]
+              - generic [ref=e151]:
+                - generic [ref=e153]:
+                  - generic [ref=e154]:
+                    - generic [ref=e156]:
+                      - generic [ref=e157]:
+                        - link "The Conscious Lee" [ref=e160]:
+                          - /url: /@theconsciouslee
+                        - img [ref=e163]
+                      - link "3d" [ref=e168]:
+                        - /url: /@theconsciouslee/note/c-235280682
+                    - button "Subscribe" [ref=e169]
+                    - button "More options" [ref=e172]:
+                      - img [ref=e173]
+                  - paragraph [ref=e180]: Plantation owners loved the music enslaved people made. They loved the food enslaved people cooked. They loved the labor enslaved people provided. They still enslaved them. Cultural consumption was never evidence of racial respect. It was the mechanism of extraction.
+                - generic [ref=e181]:
+                  - button "Like" [ref=e182]:
+                    - img [ref=e184]
+                    - generic [ref=e191]: 3.5K
+                  - button "Comment" [ref=e192]:
+                    - img [ref=e193]
+                    - generic [ref=e196]: "40"
+                  - button "Restack" [ref=e197]:
+                    - img [ref=e199]
+                    - generic [ref=e202]: "568"
+                  - button "Share" [ref=e203]:
+                    - img [ref=e204]
+          - article "Note" [ref=e207]:
+            - generic [ref=e210] [cursor=pointer]:
+              - link "The Conscious Lee's avatar" [ref=e211]:
+                - /url: /@theconsciouslee?utm_source=substack-feed-item
+                - generic "The Conscious Lee" [ref=e214]:
+                  - img "The Conscious Lee's avatar" [ref=e216]
+              - generic [ref=e217]:
+                - generic [ref=e219]:
+                  - generic [ref=e220]:
+                    - generic [ref=e222]:
+                      - generic [ref=e223]:
+                        - link "The Conscious Lee" [ref=e226]:
+                          - /url: /@theconsciouslee
+                        - img [ref=e229]
+                      - link "7h" [ref=e234]:
+                        - /url: /@theconsciouslee/note/c-236583484
+                    - button "Subscribe" [ref=e235]
+                    - button "More options" [ref=e238]:
+                      - img [ref=e239]
+                  - generic [ref=e243]:
+                    - generic [ref=e245]:
+                      - paragraph [ref=e246]:
+                        - strong [ref=e247]: Jaden Ivey said the NBA celebrating Pride Month is “unrighteousness.” The NBA has celebrated Pride since 2016. He was 14. He signed up to play in this league. This ain’t persecution. This is selective moral outrage. Research over me searching.
+                      - paragraph [ref=e248]:
+                        - strong [ref=e249]: You cannot use your religion to call another group unrighteous and then cry persecution when your employer says that’s a distraction. That’s not faith. That’s oppression wearing a cross.
+                      - paragraph [ref=e250]:
+                        - strong [ref=e251]: Every branch of the U.S. government is dominated by Christians. The pr…
+                    - generic [ref=e255]: See more
+                - generic [ref=e256]:
+                  - button "Like" [ref=e257]:
+                    - img [ref=e259]
+                    - generic [ref=e266]: "177"
+                  - button "Comment" [ref=e267]:
+                    - img [ref=e268]
+                    - generic [ref=e271]: "11"
+                  - button "Restack" [ref=e272]:
+                    - img [ref=e274]
+                    - generic [ref=e277]: "33"
+                  - button "Share" [ref=e278]:
+                    - img [ref=e279]
+          - generic [ref=e285]:
+            - heading "You made it, you own it" [level=4] [ref=e286]
+            - paragraph [ref=e287]: You always own your intellectual property, mailing list, and subscriber payments. With full editorial control and no gatekeepers, you can do the work you most believe in.
+            - generic [ref=e288]:
+              - button "Get started" [ref=e289] [cursor=pointer]
+              - button "Learn more" [ref=e290] [cursor=pointer]
+          - article "Post" [ref=e293]:
+            - generic [ref=e295] [cursor=pointer]:
+              - link "Nate Silver's avatar" [ref=e296]:
+                - /url: /@natesilver?utm_source=substack-feed-item
+                - generic "Nate Silver" [ref=e299]:
+                  - img "Nate Silver's avatar" [ref=e301]
+              - generic [ref=e302]:
+                - generic [ref=e303]:
+                  - generic [ref=e304]:
+                    - generic [ref=e306]:
+                      - generic [ref=e307]:
+                        - link "Nate Silver" [ref=e310]:
+                          - /url: /@natesilver
+                        - img [ref=e313]
+                      - generic "Apr 1, 2026, 8:02 PM" [ref=e318]: 4h
+                    - button "Subscribe" [ref=e319]
+                    - button "More options" [ref=e322]:
+                      - img [ref=e323]
+                  - link "Silver Bulletin Silver Bulletin How popular is Donald Trump? Save" [ref=e328]:
+                    - /url: https://www.natesilver.net/p/trump-approval-ratings-nate-silver-bulletin
+                    - generic [ref=e331]:
+                      - generic [ref=e332]:
+                        - generic [ref=e333]:
+                          - img "Silver Bulletin" [ref=e337]
+                          - link "Silver Bulletin" [ref=e340]:
+                            - /url: https://www.natesilver.net/
+                        - generic [ref=e341]: How popular is Donald Trump?
+                      - button "Save" [ref=e342]:
+                        - img [ref=e343]
+                - generic [ref=e345]:
+                  - button "Like" [ref=e346]:
+                    - img [ref=e348]
+                    - generic [ref=e355]: 1.3K
+                  - button "Comment" [ref=e356]:
+                    - img [ref=e357]
+                    - generic [ref=e360]: "154"
+                  - button "Restack" [ref=e361]:
+                    - img [ref=e363]
+                    - generic [ref=e366]: "325"
+                  - button "Share" [ref=e367]:
+                    - img [ref=e368]
+          - article "Note" [ref=e371]:
+            - generic [ref=e374] [cursor=pointer]:
+              - link "Hayley DeRoche's avatar" [ref=e375]:
+                - /url: /@sadbeige?utm_source=substack-feed-item
+                - generic "Hayley DeRoche" [ref=e378]:
+                  - img "Hayley DeRoche's avatar" [ref=e380]
+              - generic [ref=e381]:
+                - generic [ref=e383]:
+                  - generic [ref=e384]:
+                    - generic [ref=e386]:
+                      - link "Hayley DeRoche" [ref=e390]:
+                        - /url: /@sadbeige
+                      - link "5h" [ref=e392]:
+                        - /url: /@sadbeige/note/c-236642681
+                    - button "Subscribe" [ref=e393]
+                    - button "More options" [ref=e396]:
+                      - img [ref=e397]
+                  - paragraph [ref=e404]: JUST REALIZED IT’S OFFICIALLY MY BOOK’S BIRTHDAY MONTH 🎉🎉🎉🎉🎉
+                - generic [ref=e408]:
+                  - button "Like" [ref=e409]:
+                    - img [ref=e411]
+                    - generic [ref=e418]: "28"
+                  - button "Comment" [ref=e419]:
+                    - img [ref=e420]
+                    - generic [ref=e423]: "1"
+                  - button "Restack" [ref=e424]:
+                    - img [ref=e426]
+                    - generic [ref=e429]: "1"
+                  - button "Share" [ref=e430]:
+                    - img [ref=e431]
+          - generic [ref=e439]:
+            - heading "Great discussions" [level=4] [ref=e440]
+            - paragraph [ref=e441]: Join the most interesting and insightful discussions.
+            - generic [ref=e442]:
+              - button "Get started" [ref=e443] [cursor=pointer]
+              - button "Learn more" [ref=e444] [cursor=pointer]
+          - article "Note" [ref=e445]:
+            - generic [ref=e448] [cursor=pointer]:
+              - link "Ella Emhoff's avatar" [ref=e449]:
+                - /url: /@ellaemhoff?utm_source=substack-feed-item
+                - generic "Ella Emhoff" [ref=e452]:
+                  - img "Ella Emhoff's avatar" [ref=e454]
+              - generic [ref=e455]:
+                - generic [ref=e457]:
+                  - generic [ref=e458]:
+                    - generic [ref=e460]:
+                      - generic [ref=e461]:
+                        - link "Ella Emhoff" [ref=e464]:
+                          - /url: /@ellaemhoff
+                        - img [ref=e467]
+                      - link "7h" [ref=e472]:
+                        - /url: /@ellaemhoff/note/c-236574111
+                    - button "Subscribe" [ref=e473]
+                    - button "More options" [ref=e476]:
+                      - img [ref=e477]
+                  - paragraph [ref=e484]: Seriously, nothing makes me happier than waking up and texting all of my friends.
+                - generic [ref=e485]:
+                  - button "Like" [ref=e486]:
+                    - img [ref=e488]
+                    - generic [ref=e495]: "60"
+                  - button "Comment" [ref=e496]:
+                    - img [ref=e497]
+                    - generic [ref=e500]: "3"
+                  - button "Restack" [ref=e501]:
+                    - img [ref=e503]
+                    - generic [ref=e506]: "2"
+                  - button "Share" [ref=e507]:
+                    - img [ref=e508]
+      - generic [ref=e511]:
+        - generic [ref=e514]:
+          - img [ref=e516]
+          - searchbox "Global search" [ref=e519]
+        - generic [ref=e521]:
+          - img [ref=e523]
+          - generic [ref=e528]:
+            - heading "Log in or sign up" [level=4] [ref=e529]
+            - generic [ref=e530]: Join the most interesting and insightful discussions.
+          - generic [ref=e531]:
+            - button "Get the app" [ref=e532] [cursor=pointer]
+            - button "Sign in" [ref=e533] [cursor=pointer]
+        - generic [ref=e535]:
+          - generic [ref=e537]: Up next
+          - generic [ref=e538]:
+            - link "Product Growth Bookmark The PM's Complete Guide to Bolt.new 13m read ∙ 15 likes" [ref=e539] [cursor=pointer]:
+              - /url: /home/post/p-189394829?source=queue
+              - generic [ref=e540]:
+                - generic [ref=e541]:
+                  - img [ref=e545]
+                  - link "Product Growth" [ref=e549]:
+                    - /url: https://www.news.aakashg.com/
+                - button "Bookmark" [ref=e551]:
+                  - img [ref=e552]
+              - generic [ref=e554]:
+                - generic [ref=e555]:
+                  - generic [ref=e556]: The PM's Complete Guide to Bolt.new
+                  - generic [ref=e557]:
+                    - text: 13m read
+                    - generic [ref=e558]: ∙ 15 likes
+                - img [ref=e561]
+            - separator [ref=e562]
+            - link "I Fucking Love Australia Bookmark SO THE WHOLE WORLD JUST TOLD TRUMP TO GET FUCKED 5m read ∙ 34 likes ∙ 1 comment" [ref=e563] [cursor=pointer]:
+              - /url: /home/post/p-192847470?source=queue
+              - generic [ref=e564]:
+                - generic [ref=e565]:
+                  - img [ref=e569]
+                  - link "I Fucking Love Australia" [ref=e573]:
+                    - /url: https://ifloz.substack.com/
+                - button "Bookmark" [ref=e575]:
+                  - img [ref=e576]
+              - generic [ref=e578]:
+                - generic [ref=e579]:
+                  - generic [ref=e580]: SO THE WHOLE WORLD JUST TOLD TRUMP TO GET FUCKED
+                  - generic [ref=e581]:
+                    - text: 5m read
+                    - generic [ref=e582]: ∙ 34 likes
+                    - generic [ref=e583]: ∙ 1 comment
+                - img [ref=e586]
+            - separator [ref=e587]
+            - link "Drop Site News Bookmark Premature Babies Evacuated After Israeli Attack on Al-Shifa Returned to Gaza After More Than Two Years 6m read ∙ 100 likes ∙ 3 comments" [ref=e588] [cursor=pointer]:
+              - /url: /home/post/p-192885684?source=queue
+              - generic [ref=e589]:
+                - generic [ref=e590]:
+                  - img [ref=e594]
+                  - link "Drop Site News" [ref=e598]:
+                    - /url: https://www.dropsitenews.com/
+                - button "Bookmark" [ref=e600]:
+                  - img [ref=e601]
+              - generic [ref=e603]:
+                - generic [ref=e604]:
+                  - generic [ref=e605]: Premature Babies Evacuated After Israeli Attack on Al-Shifa Returned to Gaza After More Than Two Years
+                  - generic [ref=e606]:
+                    - text: 6m read
+                    - generic [ref=e607]: ∙ 100 likes
+                    - generic [ref=e608]: ∙ 3 comments
+                - img [ref=e611]
+    - button "Get app" [ref=e612] [cursor=pointer]
+  - region "Notifications (F8)":
+    - list

@@ -13,10 +13,12 @@ import {
   Send, Trash2, Bot, User, Wrench, Sparkles, Loader2,
   Paperclip, X, FileText, Image as ImageIcon, File as FileIcon,
   ArrowDown, Globe, Smartphone, MessageCircle,
-  Send as SendIcon, Mic, MicOff, AudioLines,
+  Send as SendIcon, Mic, MicOff, AudioLines, Copy, Check,
+  ChevronDown, Brain, Video, Volume2,
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { ThreadSidebar } from "@/components/thread-sidebar";
+import { MessageContent } from "@/components/message-content";
 import { toast } from "sonner";
 
 interface PendingAttachment {
@@ -30,6 +32,7 @@ interface ChatMessage {
   content: string;
   timestamp?: string;
   attachments?: Array<{ id: string; filename: string; mimeType: string }>;
+  thinking?: string;
   metadata?: {
     model?: string;
     toolCalls?: Array<{ name: string; args?: unknown }>;
@@ -47,10 +50,12 @@ const suggestions = [
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 const ACCEPTED_TYPES = [
-  "image/png", "image/jpeg", "image/gif", "image/webp",
+  "image/png", "image/jpeg", "image/gif", "image/webp", "image/svg+xml",
   "application/pdf",
   "text/plain", "text/markdown", "text/csv", "text/html",
   "application/json", "application/xml",
+  "audio/mpeg", "audio/wav", "audio/ogg", "audio/webm", "audio/mp4",
+  "video/mp4", "video/webm",
 ];
 
 const CHANNEL_META: Record<string, { icon: typeof Globe; label: string; color: string }> = {
@@ -84,6 +89,17 @@ export default function ChatPage() {
   const [imagePreview, setImagePreview] = useState<{ file: File; preview: string; base64: string } | null>(null);
   const [imageCaption, setImageCaption] = useState("");
   const captionInputRef = useRef<HTMLInputElement>(null);
+  const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
+  const [expandedThinking, setExpandedThinking] = useState<Set<number>>(new Set());
+
+  const handleCopy = (content: string, index: number) => {
+    navigator.clipboard.writeText(content);
+    setCopiedIndex(index);
+    toast.success("Message copied");
+    setTimeout(() => {
+      setCopiedIndex((prev) => (prev === index ? null : prev));
+    }, 2000);
+  };
 
   const isReadOnly = activeThreadType !== "web";
   // Show typing indicator if: web thread is loading locally, OR backend reports this thread is processing
@@ -226,6 +242,7 @@ export default function ChatPage() {
       content: (msg.content as string) ?? "",
       timestamp: msg.timestamp as string | undefined,
       attachments,
+      thinking: (meta?.thinking as string) || undefined,
       metadata: meta
         ? {
             model: meta.model as string | undefined,
@@ -393,6 +410,7 @@ export default function ChatPage() {
         model?: string;
         duration?: number;
         attachments?: Array<{ id: string; filename: string; mimeType: string }>;
+        thinking?: string;
       }>("/api/chat", {
         method: "POST",
         body,
@@ -405,6 +423,7 @@ export default function ChatPage() {
           role: "assistant",
           content: res.content ?? "",
           timestamp: new Date().toISOString(),
+          thinking: res.thinking,
           metadata: {
             model: res.model,
             tokenUsage: res.usage
@@ -632,16 +651,12 @@ export default function ChatPage() {
     }
   };
 
-  const formatContent = (text: string) => {
-    if (!text) return "";
-    return text
-      .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
-      .replace(/`(.+?)`/g, '<code class="bg-muted px-1 py-0.5 rounded text-xs">$1</code>')
-      .replace(/\n/g, "<br />");
-  };
+  // formatContent is no longer needed — replaced by MessageContent component
 
   const getFileIcon = (mimeType: string) => {
     if (mimeType.startsWith("image/")) return <ImageIcon className="size-3" />;
+    if (mimeType.startsWith("audio/")) return <Volume2 className="size-3" />;
+    if (mimeType.startsWith("video/")) return <Video className="size-3" />;
     if (mimeType === "application/pdf") return <FileText className="size-3" />;
     return <FileIcon className="size-3" />;
   };
@@ -731,15 +746,112 @@ export default function ChatPage() {
               <div
                 className={`max-w-[80%] space-y-1 ${msg.role === "user" ? "items-end" : "items-start"}`}
               >
-                {/* Attachment badges (for user messages) */}
-                {msg.attachments && msg.attachments.length > 0 && msg.role === "user" && (
-                  <div className="flex flex-wrap gap-1 justify-end mb-1">
-                    {msg.attachments.map((att, j) => (
-                      <Badge key={j} variant="outline" className="text-xs gap-1">
-                        {getFileIcon(att.mimeType)}
-                        {att.filename}
-                      </Badge>
-                    ))}
+                {/* Attachments — rich inline previews */}
+                {msg.attachments && msg.attachments.length > 0 && (
+                  <div className={`flex flex-wrap gap-2 ${msg.role === "user" ? "justify-end" : "justify-start"} mb-1`}>
+                    {msg.attachments.map((att, j) => {
+                      const isImage = att.mimeType.startsWith("image/");
+                      const isAudio = att.mimeType.startsWith("audio/");
+                      const isVideo = att.mimeType.startsWith("video/");
+                      const mediaSrc = `/api/chat/uploads/${att.id}`;
+
+                      if (isImage) {
+                        return (
+                          <div key={j} className="relative group">
+                            <img
+                              src={mediaSrc}
+                              alt={att.filename}
+                              className="max-w-[200px] max-h-[160px] rounded-lg border border-border object-cover cursor-pointer hover:opacity-90 transition-opacity"
+                              onClick={() => window.open(mediaSrc, "_blank")}
+                              onError={(e) => {
+                                e.currentTarget.style.display = 'none';
+                                const fallback = e.currentTarget.nextElementSibling as HTMLElement;
+                                if (fallback) fallback.style.display = 'flex';
+                              }}
+                            />
+                            <a
+                              href={mediaSrc}
+                              target="_blank"
+                              rel="noopener noreferrer" 
+                              className="hidden items-center gap-2 rounded-lg border border-border bg-muted/30 px-3 py-2 text-xs hover:bg-muted/50 transition-colors"
+                            >
+                              {getFileIcon(att.mimeType)}
+                              <span className="font-medium truncate max-w-[150px]">{att.filename}</span>
+                            </a>
+                          </div>
+                        );
+                      }
+
+                      if (isAudio) {
+                        return (
+                          <div key={j} className="flex items-center gap-2 rounded-lg border border-border bg-muted/30 px-3 py-2 min-w-[220px]">
+                            <Volume2 className="size-4 text-muted-foreground shrink-0" />
+                            <div className="flex flex-col flex-1 min-w-0">
+                              <span className="text-xs font-medium truncate">{att.filename}</span>
+                              <audio controls className="w-full h-7 mt-1" preload="metadata">
+                                <source src={mediaSrc} type={att.mimeType} />
+                              </audio>
+                            </div>
+                          </div>
+                        );
+                      }
+
+                      if (isVideo) {
+                        return (
+                          <div key={j} className="rounded-lg border border-border overflow-hidden max-w-[300px]">
+                            <video controls className="w-full max-h-[200px]" preload="metadata">
+                              <source src={mediaSrc} type={att.mimeType} />
+                            </video>
+                            <div className="px-2 py-1 bg-muted/30 text-[10px] text-muted-foreground truncate">
+                              {att.filename}
+                            </div>
+                          </div>
+                        );
+                      }
+
+                      // Default: file badge for PDFs, docs, etc.
+                      return (
+                        <a
+                          key={j}
+                          href={mediaSrc}
+                          target="_blank"
+                          rel="noopener noreferrer" 
+                          className="flex items-center gap-2 rounded-lg border border-border bg-muted/30 px-3 py-2 text-xs hover:bg-muted/50 transition-colors"
+                        >
+                          {getFileIcon(att.mimeType)}
+                          <span className="font-medium truncate max-w-[150px]">{att.filename}</span>
+                        </a>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* Thinking panel (collapsible) */}
+                {msg.role === "assistant" && msg.thinking && (
+                  <div className="rounded-lg border border-border/60 bg-muted/30 overflow-hidden mb-1">
+                    <button
+                      onClick={() => setExpandedThinking(prev => {
+                        const next = new Set(prev);
+                        if (next.has(i)) next.delete(i); else next.add(i);
+                        return next;
+                      })}
+                      className="flex items-center gap-1.5 w-full px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+                    >
+                      <Brain className="size-3 shrink-0" />
+                      <span className="font-medium">Thought for {((msg.metadata?.duration || 0) / 1000).toFixed(1)}s</span>
+                      <ChevronDown className={`size-3 ml-auto transition-transform duration-200 ${expandedThinking.has(i) ? 'rotate-180' : ''}`} />
+                    </button>
+                    <div
+                      className={`grid transition-[grid-template-rows] duration-200 ease-in-out ${
+                        expandedThinking.has(i) ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'
+                      }`}
+                    >
+                      <div className="overflow-hidden">
+                        <div className="px-3 py-2 text-xs leading-relaxed text-muted-foreground/80 border-t border-border/40 whitespace-pre-wrap">
+                          {msg.thinking}
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 )}
 
@@ -750,12 +862,7 @@ export default function ChatPage() {
                       : "bg-muted"
                   }`}
                 >
-                  <div
-                    className="text-sm leading-relaxed"
-                    dangerouslySetInnerHTML={{
-                      __html: formatContent(msg.content),
-                    }}
-                  />
+                  <MessageContent content={msg.content} role={msg.role} />
                 </Card>
                 {msg.metadata?.toolCalls && msg.metadata.toolCalls.length > 0 && (
                   <div className="flex flex-wrap gap-1">
@@ -767,7 +874,16 @@ export default function ChatPage() {
                     ))}
                   </div>
                 )}
-                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <div className="flex items-center gap-2 text-xs text-muted-foreground mt-1">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-5 w-5 hover:bg-muted-foreground/10"
+                    onClick={() => handleCopy(msg.content, i)}
+                    title="Copy message"
+                  >
+                    {copiedIndex === i ? <Check className="size-3 text-green-500" /> : <Copy className="size-3" />}
+                  </Button>
                   {msg.timestamp && (
                     <span>
                       {new Date(msg.timestamp).toLocaleTimeString([], {

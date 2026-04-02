@@ -10,7 +10,7 @@ export PATH := $(NVM_NODE_DIR):$(HOME)/.local/bin:$(PATH)
 UBOT_HOME ?= $(HOME)/.ubot
 INSTALL_BIN_DIR ?= $(HOME)/.local/bin
 CORE_DIR = ubot-core
-WEB_DIR = $(CORE_DIR)/web
+WEB_DIR = $(CORE_DIR)/web-ui
 CLI_DIR = cli
 
 # Marker file written after a successful first install
@@ -109,17 +109,17 @@ _do_install:
 	@mkdir -p $(UBOT_HOME)/workspace
 	@mkdir -p $(UBOT_HOME)/custom/modules
 	@mkdir -p $(UBOT_HOME)/custom/staging
-	@mkdir -p $(UBOT_HOME)/skills
+	@mkdir -p $(UBOT_HOME)/workspace/skills
 
 	@# Copy default skills (only if skill dir doesn't already exist — respects user deletions)
-	@if [ -d $(CORE_DIR)/default-skills ]; then \
-		for skill_dir in $(CORE_DIR)/default-skills/*/; do \
+	@if [ -d $(CORE_DIR)/skills ]; then \
+		for skill_dir in $(CORE_DIR)/skills/*/; do \
 			skill_name=$$(basename "$$skill_dir"); \
-			if [ ! -d "$(UBOT_HOME)/skills/$$skill_name" ]; then \
-				cp -r "$$skill_dir" "$(UBOT_HOME)/skills/$$skill_name"; \
+			if [ ! -d "$(UBOT_HOME)/workspace/skills/$$skill_name" ]; then \
+				cp -r "$$skill_dir" "$(UBOT_HOME)/workspace/skills/$$skill_name"; \
 			fi; \
 		done; \
-		echo "   Synced default skills to $(UBOT_HOME)/skills/"; \
+		echo "   Synced default skills to $(UBOT_HOME)/workspace/skills/"; \
 	fi
 
 	@# ── Backup database before install ─────────────────────────────────

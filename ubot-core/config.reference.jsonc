@@ -89,11 +89,13 @@
 
 
   // ─── Database ──────────────────────────────────────────────────────────────
-  // SQLite database path. Relative paths are resolved from UBOT_HOME or CWD.
-  // Not used in "cloud-shared" mode (uses NullDatabase).
+  // Database configuration.
+  // Supports "supabase" for cloud or local postgres database.
 
   "database": {
-    "path": "data/local/ubot.db"
+    "provider": "supabase",
+    "supabase_url": "https://your-project.supabase.co",
+    "supabase_service_key": "your-service-key"
   },
 
 

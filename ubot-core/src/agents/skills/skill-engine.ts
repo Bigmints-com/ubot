@@ -378,11 +378,11 @@ Answer:`;
         let ownerContextBlock = '';
         if (conversationStore) {
           try {
-            const ownerHistory = conversationStore.getHistory('web-console', 10);
+            const ownerHistory = await conversationStore.getHistory('web-console', 10);
             const ownerMsgs = ownerHistory
-              .filter(m => m.role === 'user')
+              .filter((m: any) => m.role === 'user')
               .slice(-5)
-              .map(m => `  - "${m.content.slice(0, 200)}"`);
+              .map((m: any) => `  - "${m.content.slice(0, 200)}"`);
             if (ownerMsgs.length > 0) {
               ownerContextBlock = [
                 ``,

@@ -175,3 +175,29 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* ── Chat rich markdown styles ────────────────────────── */
+.prose-chat {
+  word-break: break-word;
+}
+.prose-chat > *:first-child {
+  margin-top: 0;
+}
+.prose-chat > *:last-child {
+  margin-bottom: 0;
+}
+.prose-chat pre {
+  margin: 0;
+  padding: 0;
+  background: transparent;
+}
+.prose-chat pre code {
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.prose-chat img {
+  display: inline-block;
+}
+.prose-chat p + p {
+  margin-top: 0.5rem;
+}

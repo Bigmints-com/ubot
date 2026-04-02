@@ -90,6 +90,7 @@ export function createMockContext(opts: MockContextOptions = {}): ToolContext {
     getCliService: () => null,
     getFollowUpStore: () => null,
     getSpawnedSessionStore: () => null,
+    getWorkspaceProvider: () => null,
   };
 
   return {

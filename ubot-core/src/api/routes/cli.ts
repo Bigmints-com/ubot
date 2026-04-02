@@ -351,6 +351,7 @@ export const handleCliRoutes: RouteHandler = async (req, res, url, method, _ctx)
         getCliService: () => null,
         getFollowUpStore: () => null,
         getSpawnedSessionStore: () => _ctx.spawnedSessionStore,
+        getWorkspaceProvider: () => null,
       };
       const result = await promoteModule(moduleName, registry, toolContext);
       json(res, result);
