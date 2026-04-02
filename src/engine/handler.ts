@@ -84,10 +84,10 @@ export interface UnifiedResult {
 
 // ─── Owner Detection (Single Source of Truth) ─────────────
 
-function detectOwner(
+async function detectOwner(
   msg: UnifiedMessage,
   deps: UnifiedDeps,
-): { isOwner: boolean; ownerName: string } {
+): Promise<{ isOwner: boolean; ownerName: string }> {
   const config = deps.orchestrator.getConfig();
 
   // Web source = always owner (Command Center)
@@ -105,7 +105,7 @@ function detectOwner(
       const configuredKey = (config as any).ownerWebchatKey || '';
       if (configuredKey && ownerKey === configuredKey) {
         const soul = deps.orchestrator.getSoul();
-        const ownerDoc = soul.getDocument(OWNER_SOUL_ID);
+        const ownerDoc = await soul.getDocument(OWNER_SOUL_ID);
         const nameMatch = ownerDoc?.match(/name:\s*(.+)/i);
         return { isOwner: true, ownerName: nameMatch ? nameMatch[1].trim() : '' };
       }
@@ -115,7 +115,7 @@ function detectOwner(
 
   // Read owner name from soul document
   const soul = deps.orchestrator.getSoul();
-  const ownerDoc = soul.getDocument(OWNER_SOUL_ID);
+  const ownerDoc = await soul.getDocument(OWNER_SOUL_ID);
   const nameMatch = ownerDoc?.match(/name:\s*(.+)/i);
   const ownerName = nameMatch ? nameMatch[1].trim() : '';
 
@@ -225,7 +225,7 @@ export async function handleIncomingMessage(
   deps: UnifiedDeps,
 ): Promise<UnifiedResult> {
   // 1. Detect owner
-  const { isOwner } = detectOwner(msg, deps);
+  const { isOwner } = await detectOwner(msg, deps);
 
   // 2. Auto-save owner IDs for future detection
   if (isOwner) {
@@ -336,18 +336,18 @@ export async function handleIncomingMessage(
   //    Otherwise, let it flow to the orchestrator where the LLM can decide
   //    to use the respond_to_approval tool if appropriate.
   if (isOwner && deps.approvalStore) {
-    const pending = deps.approvalStore.getPending();
+    const pending = await deps.approvalStore.getPending();
     if (pending.length > 0) {
       const trimmed = msg.body.trim().toLowerCase();
       // Only auto-consume if the message starts with "approve:" or contains an approval ID
       const isExplicitApproval = trimmed.startsWith('approve:') || trimmed.startsWith('approve ') ||
-        pending.some(a => msg.body.includes(a.id));
+        pending.some((a: any) => msg.body.includes(a.id));
 
       if (isExplicitApproval) {
         const approval = pending[0];
         // Strip "approve:" prefix if present
         const response = msg.body.replace(/^approve:\s*/i, '').trim() || msg.body;
-        deps.approvalStore.resolve(approval.id, response);
+        await deps.approvalStore.resolve(approval.id, response);
         console.log(`[Unified] ✅ Owner responded to approval ${approval.id}`);
 
         // Feed approval response back to the requester's session using generate() (no tools)
@@ -378,9 +378,9 @@ export async function handleIncomingMessage(
     // Inject pending approval context so the LLM can connect the owner's reply
     let messageToSend = msg.body;
     if (isOwner && deps.approvalStore) {
-      const pending = deps.approvalStore.getPending();
+      const pending = await deps.approvalStore.getPending();
       if (pending.length > 0) {
-        const approvalContext = pending.slice(0, 3).map(a => {
+        const approvalContext = pending.slice(0, 3).map((a: any) => {
           const ago = Math.round((Date.now() - new Date(a.createdAt).getTime()) / 60000);
           return `  • [${a.id}] "${a.question}" (from: ${a.context || a.requesterJid}, ${ago}m ago)`;
         }).join('\n');

@@ -19,7 +19,7 @@ export async function handleChatRoutes(
   // ── Poll async job result ─────────────────────────────────
   if (url.startsWith('/api/chat/job/') && method === 'GET') {
     const jobId = url.replace('/api/chat/job/', '').split('?')[0];
-    const job = ctx.asyncJobStore?.get(jobId);
+    const job = await ctx.asyncJobStore?.get(jobId);
     if (!job) {
       error(res, 'Job not found', 404);
       return true;
@@ -141,10 +141,10 @@ export async function handleChatRoutes(
         return true;
       }
       const jobId = crypto.randomUUID();
-      ctx.asyncJobStore.create(jobId, sessionId);
+      await ctx.asyncJobStore.create(jobId, sessionId);
       
       // Periodic cleanup (keep last 24 hours of jobs)
-      ctx.asyncJobStore.cleanup(24 * 60 * 60 * 1000);
+      await ctx.asyncJobStore.cleanup(24 * 60 * 60 * 1000);
 
       // Fire and forget
       ctx.agentOrchestrator.chat(
@@ -159,13 +159,14 @@ export async function handleChatRoutes(
         // Auto-name thread (same as sync path)
         try {
           const store = ctx.agentOrchestrator!.getConversationStore();
-          const sessions = store.listSessions();
-          const session = sessions.find((s: any) => s.id === sessionId);
-          if (session && /^(Thread \d+|New Thread|General)$/i.test(session.name)) {
-            let autoName = message.trim().replace(/\n.*/s, '');
-            if (autoName.length > 40) autoName = autoName.slice(0, 40).replace(/\s\S*$/, '') + '…';
-            if (autoName.length > 3) store.renameSession(sessionId, autoName);
-          }
+          store.listSessions().then((sessions) => {
+            const session = sessions.find((s: any) => s.id === sessionId);
+            if (session && /^(Thread \d+|New Thread|General)$/i.test(session.name)) {
+              let autoName = message.trim().replace(/\n.*/s, '');
+              if (autoName.length > 40) autoName = autoName.slice(0, 40).replace(/\s\S*$/, '') + '…';
+              if (autoName.length > 3) store.renameSession(sessionId, autoName);
+            }
+          }).catch(() => {});
         } catch { /* best-effort */ }
       }).catch((e: any) => {
         ctx.asyncJobStore?.update(jobId, { 
@@ -189,7 +190,7 @@ export async function handleChatRoutes(
       // Auto-name thread from first message if it has a generic name
       try {
         const store = ctx.agentOrchestrator.getConversationStore();
-        const sessions = store.listSessions();
+        const sessions = await store.listSessions();
         const session = sessions.find((s: any) => s.id === sessionId);
         if (session && /^(Thread \d+|New Thread|General)$/i.test(session.name)) {
           // Generate name from first message (first 40 chars, trimmed at word boundary)
@@ -198,7 +199,7 @@ export async function handleChatRoutes(
             autoName = autoName.slice(0, 40).replace(/\s\S*$/, '') + '…';
           }
           if (autoName.length > 3) {
-            store.renameSession(sessionId, autoName);
+            await store.renameSession(sessionId, autoName);
           }
         }
       } catch { /* auto-naming is best-effort */ }
@@ -228,6 +229,14 @@ export async function handleChatRoutes(
           '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
           '.gif': 'image/gif', '.webp': 'image/webp', '.pdf': 'application/pdf',
           '.svg': 'image/svg+xml',
+          // Audio
+          '.mp3': 'audio/mpeg', '.wav': 'audio/wav', '.ogg': 'audio/ogg',
+          '.webm': 'audio/webm', '.m4a': 'audio/mp4', '.aac': 'audio/aac',
+          // Video
+          '.mp4': 'video/mp4',
+          // Documents
+          '.json': 'application/json', '.xml': 'application/xml',
+          '.txt': 'text/plain', '.md': 'text/markdown', '.csv': 'text/csv',
         };
         res.writeHead(200, {
           'Content-Type': mimeMap[ext] || 'application/octet-stream',
@@ -253,7 +262,7 @@ export async function handleChatRoutes(
     const sessionId = urlObj.searchParams.get('sessionId') || 'web-console';
     const limit = parseInt(urlObj.searchParams.get('limit') || '50', 10);
     const store = ctx.agentOrchestrator.getConversationStore();
-    const messages = store.getHistory(sessionId, limit);
+    const messages = await store.getHistory(sessionId, limit);
     json(res, { messages });
     return true;
   }
@@ -268,7 +277,7 @@ export async function handleChatRoutes(
     const sessionId = params.get('sessionId') || 'web-console';
     const limit = parseInt(params.get('limit') || '50', 10);
     const store = ctx.agentOrchestrator.getConversationStore();
-    const messages = store.getHistory(sessionId, limit);
+    const messages = await store.getHistory(sessionId, limit);
     json(res, { messages });
     return true;
   }
@@ -280,7 +289,7 @@ export async function handleChatRoutes(
     }
     const body = await parseBody(req) as any;
     const sessionId = body.sessionId || 'web-console';
-    ctx.agentOrchestrator.getConversationStore().clearSession(sessionId);
+    await ctx.agentOrchestrator.getConversationStore().clearSession(sessionId);
     json(res, { cleared: true, sessionId });
     return true;
   }
@@ -290,7 +299,7 @@ export async function handleChatRoutes(
       json(res, { sessions: [] });
       return true;
     }
-    const sessions = ctx.agentOrchestrator.getConversationStore().listSessions();
+    const sessions = await ctx.agentOrchestrator.getConversationStore().listSessions();
     json(res, { sessions });
     return true;
   }
@@ -301,12 +310,18 @@ export async function handleChatRoutes(
       error(res, 'Agent not initialized', 503);
       return true;
     }
-    const body = await parseBody(req) as any;
-    const store = ctx.agentOrchestrator.getConversationStore();
-    const id = `web-${Date.now()}`;
-    const name = body.name || 'New Thread';
-    const session = store.createSession(id, 'web', name);
-    json(res, { session });
+    try {
+      const body = await parseBody(req) as any;
+      const { v4: uuidv4 } = await import('uuid');
+      const store = ctx.agentOrchestrator.getConversationStore();
+      const id = uuidv4();
+      const name = body.name || 'New Thread';
+      const session = await store.createSession(id, 'web', name);
+      json(res, { session });
+    } catch (e: any) {
+      console.error('[API] createSession Error:', e);
+      error(res, e.message, 500);
+    }
     return true;
   }
 
@@ -323,7 +338,7 @@ export async function handleChatRoutes(
       return true;
     }
     const store = ctx.agentOrchestrator.getConversationStore();
-    store.renameSession(sessionId, name);
+    await store.renameSession(sessionId, name);
     json(res, { renamed: true, sessionId, name });
     return true;
   }
@@ -340,7 +355,7 @@ export async function handleChatRoutes(
       error(res, 'sessionId is required');
       return true;
     }
-    ctx.agentOrchestrator.getConversationStore().deleteSession(sessionId);
+    await ctx.agentOrchestrator.getConversationStore().deleteSession(sessionId);
     json(res, { deleted: true, sessionId });
     return true;
   }

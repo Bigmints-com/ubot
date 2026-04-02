@@ -28,38 +28,14 @@ export interface CapabilityLogEntry {
 
 let db: DatabaseConnection | null = null;
 
-/**
- * Initialize the capability logger with a database connection.
- * Called once at server startup.
- */
 export function initCapabilityLog(connection: DatabaseConnection): void {
   db = connection;
-  // Ensure table exists even if migration 002 wasn't applied
-  try {
-    db.execute(`
-      CREATE TABLE IF NOT EXISTS capability_log (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        action TEXT NOT NULL,
-        module_name TEXT,
-        triage_verdict TEXT,
-        triage_reason TEXT,
-        test_passed INTEGER,
-        test_details TEXT,
-        request TEXT,
-        session_id TEXT,
-        source TEXT DEFAULT 'web',
-        created_at TEXT NOT NULL DEFAULT (datetime('now'))
-      )
-    `, []);
-  } catch (err: any) {
-    log.warn('CapabilityLog', `Failed to ensure table: ${err.message}`);
-  }
 }
 
 /**
  * Log a capability mutation event.
  */
-export function logCapability(entry: {
+export async function logCapability(entry: {
   action: CapabilityAction;
   moduleName?: string;
   triageVerdict?: string;
@@ -69,28 +45,24 @@ export function logCapability(entry: {
   request?: string;
   sessionId?: string;
   source?: string;
-}): void {
+}): Promise<void> {
   if (!db) {
     log.warn('CapabilityLog', 'Database not initialized — skipping log');
     return;
   }
 
   try {
-    db.execute(
-      `INSERT INTO capability_log (action, module_name, triage_verdict, triage_reason, test_passed, test_details, request, session_id, source)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        entry.action,
-        entry.moduleName || null,
-        entry.triageVerdict || null,
-        entry.triageReason || null,
-        entry.testPassed !== undefined ? (entry.testPassed ? 1 : 0) : null,
-        entry.testDetails || null,
-        entry.request || null,
-        entry.sessionId || null,
-        entry.source || 'web',
-      ],
-    );
+    await db.get_client().from('ubot_capability_log').insert({
+      action: entry.action,
+      module_name: entry.moduleName || null,
+      triage_verdict: entry.triageVerdict || null,
+      triage_reason: entry.triageReason || null,
+      test_passed: entry.testPassed !== undefined ? (entry.testPassed ? 1 : 0) : null,
+      test_details: entry.testDetails || null,
+      request: entry.request || null,
+      session_id: entry.sessionId || null,
+      source: entry.source || 'web'
+    });
     log.info('CapabilityLog', `Logged: ${entry.action} ${entry.moduleName || ''} ${entry.triageVerdict || ''}`);
   } catch (err: any) {
     log.error('CapabilityLog', `Failed to log: ${err.message}`);
@@ -100,18 +72,31 @@ export function logCapability(entry: {
 /**
  * Get recent capability log entries.
  */
-export function getCapabilityLog(limit: number = 50): CapabilityLogEntry[] {
+export async function getCapabilityLog(limit: number = 50): Promise<CapabilityLogEntry[]> {
   if (!db) return [];
 
   try {
-    return db.query<CapabilityLogEntry>(
-      `SELECT id, action, module_name as moduleName, triage_verdict as triageVerdict,
-              triage_reason as triageReason, test_passed as testPassed,
-              test_details as testDetails, request, session_id as sessionId,
-              source, created_at as createdAt
-       FROM capability_log ORDER BY id DESC LIMIT ?`,
-      [limit],
-    );
+    const { data, error } = await db.get_client()
+      .from('ubot_capability_log')
+      .select('*')
+      .order('id', { ascending: false })
+      .limit(limit);
+
+    if (error || !data) return [];
+    
+    return data.map((row: any) => ({
+      id: row.id,
+      action: row.action as CapabilityAction,
+      moduleName: row.module_name,
+      triageVerdict: row.triage_verdict,
+      triageReason: row.triage_reason,
+      testPassed: row.test_passed === 1,
+      testDetails: row.test_details,
+      request: row.request,
+      sessionId: row.session_id,
+      source: row.source,
+      createdAt: row.created_at
+    }));
   } catch {
     return [];
   }

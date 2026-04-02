@@ -116,7 +116,7 @@ const followupToolModule: ToolModule = {
       }
 
       try {
-        const followUp = store.create({
+        const followUp = await store.create({
           sessionId,
           contactId,
           channel,
@@ -154,7 +154,7 @@ const followupToolModule: ToolModule = {
       if (contactId) filter.contactId = contactId;
       if (channel) filter.channel = channel;
 
-      const followups = store.list(filter);
+      const followups = await store.list(filter);
       if (followups.length === 0) {
         return { toolName: 'list_followups', success: true, result: 'No follow-ups found matching the criteria.', duration: 0 };
       }
@@ -167,7 +167,7 @@ const followupToolModule: ToolModule = {
         return `• **${f.reason}** (ID: ${f.id})${overdueBadge}\n  Contact: ${f.contactId} via ${f.channel}\n  Status: ${f.status} | Due: ${dueStr} | Priority: ${f.priority} | Attempts: ${f.attempts}/${f.maxAttempts}${f.result ? `\n  Result: ${f.result}` : ''}`;
       });
 
-      const stats = store.getStats();
+      const stats = await store.getStats();
       const summary = `📋 Follow-ups (${stats.pending} pending, ${stats.overdue} overdue, ${stats.completed} completed):\n\n${lines.join('\n\n')}`;
 
       return { toolName: 'list_followups', success: true, result: summary, duration: 0 };
@@ -184,7 +184,7 @@ const followupToolModule: ToolModule = {
       if (!followupId) return { toolName: 'complete_followup', success: false, error: 'Missing required parameter: followup_id', duration: 0 };
       if (!result) return { toolName: 'complete_followup', success: false, error: 'Missing required parameter: result (describe how this was resolved)', duration: 0 };
 
-      const completed = store.complete(followupId, result);
+      const completed = await store.complete(followupId, result);
       if (completed) {
         return { toolName: 'complete_followup', success: true, result: `Follow-up ${followupId} marked as completed: ${result}`, duration: 0 };
       }
@@ -201,7 +201,7 @@ const followupToolModule: ToolModule = {
 
       if (!followupId) return { toolName: 'cancel_followup', success: false, error: 'Missing required parameter: followup_id', duration: 0 };
 
-      const cancelled = store.cancel(followupId, reason);
+      const cancelled = await store.cancel(followupId, reason);
       if (cancelled) {
         return { toolName: 'cancel_followup', success: true, result: `Follow-up ${followupId} cancelled${reason ? ': ' + reason : ''}`, duration: 0 };
       }
@@ -216,10 +216,10 @@ const followupToolModule: ToolModule = {
       const sessionId = String(args.session_id || '');
       if (!sessionId) return { toolName: 'get_conversation_status', success: false, error: 'Missing required parameter: session_id', duration: 0 };
 
-      const pending = store.getForSession(sessionId);
+      const pending = await store.getForSession(sessionId);
       const now = new Date();
-      const overdue = pending.filter(f => f.followUpAt <= now);
-      const upcoming = pending.filter(f => f.followUpAt > now);
+      const overdue = pending.filter((f: any) => f.followUpAt <= now);
+      const upcoming = pending.filter((f: any) => f.followUpAt > now);
 
       if (pending.length === 0) {
         return {

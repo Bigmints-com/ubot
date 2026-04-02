@@ -6,3 +6,4 @@ if [ -d "$ADDON_DIR" ]; then
   [ -d "$ADDON_DIR/mac-arm64" ] && [ ! -e "$ADDON_DIR/darwin-arm64" ] && ln -sf mac-arm64 "$ADDON_DIR/darwin-arm64"
   [ -d "$ADDON_DIR/mac-x64" ] && [ ! -e "$ADDON_DIR/darwin-x64" ] && ln -sf mac-x64 "$ADDON_DIR/darwin-x64"
 fi
+exit 0

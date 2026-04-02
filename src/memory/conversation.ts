@@ -5,136 +5,141 @@
 
 import { v4 as uuidv4 } from 'uuid';
 import type { DatabaseConnection } from '../data/database/types.js';
-import type { Migration } from '../data/database/types.js';
 import type { ChatMessage, ChatRole, ChatMessageMetadata, ConversationSession } from '../engine/types.js';
 
-/** Migration for conversation tables */
-export const conversationMigrations: Migration[] = [
-  {
-    id: '005',
-    name: 'create_conversations',
-    up: `
-      CREATE TABLE IF NOT EXISTS chat_sessions (
-        id TEXT PRIMARY KEY,
-        type TEXT NOT NULL DEFAULT 'web',
-        name TEXT NOT NULL DEFAULT 'Chat',
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL
-      );
-
-      CREATE INDEX IF NOT EXISTS idx_sessions_type ON chat_sessions(type);
-      CREATE INDEX IF NOT EXISTS idx_sessions_updated ON chat_sessions(updated_at);
-
-      CREATE TABLE IF NOT EXISTS chat_messages (
-        id TEXT PRIMARY KEY,
-        session_id TEXT NOT NULL,
-        role TEXT NOT NULL,
-        content TEXT NOT NULL,
-        timestamp TEXT NOT NULL,
-        metadata TEXT,
-        FOREIGN KEY (session_id) REFERENCES chat_sessions(id) ON DELETE CASCADE
-      );
-
-      CREATE INDEX IF NOT EXISTS idx_messages_session ON chat_messages(session_id);
-      CREATE INDEX IF NOT EXISTS idx_messages_timestamp ON chat_messages(timestamp);
-    `,
-    down: `
-      DROP TABLE IF EXISTS chat_messages;
-      DROP TABLE IF EXISTS chat_sessions;
-    `,
-  },
-];
-
 export interface ConversationStore {
-  createSession(id: string, type: 'web' | 'whatsapp' | 'telegram' | 'webchat' | 'sub-agent' | 'scheduler', name?: string): ConversationSession;
-  getSession(id: string): ConversationSession | undefined;
-  getOrCreateSession(id: string, type: 'web' | 'whatsapp' | 'telegram' | 'webchat' | 'sub-agent' | 'scheduler', name?: string): ConversationSession;
-  listSessions(): ConversationSession[];
-  addMessage(sessionId: string, role: ChatRole, content: string, metadata?: ChatMessageMetadata): ChatMessage;
-  getHistory(sessionId: string, limit?: number): ChatMessage[];
-  clearSession(sessionId: string): void;
-  clearAll(): void;
-  deleteSession(sessionId: string): void;
-  renameSession(sessionId: string, name: string): void;
+  createSession(id: string, type: 'web' | 'whatsapp' | 'telegram' | 'webchat' | 'sub-agent' | 'scheduler', name?: string): Promise<ConversationSession>;
+  getSession(id: string): Promise<ConversationSession | undefined>;
+  getOrCreateSession(id: string, type: 'web' | 'whatsapp' | 'telegram' | 'webchat' | 'sub-agent' | 'scheduler', name?: string): Promise<ConversationSession>;
+  listSessions(): Promise<ConversationSession[]>;
+  addMessage(sessionId: string, role: ChatRole, content: string, metadata?: ChatMessageMetadata): Promise<ChatMessage>;
+  getHistory(sessionId: string, limit?: number): Promise<ChatMessage[]>;
+  clearSession(sessionId: string): Promise<void>;
+  clearAll(): Promise<void>;
+  deleteSession(sessionId: string): Promise<void>;
+  renameSession(sessionId: string, name: string): Promise<void>;
 }
 
 export function createConversationStore(db: DatabaseConnection): ConversationStore {
+  const getClient = () => db.get_client();
+
   return {
-    createSession(id: string, type: 'web' | 'whatsapp' | 'telegram' | 'webchat' | 'sub-agent' | 'scheduler', name?: string): ConversationSession {
+    async createSession(id: string, type: 'web' | 'whatsapp' | 'telegram' | 'webchat' | 'sub-agent' | 'scheduler', name?: string): Promise<ConversationSession> {
       const now = new Date().toISOString();
-      db.execute(
-        'INSERT INTO chat_sessions (id, type, name, created_at, updated_at) VALUES (?, ?, ?, ?, ?)',
-        [id, type, name || (type === 'web' ? 'Command Center' : id), now, now]
-      );
+      const sessionName = name || (type === 'web' ? 'Command Center' : id);
+      let ownerId: string | null = null;
+      
+      try {
+        const { data: authUsers } = await getClient().auth.admin.listUsers();
+        if (authUsers?.users?.length) {
+          ownerId = authUsers.users[0].id;
+        } else {
+          const { data: profiles } = await getClient().from('users').select('id').limit(1);
+          if (profiles?.length) ownerId = profiles[0].id;
+        }
+      } catch (e) {
+        console.error('[Supabase] owner_id resolution failed:', e);
+      }
+
+      const { error } = await getClient()
+        .from('ubot_chat_sessions')
+        .upsert({
+          id,
+          type,
+          name: sessionName,
+          owner_id: ownerId || '00000000-0000-0000-0000-000000000000',
+          created_at: now,
+          updated_at: now
+        }, { onConflict: 'id', ignoreDuplicates: true });
+
+      if (error) {
+        console.error('[Supabase] createSession Error:', error);
+        throw new Error(`Failed to create session: ${error.message}`);
+      }
+
       return {
         id,
         type,
-        name: name || (type === 'web' ? 'Command Center' : id),
+        name: sessionName,
         createdAt: new Date(now),
         updatedAt: new Date(now),
         messageCount: 0,
       };
     },
 
-    getSession(id: string): ConversationSession | undefined {
-      const row = db.queryOne<any>(
-        `SELECT s.*, COUNT(m.id) as message_count 
-         FROM chat_sessions s 
-         LEFT JOIN chat_messages m ON m.session_id = s.id 
-         WHERE s.id = ? 
-         GROUP BY s.id`,
-        [id]
-      );
-      if (!row) return undefined;
+    async getSession(id: string): Promise<ConversationSession | undefined> {
+      const { data, error } = await getClient()
+        .from('ubot_chat_sessions')
+        .select(`
+          id, type, name, created_at, updated_at,
+          ubot_chat_messages (id)
+        `)
+        .eq('id', id)
+        .single();
+        
+      if (error || !data) return undefined;
       return {
-        id: row.id,
-        type: row.type,
-        name: row.name,
-        createdAt: new Date(row.created_at),
-        updatedAt: new Date(row.updated_at),
-        messageCount: row.message_count,
+        id: data.id,
+        type: data.type as any,
+        name: data.name,
+        createdAt: new Date(data.created_at),
+        updatedAt: new Date(data.updated_at),
+        messageCount: data.ubot_chat_messages?.length || 0,
       };
     },
 
-    getOrCreateSession(id: string, type: 'web' | 'whatsapp' | 'telegram' | 'webchat' | 'sub-agent' | 'scheduler', name?: string): ConversationSession {
-      const existing = this.getSession(id);
+    async getOrCreateSession(id: string, type: 'web' | 'whatsapp' | 'telegram' | 'webchat' | 'sub-agent' | 'scheduler', name?: string): Promise<ConversationSession> {
+      const existing = await this.getSession(id);
       if (existing) return existing;
       return this.createSession(id, type, name);
     },
 
-    listSessions(): ConversationSession[] {
-      const rows = db.query<any>(
-        `SELECT s.*, COUNT(m.id) as message_count 
-         FROM chat_sessions s 
-         LEFT JOIN chat_messages m ON m.session_id = s.id 
-         GROUP BY s.id 
-         ORDER BY s.updated_at DESC`
-      );
-      return rows.map((row: any) => ({
+    async listSessions(): Promise<ConversationSession[]> {
+      const { data, error } = await getClient()
+        .from('ubot_chat_sessions')
+        .select('id, type, name, created_at, updated_at')
+        .order('updated_at', { ascending: false });
+        
+      if (error) {
+        console.error('[Supabase] listSessions Error:', error);
+        return [];
+      }
+
+      if (!data) return [];
+      
+      return data.map((row: any) => ({
         id: row.id,
         type: row.type,
         name: row.name,
         createdAt: new Date(row.created_at),
         updatedAt: new Date(row.updated_at),
-        messageCount: row.message_count,
+        messageCount: 0, // Fallback for missing relationship
       }));
     },
 
-    addMessage(sessionId: string, role: ChatRole, content: string, metadata?: ChatMessageMetadata): ChatMessage {
+    async addMessage(sessionId: string, role: ChatRole, content: string, metadata?: ChatMessageMetadata): Promise<ChatMessage> {
       const id = uuidv4();
       const now = new Date();
       const timestamp = now.toISOString();
 
-      db.execute(
-        'INSERT INTO chat_messages (id, session_id, role, content, timestamp, metadata) VALUES (?, ?, ?, ?, ?, ?)',
-        [id, sessionId, role, content, timestamp, metadata ? JSON.stringify(metadata) : null]
-      );
+      const { error } = await getClient()
+        .from('ubot_chat_messages')
+        .insert({
+          id,
+          session_id: sessionId,
+          role,
+          content,
+          timestamp,
+          metadata: metadata ? metadata : null
+        });
+
+      if (error) console.error('[Supabase] addMessage Error:', error);
 
       // Update session timestamp
-      db.execute(
-        'UPDATE chat_sessions SET updated_at = ? WHERE id = ?',
-        [timestamp, sessionId]
-      );
+      await getClient()
+        .from('ubot_chat_sessions')
+        .update({ updated_at: timestamp })
+        .eq('id', sessionId);
 
       return {
         id,
@@ -146,41 +151,54 @@ export function createConversationStore(db: DatabaseConnection): ConversationSto
       };
     },
 
-    getHistory(sessionId: string, limit = 50): ChatMessage[] {
-      const rows = db.query<any>(
-        `SELECT * FROM chat_messages 
-         WHERE session_id = ? 
-         ORDER BY timestamp DESC 
-         LIMIT ?`,
-        [sessionId, limit]
-      );
-      return rows.reverse().map((row: any) => ({
+    async getHistory(sessionId: string, limit = 50): Promise<ChatMessage[]> {
+      const { data, error } = await getClient()
+        .from('ubot_chat_messages')
+        .select('*')
+        .eq('session_id', sessionId)
+        .order('timestamp', { ascending: false })
+        .limit(limit);
+        
+      if (error || !data) return [];
+      
+      return data.reverse().map((row: any) => ({
         id: row.id,
         sessionId: row.session_id,
         role: row.role as ChatRole,
         content: row.content,
         timestamp: new Date(row.timestamp),
-        metadata: row.metadata ? JSON.parse(row.metadata) : undefined,
+        metadata: row.metadata ? (typeof row.metadata === 'string' ? JSON.parse(row.metadata) : row.metadata) : undefined,
       }));
     },
 
-    clearSession(sessionId: string): void {
-      db.execute('DELETE FROM chat_messages WHERE session_id = ?', [sessionId]);
+    async clearSession(sessionId: string): Promise<void> {
+      await getClient()
+        .from('ubot_chat_messages')
+        .delete()
+        .eq('session_id', sessionId);
     },
 
-    clearAll(): void {
-      db.execute('DELETE FROM chat_messages');
-      db.execute('DELETE FROM chat_sessions');
+    async clearAll(): Promise<void> {
+      await getClient().from('ubot_chat_messages').delete().neq('id', '0');
+      await getClient().from('ubot_chat_sessions').delete().neq('id', '0');
     },
 
-    deleteSession(sessionId: string): void {
-      db.execute('DELETE FROM chat_messages WHERE session_id = ?', [sessionId]);
-      db.execute('DELETE FROM chat_sessions WHERE id = ?', [sessionId]);
+    async deleteSession(sessionId: string): Promise<void> {
+      await getClient()
+        .from('ubot_chat_messages')
+        .delete()
+        .eq('session_id', sessionId);
+      await getClient()
+        .from('ubot_chat_sessions')
+        .delete()
+        .eq('id', sessionId);
     },
 
-    renameSession(sessionId: string, name: string): void {
-      db.execute('UPDATE chat_sessions SET name = ?, updated_at = ? WHERE id = ?',
-        [name, new Date().toISOString(), sessionId]);
+    async renameSession(sessionId: string, name: string): Promise<void> {
+      await getClient()
+        .from('ubot_chat_sessions')
+        .update({ name: name, updated_at: new Date().toISOString() })
+        .eq('id', sessionId);
     },
   };
 }

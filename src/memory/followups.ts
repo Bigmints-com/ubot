@@ -8,7 +8,6 @@
 
 import { v4 as uuidv4 } from 'uuid';
 import type { DatabaseConnection } from '../data/database/types.js';
-import type { Migration } from '../data/database/types.js';
 
 // ─── Types ────────────────────────────────────────────────
 
@@ -55,71 +54,24 @@ export interface FollowUpFilter {
   dueAfter?: Date;
 }
 
-// ─── Migration ────────────────────────────────────────────
 
-export const followUpMigrations: Migration[] = [
-  {
-    id: '010',
-    name: 'create_followups',
-    up: `
-      CREATE TABLE IF NOT EXISTS follow_ups (
-        id TEXT PRIMARY KEY,
-        session_id TEXT NOT NULL,
-        contact_id TEXT NOT NULL,
-        channel TEXT NOT NULL DEFAULT 'whatsapp',
-        reason TEXT NOT NULL,
-        context TEXT NOT NULL DEFAULT '',
-        status TEXT NOT NULL DEFAULT 'pending',
-        priority TEXT NOT NULL DEFAULT 'normal',
-        follow_up_at TEXT NOT NULL,
-        created_at TEXT NOT NULL,
-        completed_at TEXT,
-        result TEXT,
-        attempts INTEGER NOT NULL DEFAULT 0,
-        max_attempts INTEGER NOT NULL DEFAULT 3
-      );
-
-      CREATE INDEX IF NOT EXISTS idx_followups_status ON follow_ups(status);
-      CREATE INDEX IF NOT EXISTS idx_followups_due ON follow_ups(follow_up_at);
-      CREATE INDEX IF NOT EXISTS idx_followups_session ON follow_ups(session_id);
-      CREATE INDEX IF NOT EXISTS idx_followups_contact ON follow_ups(contact_id);
-    `,
-    down: `
-      DROP TABLE IF EXISTS follow_ups;
-    `,
-  },
-];
 
 // ─── Store Interface ──────────────────────────────────────
 
 export interface FollowUpStore {
-  /** Create a new follow-up */
-  create(input: FollowUpCreate): FollowUp;
-  /** Get a follow-up by ID */
-  get(id: string): FollowUp | undefined;
-  /** List follow-ups with optional filtering */
-  list(filter?: FollowUpFilter): FollowUp[];
-  /** Get all follow-ups that are due (follow_up_at <= now and status = pending) */
-  getDue(): FollowUp[];
-  /** Get pending follow-ups for a specific session */
-  getForSession(sessionId: string): FollowUp[];
-  /** Get pending follow-ups for a specific contact */
-  getForContact(contactId: string): FollowUp[];
-  /** Mark a follow-up as completed */
-  complete(id: string, result: string): boolean;
-  /** Cancel a follow-up */
-  cancel(id: string, reason?: string): boolean;
-  /** Mark a follow-up as expired */
-  expire(id: string, reason?: string): boolean;
-  /** Increment attempts and optionally reschedule */
-  recordAttempt(id: string, newFollowUpAt?: Date): boolean;
-  /** Delete a follow-up */
-  delete(id: string): boolean;
-  /** Get summary stats */
-  getStats(): { pending: number; completed: number; cancelled: number; expired: number; overdue: number };
+  create(input: FollowUpCreate): Promise<FollowUp>;
+  get(id: string): Promise<FollowUp | undefined>;
+  list(filter?: FollowUpFilter): Promise<FollowUp[]>;
+  getDue(): Promise<FollowUp[]>;
+  getForSession(sessionId: string): Promise<FollowUp[]>;
+  getForContact(contactId: string): Promise<FollowUp[]>;
+  complete(id: string, result: string): Promise<boolean>;
+  cancel(id: string, reason?: string): Promise<boolean>;
+  expire(id: string, reason?: string): Promise<boolean>;
+  recordAttempt(id: string, newFollowUpAt?: Date): Promise<boolean>;
+  delete(id: string): Promise<boolean>;
+  getStats(): Promise<{ pending: number; completed: number; cancelled: number; expired: number; overdue: number }>;
 }
-
-// ─── Implementation ───────────────────────────────────────
 
 function rowToFollowUp(row: any): FollowUp {
   return {
@@ -141,18 +93,29 @@ function rowToFollowUp(row: any): FollowUp {
 }
 
 export function createFollowUpStore(db: DatabaseConnection): FollowUpStore {
+  const getClient = () => db.get_client();
+
   return {
-    create(input: FollowUpCreate): FollowUp {
+    async create(input: FollowUpCreate): Promise<FollowUp> {
       const id = uuidv4();
       const now = new Date().toISOString();
       const priority = input.priority || 'normal';
       const maxAttempts = input.maxAttempts || 3;
 
-      db.execute(
-        `INSERT INTO follow_ups (id, session_id, contact_id, channel, reason, context, status, priority, follow_up_at, created_at, attempts, max_attempts)
-         VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, 0, ?)`,
-        [id, input.sessionId, input.contactId, input.channel, input.reason, input.context, priority, input.followUpAt.toISOString(), now, maxAttempts]
-      );
+      await getClient().from('ubot_follow_ups').insert({
+        id,
+        session_id: input.sessionId,
+        contact_id: input.contactId,
+        channel: input.channel,
+        reason: input.reason,
+        context: input.context || '',
+        status: 'pending',
+        priority,
+        follow_up_at: input.followUpAt.toISOString(),
+        created_at: now,
+        attempts: 0,
+        max_attempts: maxAttempts
+      });
 
       return {
         id,
@@ -160,7 +123,7 @@ export function createFollowUpStore(db: DatabaseConnection): FollowUpStore {
         contactId: input.contactId,
         channel: input.channel,
         reason: input.reason,
-        context: input.context,
+        context: input.context || '',
         status: 'pending',
         priority,
         followUpAt: input.followUpAt,
@@ -172,141 +135,149 @@ export function createFollowUpStore(db: DatabaseConnection): FollowUpStore {
       };
     },
 
-    get(id: string): FollowUp | undefined {
-      const row = db.queryOne<any>('SELECT * FROM follow_ups WHERE id = ?', [id]);
-      return row ? rowToFollowUp(row) : undefined;
+    async get(id: string): Promise<FollowUp | undefined> {
+      const { data, error } = await getClient().from('ubot_follow_ups').select('*').eq('id', id).single();
+      if (error || !data) return undefined;
+      return rowToFollowUp(data);
     },
 
-    list(filter?: FollowUpFilter): FollowUp[] {
-      let sql = 'SELECT * FROM follow_ups WHERE 1=1';
-      const params: any[] = [];
+    async list(filter?: FollowUpFilter): Promise<FollowUp[]> {
+      let query = getClient().from('ubot_follow_ups').select('*');
 
       if (filter?.status) {
         const statuses = Array.isArray(filter.status) ? filter.status : [filter.status];
-        sql += ` AND status IN (${statuses.map(() => '?').join(',')})`;
-        params.push(...statuses);
+        query = query.in('status', statuses);
       }
       if (filter?.sessionId) {
-        sql += ' AND session_id = ?';
-        params.push(filter.sessionId);
+        query = query.eq('session_id', filter.sessionId);
       }
       if (filter?.contactId) {
-        sql += ' AND contact_id = ?';
-        params.push(filter.contactId);
+        query = query.eq('contact_id', filter.contactId);
       }
       if (filter?.channel) {
-        sql += ' AND channel = ?';
-        params.push(filter.channel);
+        query = query.eq('channel', filter.channel);
       }
       if (filter?.priority) {
-        sql += ' AND priority = ?';
-        params.push(filter.priority);
+        query = query.eq('priority', filter.priority);
       }
       if (filter?.dueBefore) {
-        sql += ' AND follow_up_at <= ?';
-        params.push(filter.dueBefore.toISOString());
+        query = query.lte('follow_up_at', filter.dueBefore.toISOString());
       }
       if (filter?.dueAfter) {
-        sql += ' AND follow_up_at >= ?';
-        params.push(filter.dueAfter.toISOString());
+        query = query.gte('follow_up_at', filter.dueAfter.toISOString());
       }
 
-      sql += ' ORDER BY follow_up_at ASC';
-      const rows = db.query<any>(sql, params);
-      return rows.map(rowToFollowUp);
+      const { data, error } = await query.order('follow_up_at', { ascending: true });
+      if (error || !data) return [];
+      return data.map(rowToFollowUp);
     },
 
-    getDue(): FollowUp[] {
+    async getDue(): Promise<FollowUp[]> {
       const now = new Date().toISOString();
-      const rows = db.query<any>(
-        'SELECT * FROM follow_ups WHERE status = ? AND follow_up_at <= ? ORDER BY priority DESC, follow_up_at ASC',
-        ['pending', now]
-      );
-      return rows.map(rowToFollowUp);
+      const { data, error } = await getClient()
+        .from('ubot_follow_ups')
+        .select('*')
+        .eq('status', 'pending')
+        .lte('follow_up_at', now)
+        .order('priority', { ascending: false })
+        .order('follow_up_at', { ascending: true });
+      if (error || !data) return [];
+      return data.map(rowToFollowUp);
     },
 
-    getForSession(sessionId: string): FollowUp[] {
-      const rows = db.query<any>(
-        'SELECT * FROM follow_ups WHERE session_id = ? AND status = ? ORDER BY follow_up_at ASC',
-        [sessionId, 'pending']
-      );
-      return rows.map(rowToFollowUp);
+    async getForSession(sessionId: string): Promise<FollowUp[]> {
+      const { data, error } = await getClient()
+        .from('ubot_follow_ups')
+        .select('*')
+        .eq('session_id', sessionId)
+        .eq('status', 'pending')
+        .order('follow_up_at', { ascending: true });
+      if (error || !data) return [];
+      return data.map(rowToFollowUp);
     },
 
-    getForContact(contactId: string): FollowUp[] {
-      const rows = db.query<any>(
-        'SELECT * FROM follow_ups WHERE contact_id = ? AND status = ? ORDER BY follow_up_at ASC',
-        [contactId, 'pending']
-      );
-      return rows.map(rowToFollowUp);
+    async getForContact(contactId: string): Promise<FollowUp[]> {
+      const { data, error } = await getClient()
+        .from('ubot_follow_ups')
+        .select('*')
+        .eq('contact_id', contactId)
+        .eq('status', 'pending')
+        .order('follow_up_at', { ascending: true });
+      if (error || !data) return [];
+      return data.map(rowToFollowUp);
     },
 
-    complete(id: string, result: string): boolean {
+    async complete(id: string, result: string): Promise<boolean> {
       const now = new Date().toISOString();
-      db.execute(
-        'UPDATE follow_ups SET status = ?, completed_at = ?, result = ? WHERE id = ? AND status = ?',
-        ['completed', now, result, id, 'pending']
-      );
-      // Check if row was affected
-      const row = db.queryOne<any>('SELECT id FROM follow_ups WHERE id = ? AND status = ?', [id, 'completed']);
-      return !!row;
+      const { error } = await getClient()
+        .from('ubot_follow_ups')
+        .update({ status: 'completed', completed_at: now, result })
+        .eq('id', id)
+        .eq('status', 'pending');
+      return !error;
     },
 
-    cancel(id: string, reason?: string): boolean {
+    async cancel(id: string, reason?: string): Promise<boolean> {
       const now = new Date().toISOString();
-      db.execute(
-        'UPDATE follow_ups SET status = ?, completed_at = ?, result = ? WHERE id = ? AND status = ?',
-        ['cancelled', now, reason || 'Cancelled', id, 'pending']
-      );
-      const row = db.queryOne<any>('SELECT id FROM follow_ups WHERE id = ? AND status = ?', [id, 'cancelled']);
-      return !!row;
+      const { error } = await getClient()
+        .from('ubot_follow_ups')
+        .update({ status: 'cancelled', completed_at: now, result: reason || 'Cancelled' })
+        .eq('id', id)
+        .eq('status', 'pending');
+      return !error;
     },
 
-    expire(id: string, reason?: string): boolean {
+    async expire(id: string, reason?: string): Promise<boolean> {
       const now = new Date().toISOString();
-      db.execute(
-        'UPDATE follow_ups SET status = ?, completed_at = ?, result = ? WHERE id = ? AND status = ?',
-        ['expired', now, reason || 'Max attempts reached', id, 'pending']
-      );
-      const row = db.queryOne<any>('SELECT id FROM follow_ups WHERE id = ? AND status = ?', [id, 'expired']);
-      return !!row;
+      const { error } = await getClient()
+        .from('ubot_follow_ups')
+        .update({ status: 'expired', completed_at: now, result: reason || 'Max attempts reached' })
+        .eq('id', id)
+        .eq('status', 'pending');
+      return !error;
     },
 
-    recordAttempt(id: string, newFollowUpAt?: Date): boolean {
-      const followUp = this.get(id);
+    async recordAttempt(id: string, newFollowUpAt?: Date): Promise<boolean> {
+      const followUp = await this.get(id);
       if (!followUp || followUp.status !== 'pending') return false;
 
       const newAttempts = followUp.attempts + 1;
       if (newAttempts >= followUp.maxAttempts) {
-        return this.expire(id);
+        return await this.expire(id);
       }
 
+      const updates: any = { attempts: newAttempts };
       if (newFollowUpAt) {
-        db.execute(
-          'UPDATE follow_ups SET attempts = ?, follow_up_at = ? WHERE id = ?',
-          [newAttempts, newFollowUpAt.toISOString(), id]
-        );
-      } else {
-        db.execute(
-          'UPDATE follow_ups SET attempts = ? WHERE id = ?',
-          [newAttempts, id]
-        );
+        updates.follow_up_at = newFollowUpAt.toISOString();
       }
+
+      await getClient().from('ubot_follow_ups').update(updates).eq('id', id);
       return true;
     },
 
-    delete(id: string): boolean {
-      db.execute('DELETE FROM follow_ups WHERE id = ?', [id]);
-      return true;
+    async delete(id: string): Promise<boolean> {
+      const { error } = await getClient().from('ubot_follow_ups').delete().eq('id', id);
+      return !error;
     },
 
-    getStats(): { pending: number; completed: number; cancelled: number; expired: number; overdue: number } {
+    async getStats(): Promise<{ pending: number; completed: number; cancelled: number; expired: number; overdue: number }> {
       const now = new Date().toISOString();
-      const pending = db.queryOne<any>('SELECT COUNT(*) as count FROM follow_ups WHERE status = ?', ['pending'])?.count || 0;
-      const completed = db.queryOne<any>('SELECT COUNT(*) as count FROM follow_ups WHERE status = ?', ['completed'])?.count || 0;
-      const cancelled = db.queryOne<any>('SELECT COUNT(*) as count FROM follow_ups WHERE status = ?', ['cancelled'])?.count || 0;
-      const expired = db.queryOne<any>('SELECT COUNT(*) as count FROM follow_ups WHERE status = ?', ['expired'])?.count || 0;
-      const overdue = db.queryOne<any>('SELECT COUNT(*) as count FROM follow_ups WHERE status = ? AND follow_up_at <= ?', ['pending', now])?.count || 0;
+      
+      const getCount = async (status?: string, overdue?: boolean) => {
+        let q = getClient().from('ubot_follow_ups').select('*', { count: 'exact', head: true });
+        if (status) q = q.eq('status', status);
+        if (overdue) q = q.lte('follow_up_at', now);
+        const { count } = await q;
+        return count || 0;
+      };
+
+      const [pending, completed, cancelled, expired, overdue] = await Promise.all([
+        getCount('pending'),
+        getCount('completed'),
+        getCount('cancelled'),
+        getCount('expired'),
+        getCount('pending', true)
+      ]);
 
       return { pending, completed, cancelled, expired, overdue };
     },

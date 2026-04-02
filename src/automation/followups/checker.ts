@@ -50,7 +50,7 @@ export function startFollowUpChecker(deps: FollowUpCheckerDeps): () => void {
  * Process all due follow-ups.
  */
 async function processFollowUps(deps: FollowUpCheckerDeps): Promise<void> {
-  const dueFollowUps = deps.followUpStore.getDue();
+  const dueFollowUps = await deps.followUpStore.getDue();
   if (dueFollowUps.length === 0) return;
 
   console.log(`[FollowUpChecker] Found ${dueFollowUps.length} due follow-up(s)`);
@@ -63,7 +63,7 @@ async function processFollowUps(deps: FollowUpCheckerDeps): Promise<void> {
       console.error(`[FollowUpChecker] Failed to process follow-up ${followUp.id}:`, err.message);
       // Reschedule for 30 minutes later after failure
       const retryAt = new Date(Date.now() + 30 * 60 * 1000);
-      deps.followUpStore.recordAttempt(followUp.id, retryAt);
+      await deps.followUpStore.recordAttempt(followUp.id, retryAt);
     }
   }
 }
@@ -78,7 +78,7 @@ async function processOneFollowUp(followUp: FollowUp, deps: FollowUpCheckerDeps)
   const ageMs = Date.now() - new Date(followUp.createdAt).getTime();
   const maxAgeMs = 48 * 60 * 60 * 1000; // 48 hours
   if (followUp.attempts >= 3 && ageMs > maxAgeMs) {
-    deps.followUpStore.expire(followUp.id, `Auto-expired: ${followUp.attempts} attempts over ${Math.round(ageMs / 3600000)}h`);
+    await deps.followUpStore.expire(followUp.id, `Auto-expired: ${followUp.attempts} attempts over ${Math.round(ageMs / 3600000)}h`);
     console.log(`[FollowUpChecker] Auto-expired stale follow-up ${followUp.id} (${followUp.attempts} attempts, ${Math.round(ageMs / 3600000)}h old)`);
     return;
   }
@@ -95,25 +95,25 @@ async function processOneFollowUp(followUp: FollowUp, deps: FollowUpCheckerDeps)
     // Check if the agent determined the follow-up should be sent
     if (response.toLowerCase().includes('[no_action_needed]')) {
       // Agent decided no follow-up is needed — mark as completed
-      deps.followUpStore.complete(followUp.id, 'Agent determined no follow-up needed: ' + response.slice(0, 200));
+      await deps.followUpStore.complete(followUp.id, 'Agent determined no follow-up needed: ' + response.slice(0, 200));
       console.log(`[FollowUpChecker] Follow-up ${followUp.id} — no action needed`);
     } else if (response.toLowerCase().includes('[reschedule]')) {
       // Agent wants to reschedule — push back by an hour
       const nextAt = new Date(Date.now() + 60 * 60 * 1000);
-      deps.followUpStore.recordAttempt(followUp.id, nextAt);
+      await deps.followUpStore.recordAttempt(followUp.id, nextAt);
       console.log(`[FollowUpChecker] Follow-up ${followUp.id} rescheduled to ${nextAt.toISOString()}`);
     } else {
       // Agent produced a follow-up message — record attempt
       // The agent should have used send_message tool to actually send the message
       // We just track the attempt
-      const hasMoreAttempts = deps.followUpStore.recordAttempt(followUp.id);
+      const hasMoreAttempts = await deps.followUpStore.recordAttempt(followUp.id);
       if (!hasMoreAttempts) {
         console.log(`[FollowUpChecker] Follow-up ${followUp.id} expired after ${followUp.maxAttempts} attempts`);
       } else {
         // Reschedule for next check based on priority
         const delayMs = getRetryDelay(followUp);
         const nextAt = new Date(Date.now() + delayMs);
-        deps.followUpStore.recordAttempt(followUp.id, nextAt);
+        await deps.followUpStore.recordAttempt(followUp.id, nextAt);
         console.log(`[FollowUpChecker] Follow-up ${followUp.id} attempt recorded, next check at ${nextAt.toISOString()}`);
       }
     }
@@ -121,7 +121,7 @@ async function processOneFollowUp(followUp: FollowUp, deps: FollowUpCheckerDeps)
     console.error(`[FollowUpChecker] Agent session failed for follow-up ${followUp.id}:`, err.message);
     // Reschedule
     const retryAt = new Date(Date.now() + 30 * 60 * 1000);
-    deps.followUpStore.recordAttempt(followUp.id, retryAt);
+    await deps.followUpStore.recordAttempt(followUp.id, retryAt);
   }
 }
 

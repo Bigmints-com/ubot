@@ -157,12 +157,12 @@ export async function handleWebchatRoutes(
     const sessionId = `webchat:${session}`;
     const limit = parseInt(urlObj.searchParams.get('limit') || '50', 10);
     const store = ctx.agentOrchestrator.getConversationStore();
-    const messages = store.getHistory(sessionId, limit);
+    const messages = await store.getHistory(sessionId, limit);
 
     // Filter to only return user and assistant messages (not system/tool)
     const filtered = messages
-      .filter(m => m.role === 'user' || m.role === 'assistant')
-      .map(m => ({
+      .filter((m: any) => m.role === 'user' || m.role === 'assistant')
+      .map((m: any) => ({
         role: m.role,
         content: m.content,
         timestamp: m.timestamp,

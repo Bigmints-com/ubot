@@ -7,7 +7,6 @@
 
 import { v4 as uuidv4 } from 'uuid';
 import type { DatabaseConnection } from '../data/database/types.js';
-import type { Migration } from '../data/database/types.js';
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -26,51 +25,6 @@ export interface MemoryEntry {
   createdAt: Date;
   updatedAt: Date;
 }
-
-/* ------------------------------------------------------------------ */
-/*  Migration                                                          */
-/* ------------------------------------------------------------------ */
-
-export const memoryMigrations: Migration[] = [
-  {
-    id: '003',
-    name: 'create_memories',
-    up: `
-      CREATE TABLE IF NOT EXISTS agent_memories (
-        id TEXT PRIMARY KEY,
-        contact_id TEXT NOT NULL,
-        category TEXT NOT NULL DEFAULT 'fact',
-        key TEXT NOT NULL,
-        value TEXT NOT NULL,
-        source TEXT NOT NULL DEFAULT 'extracted',
-        confidence REAL NOT NULL DEFAULT 0.8,
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL
-      );
-
-      CREATE INDEX IF NOT EXISTS idx_memories_contact ON agent_memories(contact_id);
-      CREATE INDEX IF NOT EXISTS idx_memories_category ON agent_memories(contact_id, category);
-      CREATE UNIQUE INDEX IF NOT EXISTS idx_memories_unique ON agent_memories(contact_id, category, key);
-    `,
-    down: `
-      DROP TABLE IF EXISTS agent_memories;
-    `,
-  },
-  {
-    id: '004',
-    name: 'create_soul_documents',
-    up: `
-      CREATE TABLE IF NOT EXISTS soul_documents (
-        persona_id TEXT PRIMARY KEY,
-        content TEXT NOT NULL,
-        updated_at TEXT NOT NULL
-      );
-    `,
-    down: `
-      DROP TABLE IF EXISTS soul_documents;
-    `,
-  },
-];
 
 /* ------------------------------------------------------------------ */
 /*  Soul Document Types                                                */
@@ -113,58 +67,47 @@ function rowToMemory(row: MemoryRow): MemoryEntry {
 }
 
 export interface MemoryStore {
-  /** Upsert a fact — if same contact+category+key exists, update value */
-  saveMemory(contactId: string, category: MemoryCategory, key: string, value: string, source?: string, confidence?: number): MemoryEntry;
+  saveMemory(contactId: string, category: MemoryCategory, key: string, value: string, source?: string, confidence?: number): Promise<MemoryEntry>;
+  getMemories(contactId: string, category?: MemoryCategory): Promise<MemoryEntry[]>;
+  getAllMemories(): Promise<MemoryEntry[]>;
+  searchMemories(query: string): Promise<MemoryEntry[]>;
+  deleteMemory(id: string): Promise<boolean>;
+  clearContactMemories(contactId: string): Promise<void>;
+  formatForPrompt(contactId: string): Promise<string>;
 
-  /** Get all memories for a contact, optionally filtered by category */
-  getMemories(contactId: string, category?: MemoryCategory): MemoryEntry[];
-
-  /** Get all memories across all contacts */
-  getAllMemories(): MemoryEntry[];
-
-  /** Search memories by value text (LIKE query) */
-  searchMemories(query: string): MemoryEntry[];
-
-  /** Delete a specific memory */
-  deleteMemory(id: string): boolean;
-
-  /** Delete all memories for a contact */
-  clearContactMemories(contactId: string): void;
-
-  /** Format a contact's memories as a readable string for injection into prompts */
-  formatForPrompt(contactId: string): string;
-
-  /* ---- Soul Documents ---- */
-
-  /** Get a soul document for a persona */
-  getDocument(personaId: string): SoulDocument | null;
-
-  /** Save or update a soul document */
-  saveDocument(personaId: string, content: string): SoulDocument;
-
-  /** Delete a soul document */
-  deleteDocument(personaId: string): boolean;
-
-  /** List all soul documents */
-  listDocuments(): SoulDocument[];
+  getDocument(personaId: string): Promise<SoulDocument | null>;
+  saveDocument(personaId: string, content: string): Promise<SoulDocument>;
+  deleteDocument(personaId: string): Promise<boolean>;
+  listDocuments(): Promise<SoulDocument[]>;
 }
 
 export function createMemoryStore(db: DatabaseConnection): MemoryStore {
+  const getClient = () => db.get_client();
+
   return {
-    saveMemory(contactId, category, key, value, source = 'extracted', confidence = 0.8): MemoryEntry {
+    async saveMemory(contactId, category, key, value, source = 'extracted', confidence = 0.8): Promise<MemoryEntry> {
       const now = new Date().toISOString();
 
-      // Try to upsert — if contact+category+key exists, update
-      const existing = db.queryOne<MemoryRow>(
-        'SELECT * FROM agent_memories WHERE contact_id = ? AND category = ? AND key = ?',
-        [contactId, category, key]
-      );
+      // Check existing memory
+      const { data: existing } = await getClient()
+        .from('ubot_memories')
+        .select('*')
+        .eq('contact_id', contactId)
+        .eq('category', category)
+        .eq('key', key)
+        .single();
 
       if (existing) {
-        db.execute(
-          'UPDATE agent_memories SET value = ?, source = ?, confidence = ?, updated_at = ? WHERE id = ?',
-          [value, source, confidence, now, existing.id]
-        );
+        await getClient()
+          .from('ubot_memories')
+          .update({
+            value,
+            source,
+            confidence,
+            updated_at: now
+          })
+          .eq('id', existing.id);
+          
         console.log(`[Memory] Updated: ${contactId} → ${category}/${key} = "${value}"`);
         return {
           ...rowToMemory(existing),
@@ -176,11 +119,17 @@ export function createMemoryStore(db: DatabaseConnection): MemoryStore {
       }
 
       const id = uuidv4();
-      db.execute(
-        `INSERT INTO agent_memories (id, contact_id, category, key, value, source, confidence, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [id, contactId, category, key, value, source, confidence, now, now]
-      );
+      await getClient().from('ubot_memories').insert({
+        id,
+        contact_id: contactId,
+        category,
+        key,
+        value,
+        source,
+        confidence,
+        created_at: now,
+        updated_at: now
+      });
 
       console.log(`[Memory] Saved: ${contactId} → ${category}/${key} = "${value}"`);
       return {
@@ -196,47 +145,45 @@ export function createMemoryStore(db: DatabaseConnection): MemoryStore {
       };
     },
 
-    getMemories(contactId, category?): MemoryEntry[] {
+    async getMemories(contactId, category?): Promise<MemoryEntry[]> {
+      let query = getClient().from('ubot_memories').select('*').eq('contact_id', contactId);
+      
       if (category) {
-        const rows = db.query<MemoryRow>(
-          'SELECT * FROM agent_memories WHERE contact_id = ? AND category = ? ORDER BY updated_at DESC',
-          [contactId, category]
-        );
-        return rows.map(rowToMemory);
+        query = query.eq('category', category);
       }
-      const rows = db.query<MemoryRow>(
-        'SELECT * FROM agent_memories WHERE contact_id = ? ORDER BY category, updated_at DESC',
-        [contactId]
-      );
-      return rows.map(rowToMemory);
+      
+      const { data, error } = await query.order('updated_at', { ascending: false });
+      if (error || !data) return [];
+      return data.map(rowToMemory);
     },
 
-    getAllMemories(): MemoryEntry[] {
-      const rows = db.query<MemoryRow>(
-        'SELECT * FROM agent_memories ORDER BY updated_at DESC'
-      );
-      return rows.map(rowToMemory);
+    async getAllMemories(): Promise<MemoryEntry[]> {
+      const { data, error } = await getClient().from('ubot_memories').select('*').order('updated_at', { ascending: false });
+      if (error || !data) return [];
+      return data.map(rowToMemory);
     },
 
-    searchMemories(query): MemoryEntry[] {
-      const rows = db.query<MemoryRow>(
-        'SELECT * FROM agent_memories WHERE value LIKE ? OR key LIKE ? ORDER BY updated_at DESC',
-        [`%${query}%`, `%${query}%`]
-      );
-      return rows.map(rowToMemory);
+    async searchMemories(query): Promise<MemoryEntry[]> {
+      const { data, error } = await getClient()
+        .from('ubot_memories')
+        .select('*')
+        .or(`value.ilike.%${query}%,key.ilike.%${query}%`)
+        .order('updated_at', { ascending: false });
+      if (error || !data) return [];
+      return data.map(rowToMemory);
     },
 
-    deleteMemory(id): boolean {
-      const result = db.execute('DELETE FROM agent_memories WHERE id = ?', [id]);
-      return result.changes > 0;
+    async deleteMemory(id): Promise<boolean> {
+      const { error } = await getClient().from('ubot_memories').delete().eq('id', id);
+      return !error;
     },
 
-    clearContactMemories(contactId): void {
-      db.execute('DELETE FROM agent_memories WHERE contact_id = ?', [contactId]);
+    async clearContactMemories(contactId): Promise<void> {
+      await getClient().from('ubot_memories').delete().eq('contact_id', contactId);
     },
 
-    formatForPrompt(contactId): string {
-      const memories = this.getMemories(contactId);
+    async formatForPrompt(contactId): Promise<string> {
+      const memories = await this.getMemories(contactId);
       if (memories.length === 0) return '';
 
       const grouped = new Map<string, MemoryEntry[]>();
@@ -258,46 +205,48 @@ export function createMemoryStore(db: DatabaseConnection): MemoryStore {
 
     /* ---- Soul Documents ---- */
 
-    getDocument(personaId): SoulDocument | null {
-      const row = db.queryOne<{ persona_id: string; content: string; updated_at: string }>(
-        'SELECT * FROM soul_documents WHERE persona_id = ?',
-        [personaId]
-      );
-      if (!row) return null;
-      return { personaId: row.persona_id, content: row.content, updatedAt: new Date(row.updated_at) };
+    async getDocument(personaId): Promise<SoulDocument | null> {
+      const { data, error } = await getClient()
+        .from('ubot_soul_documents')
+        .select('*')
+        .eq('persona_id', personaId)
+        .single();
+        
+      if (error || !data) return null;
+      return { personaId: data.persona_id, content: data.content, updatedAt: new Date(data.updated_at) };
     },
 
-    saveDocument(personaId, content): SoulDocument {
+    async saveDocument(personaId, content): Promise<SoulDocument> {
       const now = new Date().toISOString();
-      const existing = db.queryOne<{ persona_id: string }>(
-        'SELECT persona_id FROM soul_documents WHERE persona_id = ?',
-        [personaId]
-      );
+      const existing = await this.getDocument(personaId);
+      
       if (existing) {
-        db.execute(
-          'UPDATE soul_documents SET content = ?, updated_at = ? WHERE persona_id = ?',
-          [content, now, personaId]
-        );
+        await getClient()
+          .from('ubot_soul_documents')
+          .update({ content, updated_at: now })
+          .eq('persona_id', personaId);
       } else {
-        db.execute(
-          'INSERT INTO soul_documents (persona_id, content, updated_at) VALUES (?, ?, ?)',
-          [personaId, content, now]
-        );
+        await getClient()
+          .from('ubot_soul_documents')
+          .insert({ persona_id: personaId, content, updated_at: now });
       }
       console.log(`[Soul] Document saved for ${personaId} (${content.length} chars)`);
       return { personaId, content, updatedAt: new Date(now) };
     },
 
-    deleteDocument(personaId): boolean {
-      const result = db.execute('DELETE FROM soul_documents WHERE persona_id = ?', [personaId]);
-      return result.changes > 0;
+    async deleteDocument(personaId): Promise<boolean> {
+      const { error } = await getClient().from('ubot_soul_documents').delete().eq('persona_id', personaId);
+      return !error;
     },
 
-    listDocuments(): SoulDocument[] {
-      const rows = db.query<{ persona_id: string; content: string; updated_at: string }>(
-        'SELECT * FROM soul_documents ORDER BY updated_at DESC'
-      );
-      return rows.map(r => ({ personaId: r.persona_id, content: r.content, updatedAt: new Date(r.updated_at) }));
+    async listDocuments(): Promise<SoulDocument[]> {
+      const { data, error } = await getClient()
+        .from('ubot_soul_documents')
+        .select('*')
+        .order('updated_at', { ascending: false });
+        
+      if (error || !data) return [];
+      return data.map((r: any) => ({ personaId: r.persona_id, content: r.content, updatedAt: new Date(r.updated_at) }));
     },
   };
 }

@@ -1,7 +1,7 @@
 import cron from 'node-cron';
-import Database from 'better-sqlite3';
 import { join } from 'path';
 import { homedir } from 'os';
+import type { DatabaseConnection } from '../../data/database/types.js';
 import type {
   Task,
   TaskCreate,
@@ -75,13 +75,12 @@ export class TaskSchedulerService {
   private totalRunTime: number = 0;
   private totalRuns: number = 0;
   private isRunning: boolean = false;
-  private db: Database.Database | null = null;
+  private db: DatabaseConnection | null = null;
   private handlerFactories: Map<string, HandlerFactory> = new Map();
 
   constructor(config: Partial<SchedulerConfig> = {}) {
     this.config = { ...DEFAULT_SCHEDULER_CONFIG, ...config };
     this.logger = this.config.logger;
-    this.initDB();
   }
 
   /** Register a handler factory for a task tag (e.g., 'scheduled_message', 'reminder', 'agent_task') */
@@ -89,167 +88,118 @@ export class TaskSchedulerService {
     this.handlerFactories.set(tag, factory);
   }
 
+  /**
+   * Set database connection.
+   */
+  setDatabase(db: DatabaseConnection): void {
+    this.db = db;
+    this.logger?.info('TaskScheduler connected to database');
+  }
+
   /** Initialize SQLite persistence */
   private initDB(): void {
-    try {
-      const ubotHome = process.env.UBOT_HOME || join(homedir(), '.ubot');
-      const dbPath = join(ubotHome, 'data', 'local', 'ubot.db');
-      this.db = new Database(dbPath);
-      this.db.exec(`
-        CREATE TABLE IF NOT EXISTS scheduled_tasks (
-          id TEXT PRIMARY KEY,
-          name TEXT NOT NULL,
-          description TEXT,
-          schedule_json TEXT NOT NULL,
-          data_json TEXT NOT NULL DEFAULT '{}',
-          priority TEXT NOT NULL DEFAULT 'normal',
-          status TEXT NOT NULL DEFAULT 'pending',
-          tags_json TEXT NOT NULL DEFAULT '[]',
-          metadata_json TEXT NOT NULL DEFAULT '{}',
-          created_at TEXT NOT NULL,
-          updated_at TEXT NOT NULL,
-          last_run_at TEXT,
-          next_run_at TEXT,
-          run_count INTEGER NOT NULL DEFAULT 0,
-          failure_count INTEGER NOT NULL DEFAULT 0,
-          enabled INTEGER NOT NULL DEFAULT 1
-        )
-      `);
-      this.logger?.info('[Scheduler] SQLite persistence initialized');
-    } catch (err: any) {
-      this.logger?.error(`[Scheduler] Failed to init DB: ${err.message}`);
-      console.error(`[Scheduler] Failed to init DB: ${err.message}`);
-    }
+    // Persistence disabled temporarily during Supabase migration
   }
 
-  /** Persist a task to SQLite */
-  private persistTask(task: Task): void {
+  /** Persist a task to database */
+  private async persistTask(task: Task): Promise<void> {
     if (!this.db) return;
     try {
-      const stmt = this.db.prepare(`
-        INSERT OR REPLACE INTO scheduled_tasks
-        (id, name, description, schedule_json, data_json, priority, status, tags_json, metadata_json,
-         created_at, updated_at, last_run_at, next_run_at, run_count, failure_count, enabled)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `);
-      stmt.run(
-        task.id,
-        task.name,
-        task.description || null,
-        JSON.stringify(task.schedule),
-        JSON.stringify(task.data),
-        task.priority,
-        task.status,
-        JSON.stringify(task.tags),
-        JSON.stringify(task.metadata),
-        task.createdAt.toISOString(),
-        task.updatedAt.toISOString(),
-        task.lastRunAt?.toISOString() || null,
-        task.nextRunAt?.toISOString() || null,
-        task.runCount,
-        task.failureCount,
-        task.enabled ? 1 : 0,
-      );
+      const client = this.db.get_client();
+      await client.from('ubot_scheduled_tasks').upsert({
+        id: task.id,
+        name: task.name,
+        description: task.description,
+        tag: task.handler, // The tag/handler ID is stored here
+        schedule: task.schedule,
+        data: typeof task.data === 'string' ? task.data : JSON.stringify(task.data),
+        priority: task.priority,
+        status: task.status,
+        tags: JSON.stringify(task.tags || []),
+        metadata: JSON.stringify(task.metadata || {}),
+        created_at: task.createdAt.toISOString(),
+        updated_at: task.updatedAt.toISOString(),
+        next_run_at: task.nextRunAt ? task.nextRunAt.toISOString() : null,
+        run_count: task.runCount,
+        failure_count: task.failureCount,
+        enabled: task.enabled ? 1 : 0
+      });
     } catch (err: any) {
-      this.logger?.error(`[Scheduler] Failed to persist task ${task.id}: ${err.message}`);
+      this.logger?.error(`Failed to persist task ${task.id}: ${err.message}`);
     }
   }
 
-  /** Remove a task from SQLite */
-  private unpersistTask(id: string): void {
+  /** Remove a task from database */
+  private async unpersistTask(id: string): Promise<void> {
     if (!this.db) return;
     try {
-      this.db.prepare('DELETE FROM scheduled_tasks WHERE id = ?').run(id);
+      const client = this.db.get_client();
+      await client.from('ubot_scheduled_tasks').delete().eq('id', id);
     } catch (err: any) {
-      this.logger?.error(`[Scheduler] Failed to delete persisted task ${id}: ${err.message}`);
+      this.logger?.error(`Failed to unpersist task ${id}: ${err.message}`);
     }
   }
 
-  /** Load persisted tasks from SQLite and re-create them with handler factories */
-  loadPersistedTasks(): number {
+  /** Load persisted tasks from database and re-create them with handler factories */
+  async loadPersistedTasks(): Promise<number> {
     if (!this.db) return 0;
     try {
-      const rows = this.db.prepare(
-        "SELECT * FROM scheduled_tasks WHERE enabled = 1 AND status IN ('pending', 'completed', 'paused')"
-      ).all() as PersistedTask[];
+      const client = this.db.get_client();
+      const { data: rows, error } = await client.from('ubot_scheduled_tasks').select('*');
+      if (error) {
+        this.logger?.error(`Failed to load persisted tasks: ${error.message}`);
+        return 0;
+      }
 
-      let loaded = 0;
+      if (!rows || rows.length === 0) return 0;
+
+      let loadedCount = 0;
       for (const row of rows) {
-        if (this.tasks.has(row.id)) continue; // already loaded
-
-        const tags: string[] = JSON.parse(row.tags_json);
-        const data = JSON.parse(row.data_json);
-        const metadata = JSON.parse(row.metadata_json);
-        const rawSchedule: TaskSchedule = JSON.parse(row.schedule_json);
-        const schedule: TaskSchedule = {
-          ...rawSchedule,
-          ...(rawSchedule.startDate ? { startDate: new Date(rawSchedule.startDate as any) } : {}),
-          ...(rawSchedule.endDate ? { endDate: new Date(rawSchedule.endDate as any) } : {}),
-        };
-
-        // Find a handler factory based on tags
-        let handler: TaskHandler | null = null;
-        for (const tag of tags) {
-          if (this.handlerFactories.has(tag)) {
-            handler = this.handlerFactories.get(tag)!(data, metadata);
-            break;
-          }
-        }
-
-        if (!handler) {
-          this.logger?.warn(`[Scheduler] No handler factory for task "${row.name}" (tags: ${tags.join(',')}), skipping`);
+        const handlerTag = row.tag;
+        const factory = this.handlerFactories.get(handlerTag);
+        
+        if (!factory) {
+          this.logger?.warn(`No handler factory registered for tag '${handlerTag}'. Task ${row.id} will not be loaded.`);
           continue;
         }
 
-        // Recalculate nextRunAt for recurring tasks
-        let nextRunAt = row.next_run_at ? new Date(row.next_run_at) : undefined;
-        if (nextRunAt && nextRunAt.getTime() < Date.now() && schedule.recurrence !== 'once') {
-          nextRunAt = calculateNextRun(schedule) ?? undefined;
-        }
-        // Skip one-time tasks that are already past
-        if (schedule.recurrence === 'once' && nextRunAt && nextRunAt.getTime() < Date.now()) {
-          continue;
-        }
+        try {
+          const taskData = typeof row.data === 'string' ? JSON.parse(row.data) : (row.data || {});
+          const taskMetadata = typeof row.metadata === 'string' ? JSON.parse(row.metadata) : (row.metadata || {});
+          const handler = factory(taskData, taskMetadata);
+          const task: Task = {
+            id: row.id,
+            name: row.name,
+            description: row.description,
+            handler: handlerTag as any,
+            schedule: row.schedule,
+            data: typeof row.data === 'string' ? JSON.parse(row.data) : row.data,
+            priority: row.priority as any,
+            status: row.status as any,
+            tags: typeof row.tags === 'string' ? JSON.parse(row.tags) : row.tags,
+            metadata: typeof row.metadata === 'string' ? JSON.parse(row.metadata) : row.metadata,
+            createdAt: new Date(row.created_at),
+            updatedAt: new Date(row.updated_at),
+            nextRunAt: row.next_run_at ? new Date(row.next_run_at) : undefined,
+            runCount: row.run_count,
+            failureCount: row.failure_count,
+            enabled: row.enabled === 1 || row.enabled === true
+          } as unknown as Task;
 
-        const task: Task = {
-          id: row.id,
-          name: row.name,
-          description: row.description || undefined,
-          handler,
-          schedule,
-          data,
-          priority: row.priority as any,
-          status: 'pending',
-          tags,
-          metadata,
-          createdAt: new Date(row.created_at),
-          updatedAt: new Date(row.updated_at),
-          lastRunAt: row.last_run_at ? new Date(row.last_run_at) : undefined,
-          nextRunAt,
-          runCount: row.run_count,
-          failureCount: row.failure_count,
-          enabled: true,
-        };
+          // Override handler function implementation
+          (task as any).handler = handler;
 
-        this.tasks.set(task.id, task);
-        loaded++;
-        this.logger?.info(`[Scheduler] Restored task: ${task.name} (${task.id}) → next: ${nextRunAt?.toLocaleString() || 'N/A'}`);
-
-        // Schedule the task if the scheduler is already running
-        if (this.isRunning && task.enabled) {
-          this.scheduleTask(task).catch(err =>
-            this.logger?.error(`[Scheduler] Failed to schedule restored task ${task.id}: ${err.message}`)
-          );
+          this.tasks.set(task.id, task);
+          loadedCount++;
+        } catch (err: any) {
+          this.logger?.error(`Failed to reconstruct task ${row.id}: ${err.message}`);
         }
       }
 
-      if (loaded > 0) {
-        console.log(`[Scheduler] Restored ${loaded} persisted task(s) from database`);
-      }
-      return loaded;
+      this.logger?.info(`Loaded ${loadedCount} persisted tasks from database`);
+      return loadedCount;
     } catch (err: any) {
-      this.logger?.error(`[Scheduler] Failed to load persisted tasks: ${err.message}`);
-      console.error(`[Scheduler] Failed to load persisted tasks: ${err.message}`);
+      this.logger?.error(`Failed to load persisted tasks: ${err.message}`);
       return 0;
     }
   }

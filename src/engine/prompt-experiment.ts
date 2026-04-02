@@ -42,70 +42,36 @@ export class PromptExperimentManager {
 
   constructor(db?: DatabaseConnection) {
     this.db = db;
-    if (db) {
-      this.initTables();
-    }
   }
 
-  private initTables() {
+  async createExperiment(ex: Omit<PromptExperiment, 'createdAt'>): Promise<void> {
     if (!this.db) return;
     try {
-      this.db.execute(`
-        CREATE TABLE IF NOT EXISTS prompt_experiments (
-          id TEXT PRIMARY KEY,
-          name TEXT NOT NULL,
-          description TEXT,
-          variants_json TEXT NOT NULL,
-          traffic_split_json TEXT NOT NULL,
-          active INTEGER DEFAULT 1,
-          created_at TEXT NOT NULL
-        )
-      `);
-
-      this.db.execute(`
-        CREATE TABLE IF NOT EXISTS experiment_results (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          experiment_id TEXT NOT NULL,
-          variant_id TEXT NOT NULL,
-          session_id TEXT NOT NULL,
-          tool_calls INTEGER DEFAULT 0,
-          tool_successes INTEGER DEFAULT 0,
-          tool_failures INTEGER DEFAULT 0,
-          response_time_ms INTEGER DEFAULT 0,
-          timestamp TEXT NOT NULL,
-          FOREIGN KEY (experiment_id) REFERENCES prompt_experiments(id)
-        )
-      `);
-    } catch (err: any) {
-      log.error('ExperimentManager', `Failed to init tables: ${err.message}`);
-    }
-  }
-
-  createExperiment(ex: Omit<PromptExperiment, 'createdAt'>): void {
-    if (!this.db) return;
-    try {
-      this.db.execute(
-        'INSERT INTO prompt_experiments (id, name, description, variants_json, traffic_split_json, active, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
-        [
-          ex.id,
-          ex.name,
-          ex.description,
-          JSON.stringify(ex.variants),
-          JSON.stringify(ex.trafficSplit),
-          ex.active ? 1 : 0,
-          new Date().toISOString()
-        ]
-      );
+      await this.db.get_client().from('ubot_prompt_experiments').insert({
+        id: ex.id,
+        name: ex.name,
+        description: ex.description,
+        variants_json: JSON.stringify(ex.variants),
+        traffic_split_json: JSON.stringify(ex.trafficSplit),
+        active: ex.active ? 1 : 0,
+        created_at: new Date().toISOString()
+      });
     } catch (err: any) {
       log.error('ExperimentManager', `Failed to create experiment: ${err.message}`);
     }
   }
 
-  getActiveExperiment(): PromptExperiment | null {
+  async getActiveExperiment(): Promise<PromptExperiment | null> {
     if (!this.db) return null;
     try {
-      const row = this.db.queryOne<any>('SELECT * FROM prompt_experiments WHERE active = 1 LIMIT 1');
-      if (!row) return null;
+      const { data: row, error } = await this.db.get_client()
+        .from('ubot_prompt_experiments')
+        .select('*')
+        .eq('active', 1)
+        .limit(1)
+        .single();
+        
+      if (error || !row) return null;
 
       return {
         id: row.id,
@@ -138,51 +104,48 @@ export class PromptExperimentManager {
     return experiment.variants[0];
   }
 
-  recordResult(res: Omit<ExperimentResult, 'timestamp'>): void {
+  async recordResult(res: Omit<ExperimentResult, 'timestamp'>): Promise<void> {
     if (!this.db) return;
     try {
-      this.db.execute(
-        'INSERT INTO experiment_results (experiment_id, variant_id, session_id, tool_calls, tool_successes, tool_failures, response_time_ms, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-        [
-          res.experimentId,
-          res.variantId,
-          res.sessionId,
-          res.toolCalls,
-          res.toolSuccesses,
-          res.toolFailures,
-          res.responseTimeMs,
-          new Date().toISOString()
-        ]
-      );
+      await this.db.get_client().from('ubot_experiment_results').insert({
+        experiment_id: res.experimentId,
+        variant_id: res.variantId,
+        session_id: res.sessionId,
+        tool_calls: res.toolCalls,
+        tool_successes: res.toolSuccesses,
+        tool_failures: res.toolFailures,
+        response_time_ms: res.responseTimeMs,
+        timestamp: new Date().toISOString()
+      });
     } catch (err: any) {
       log.error('ExperimentManager', `Failed to record result: ${err.message}`);
     }
   }
 
-  deactivateExperiment(id: string): void {
+  async deactivateExperiment(id: string): Promise<void> {
     if (!this.db) return;
-    this.db.execute('UPDATE prompt_experiments SET active = 0 WHERE id = ?', [id]);
+    await this.db.get_client().from('ubot_prompt_experiments').update({ active: 0 }).eq('id', id);
   }
 
-  getResults(experimentId: string): any[] {
+  async getResults(experimentId: string): Promise<any[]> {
     if (!this.db) return [];
-    return this.db.query(`
-      SELECT 
-        variant_id, 
-        COUNT(*) as total_turns,
-        SUM(tool_calls) as total_tool_calls,
-        SUM(tool_successes) as total_successes,
-        SUM(tool_failures) as total_failures,
-        AVG(response_time_ms) as avg_response_time
-      FROM experiment_results 
-      WHERE experiment_id = ?
-      GROUP BY variant_id
-    `, [experimentId]);
+    
+    // Supabase RPC or aggregate via PostgREST may be needed, but for now we mimic with RPC or manual
+    const { data, error } = await this.db.get_client()
+      .rpc('get_experiment_results_agg', { exp_id: experimentId });
+      
+    if (error) {
+      log.error('ExperimentManager', `Failed to aggregate results: ${error.message}`);
+      return [];
+    }
+    
+    return data;
   }
 
-  getAllExperiments(): any[] {
+  async getAllExperiments(): Promise<any[]> {
     if (!this.db) return [];
-    return this.db.query('SELECT * FROM prompt_experiments ORDER BY created_at DESC');
+    const { data } = await this.db.get_client().from('ubot_prompt_experiments').select('*').order('created_at', { ascending: false });
+    return data || [];
   }
 }
 

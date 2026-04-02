@@ -10,7 +10,7 @@
  */
 
 import http from 'http';
-import { loadUbotConfig } from '../../data/config.js';
+import { activeConfigPath, loadUbotConfig } from '../../data/config.js';
 
 export interface ApiKey {
   /** The secret key value */
@@ -48,6 +48,7 @@ export function getApiKeys(): ApiKey[] {
   try {
     const config = loadUbotConfig();
     const keys: ApiKey[] = (config as any).api?.keys || [];
+    console.log(`[Auth] Loaded ${keys.length} API keys from ${activeConfigPath || 'unknown'}`);
     cachedKeys = keys;
     cacheTimestamp = now;
     return keys;

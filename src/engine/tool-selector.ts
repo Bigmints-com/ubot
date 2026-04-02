@@ -23,6 +23,7 @@ const ALWAYS_INCLUDE_MODULES = new Set([
   'web-search',     // always need web search capability (includes tavily MCP)
   'browser',        // playwright MCP — always available for browsing
   'orchestrator',   // delegate_to_agent, execute_plan — multi-agent control
+  'skills',         // run_skill — MUST be available so LLM uses pre-built workflows
 ]);
 
 /** Static one-liner descriptions per module — used in the compact catalog */

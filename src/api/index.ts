@@ -1054,6 +1054,9 @@ export function initializeApi(
     }
   }
   scheduler = createTaskScheduler();
+  if (coreDb) {
+    scheduler.setDatabase(coreDb);
+  }
   scheduler.start().catch(err => console.error('[Scheduler] Failed to start:', err));
 
   // Bridge scheduler events to the skill engine's EventBus

@@ -79,7 +79,7 @@ const vaultToolModule: ToolModule = {
       return;
     }
 
-    const vault = getVaultService(workspaceProvider);
+    const vault = getVaultService(workspaceProvider || undefined);
     const safety = getSafetyService();
 
     // ─── vault_store ─────────────────────────────────────────────────────

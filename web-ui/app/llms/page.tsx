@@ -505,7 +505,7 @@ export default function ModelsPage() {
               <CardContent className="p-4">
                 <p className="text-xs text-muted-foreground">Total Calls</p>
                 <p className="text-xl font-bold">
-                  {Object.values(usage.byPurpose as Record<string, { calls: number }>).reduce((s, p) => s + p.calls, 0).toLocaleString()}
+                  {Object.values((usage.byPurpose || {}) as Record<string, { calls: number }>).reduce((s, p) => s + p.calls, 0).toLocaleString()}
                 </p>
               </CardContent>
             </Card>
