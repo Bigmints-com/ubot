@@ -63,7 +63,8 @@ if (resolvedAuth.mode === 'local' && !resolvedAuth.password) {
   console.log(`[Auth] SSO mode — provider: ${resolvedAuth.provider ?? 'extension'}, auth_url: ${resolvedAuth.auth_url ?? 'n/a'}`);
 }
 
-const PORT = ubotConfig.server?.port ?? 11490;
+const envPort = process.env.PORT ? parseInt(process.env.PORT, 10) : undefined;
+const PORT = envPort || ubotConfig.server?.port || 11490;
 
 // In-memory application state
 interface AppState {
