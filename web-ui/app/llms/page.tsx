@@ -56,8 +56,8 @@ const DEFAULT_PROVIDER_MODELS: Record<string, Record<string, string>> = {
     tts: 'tts-1',
   },
   openrouter: {
-    chat: 'google/gemini-2.0-flash-001', router: 'google/gemini-2.0-flash-lite-001',
-    extraction: 'google/gemini-2.0-flash-lite-001', generation: 'google/gemini-2.0-flash-001',
+    chat: 'qwen/qwen3.6-plus:free', router: 'qwen/qwen3.6-plus:free',
+    extraction: 'qwen/qwen3.6-plus:free', generation: 'meta-llama/llama-3.3-70b-instruct:free',
     image_generation: 'openai/dall-e-3', transcription: 'openai/whisper-1',
     tts: 'openai/tts-1',
   },
