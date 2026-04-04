@@ -40,6 +40,8 @@ import { createTaskPlan, getExecutionOrder, type TaskPlan, type TaskStep } from 
 import { saveTaskPlan, updateStepStatus, updatePlanStatus, getTaskPlan } from './plan-store.js';
 import { getPromptExperiments } from './prompt-experiment.js';
 import { getHooks } from '../hooks/extensions.js';
+import { messageBus, type MessageBus } from './message-bus.js';
+import { blackboard, type Blackboard } from './blackboard.js';
 
 /**
  * Find recent outbound messages sent TO a specific contact by the owner.
@@ -141,6 +143,10 @@ export interface AgentOrchestrator {
   resumeActivePlans(): Promise<void>;
   /** Inject skill engine after initialization (needed because agent is created before skillEngine) */
   setSkillEngine(engine: SkillEngine): void;
+  /** Get the Agent Message Bus for internal A2A communication */
+  getMessageBus(): MessageBus;
+  /** Get the Blackboard for shared agent memory */
+  getBlackboard(): Blackboard;
 }
 
 export function createAgentOrchestrator(
@@ -244,6 +250,47 @@ export function createAgentOrchestrator(
     } else {
       return { toolName: 'delegate_to_agent', success: false, error: `Agent '${agentDef.name}' failed: ${result.error}`, duration: 0 };
     }
+  });
+
+  toolRegistry.register('broadcast_message', async (args, context) => {
+    const topic = String(args.topic || '');
+    const payload = args.payload;
+    const targetAgentId = args.targetAgentId ? String(args.targetAgentId) : undefined;
+    const sourceAgent = sessionAgents.get(context?.sessionId || '') || 'main';
+
+    if (!topic) return { toolName: 'broadcast_message', success: false, error: 'topic is required', duration: 0 };
+    if (payload === undefined) return { toolName: 'broadcast_message', success: false, error: 'payload is required', duration: 0 };
+
+    messageBus.publish(sourceAgent, topic, payload, targetAgentId);
+    
+    const targetMsg = targetAgentId ? `to ${targetAgentId}` : 'to all agents';
+    return { toolName: 'broadcast_message', success: true, result: `Successfully broadcast message on topic '${topic}' ${targetMsg}.`, duration: 0 };
+  });
+
+  toolRegistry.register('blackboard_write', async (args, context) => {
+    const key = String(args.key || '');
+    const value = args.value;
+    const ttlSeconds = args.ttlSeconds ? Number(args.ttlSeconds) : undefined;
+    const author = sessionAgents.get(context?.sessionId || '') || 'main';
+
+    if (!key) return { toolName: 'blackboard_write', success: false, error: 'key is required', duration: 0 };
+    if (value === undefined) return { toolName: 'blackboard_write', success: false, error: 'value is required', duration: 0 };
+
+    blackboard.write(key, value, author, ttlSeconds);
+    return { toolName: 'blackboard_write', success: true, result: `Successfully wrote '${key}' to blackboard.`, duration: 0 };
+  });
+
+  toolRegistry.register('blackboard_read', async (args) => {
+    const key = String(args.key || '');
+    if (!key) return { toolName: 'blackboard_read', success: false, error: 'key is required', duration: 0 };
+
+    const value = blackboard.read(key);
+    if (value === undefined) {
+      return { toolName: 'blackboard_read', success: false, error: `Key '${key}' not found or expired on blackboard.`, duration: 0 };
+    }
+    
+    let resultStr = typeof value === 'string' ? value : JSON.stringify(value, null, 2);
+    return { toolName: 'blackboard_read', success: true, result: resultStr, duration: 0 };
   });
 
   async function runPlan(plan: TaskPlan, context: any): Promise<string> {
@@ -1781,6 +1828,14 @@ REQUIREMENTS:
       skillEngine = engine;
       log.info('Agent', `SkillEngine injected (${engine.getSkills().length} skills available)`);
     },
+
+    getMessageBus(): MessageBus {
+      return messageBus;
+    },
+
+    getBlackboard(): Blackboard {
+      return blackboard;
+    }
   });
 
   return orchestrator;

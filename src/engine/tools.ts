@@ -40,6 +40,31 @@ export const CORE_ORCHESTRATOR_TOOLS: ToolDefinition[] = [
       { name: 'request', type: 'string', description: 'The complex multi-step request to execute.', required: true },
     ],
   },
+  {
+    name: 'broadcast_message',
+    description: 'Send a message to another agent via the internal message bus.',
+    parameters: [
+      { name: 'topic', type: 'string', description: 'The topic or subject of the message.', required: true },
+      { name: 'payload', type: 'string', description: 'The message content (JSON string or text).', required: true },
+      { name: 'targetAgentId', type: 'string', description: 'The specific target agent ID. Leave empty to broadcast to all.', required: false },
+    ],
+  },
+  {
+    name: 'blackboard_write',
+    description: 'Write shared data to the blackboard so other agents can read it later.',
+    parameters: [
+      { name: 'key', type: 'string', description: 'A unique key for the data.', required: true },
+      { name: 'value', type: 'string', description: 'The data to store (JSON string or text).', required: true },
+      { name: 'ttlSeconds', type: 'number', description: 'Optional time-to-live in seconds before the data expires.', required: false },
+    ],
+  },
+  {
+    name: 'blackboard_read',
+    description: 'Read shared data from the blackboard.',
+    parameters: [
+      { name: 'key', type: 'string', description: 'The key to look up.', required: true },
+    ],
+  },
 ];
 
 /** All available tool definitions — dynamically loaded from auto-discovered modules */
