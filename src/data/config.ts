@@ -283,7 +283,12 @@ export interface ResolvedAuth {
  */
 export function resolveAuthConfig(config: UbotConfig): ResolvedAuth {
   const auth = config.server?.auth;
-  const mode: AuthMode = auth?.mode ?? 'local';
+  let mode: AuthMode = auth?.mode ?? 'local';
+
+  // Force SSO mode when running as the SaaS platform
+  if (process.env.UBOT_MODE === 'cloud-saas') {
+    mode = 'sso';
+  }
 
   return {
     mode,
@@ -292,7 +297,7 @@ export function resolveAuthConfig(config: UbotConfig): ResolvedAuth {
     password: auth?.password ?? config.server?.access_password,
     // SSO
     provider: auth?.provider,
-    auth_url: auth?.auth_url,
+    auth_url: process.env.SSO_AUTH_URL || process.env.NEXT_PUBLIC_SSO_AUTH_URL || auth?.auth_url,
     cookie_name: auth?.cookie_name ?? 'session',
   };
 }

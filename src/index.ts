@@ -113,7 +113,7 @@ const WORKSPACE_PATH = configWsPath
     ? path.join(UBOT_HOME, 'workspace') 
     : path.join(process.cwd(), 'workspace');
 
-// Create workspace provider — hooks can override this (e.g. GCS for cloud deployments)
+// Create workspace provider — hooks can override this (e.g. GCS for cloud-shared)
 let workspace: WorkspaceProvider = new LocalWorkspaceProvider(WORKSPACE_PATH);
 const wsHook = getHooks().workspace;
 if (wsHook) {

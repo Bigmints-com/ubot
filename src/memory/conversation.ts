@@ -97,7 +97,10 @@ export function createConversationStore(db: DatabaseConnection): ConversationSto
     async listSessions(): Promise<ConversationSession[]> {
       const { data, error } = await getClient()
         .from('ubot_chat_sessions')
-        .select('id, type, name, created_at, updated_at')
+        .select(`
+          id, type, name, created_at, updated_at,
+          ubot_chat_messages (id)
+        `)
         .order('updated_at', { ascending: false });
         
       if (error) {
@@ -113,7 +116,7 @@ export function createConversationStore(db: DatabaseConnection): ConversationSto
         name: row.name,
         createdAt: new Date(row.created_at),
         updatedAt: new Date(row.updated_at),
-        messageCount: 0, // Fallback for missing relationship
+        messageCount: row.ubot_chat_messages?.length || 0,
       }));
     },
 
