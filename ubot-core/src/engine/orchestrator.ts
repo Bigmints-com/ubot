@@ -42,6 +42,8 @@ import { getPromptExperiments } from './prompt-experiment.js';
 import { getHooks } from '../hooks/extensions.js';
 import { messageBus, type MessageBus } from './message-bus.js';
 import { blackboard, type Blackboard } from './blackboard.js';
+import { VectorStore } from './vector-store.js';
+import { EmbeddingPipeline } from './embeddings.js';
 
 /**
  * Find recent outbound messages sent TO a specific contact by the owner.
@@ -147,6 +149,8 @@ export interface AgentOrchestrator {
   getMessageBus(): MessageBus;
   /** Get the Blackboard for shared agent memory */
   getBlackboard(): Blackboard;
+  /** Get the Vector Store */
+  getVectorStore(): VectorStore | undefined;
 }
 
 export function createAgentOrchestrator(
@@ -186,6 +190,13 @@ export function createAgentOrchestrator(
   const toolRegistry = createToolRegistry();
   const continuationCount = new Map<string, number>();
   
+  // Initialize Vector Store if DB is attached
+  let vectorStore: VectorStore | undefined;
+  if (db) {
+    vectorStore = new VectorStore(db);
+    log.info('System', 'VectorStore initialized with Supabase pgvector backend');
+  }
+
   // Forward-declare orchestrator for tool closure capture
   const orchestrator = {} as AgentOrchestrator;
   
@@ -291,6 +302,49 @@ export function createAgentOrchestrator(
     
     let resultStr = typeof value === 'string' ? value : JSON.stringify(value, null, 2);
     return { toolName: 'blackboard_read', success: true, result: resultStr, duration: 0 };
+  });
+
+  toolRegistry.register('store_insight', async (args, context) => {
+    if (!vectorStore) return { toolName: 'store_insight', success: false, error: 'VectorStore is not configured (requires Supabase)', duration: 0 };
+    
+    const insight = String(args.insight || '');
+    const sessionId = context?.sessionId || 'default';
+    const agentId = sessionAgents.get(sessionId) || 'main';
+
+    if (!insight) return { toolName: 'store_insight', success: false, error: 'insight is required', duration: 0 };
+
+    try {
+      const { client, model } = await getClientForPurpose('embedding');
+      const embedding = await EmbeddingPipeline.generateEmbedding(client, model, insight);
+      await vectorStore.storeMemory(sessionId, agentId, insight, embedding);
+      return { toolName: 'store_insight', success: true, result: `Insight successfully recorded to long-term memory.`, duration: 0 };
+    } catch (err: any) {
+      return { toolName: 'store_insight', success: false, error: `Failed to store insight: ${err.message}`, duration: 0 };
+    }
+  });
+
+  toolRegistry.register('recall_memory', async (args, context) => {
+    if (!vectorStore) return { toolName: 'recall_memory', success: false, error: 'VectorStore is not configured (requires Supabase)', duration: 0 };
+
+    const query = String(args.query || '');
+    const sessionId = context?.sessionId || 'default';
+
+    if (!query) return { toolName: 'recall_memory', success: false, error: 'query is required', duration: 0 };
+
+    try {
+      const { client, model } = await getClientForPurpose('embedding');
+      const embedding = await EmbeddingPipeline.generateEmbedding(client, model, query);
+      const matches = await vectorStore.findSimilar(embedding, 0.70, 5, sessionId);
+      
+      if (matches.length === 0) {
+        return { toolName: 'recall_memory', success: true, result: 'No relevant memories found.', duration: 0 };
+      }
+
+      const formatted = matches.map(m => `- [Agent: ${m.agentId}]: ${m.content} (similarity: ${m.similarity.toFixed(2)})`).join('\n');
+      return { toolName: 'recall_memory', success: true, result: `Found ${matches.length} matching memories:\n${formatted}`, duration: 0 };
+    } catch (err: any) {
+      return { toolName: 'recall_memory', success: false, error: `Search failed: ${err.message}`, duration: 0 };
+    }
   });
 
   async function runPlan(plan: TaskPlan, context: any): Promise<string> {
@@ -1835,6 +1889,10 @@ REQUIREMENTS:
 
     getBlackboard(): Blackboard {
       return blackboard;
+    },
+
+    getVectorStore(): VectorStore | undefined {
+      return vectorStore;
     }
   });
 
