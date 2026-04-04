@@ -2,7 +2,17 @@
 
 > Personal AI assistant platform — manages messaging, automation, and contacts
 > across WhatsApp, Telegram, iMessage, and web.
-> Last updated: 2026-03-01
+> Last updated: 2026-04-04
+
+## ⛔ THIS IS THE PRIMARY REPOSITORY — ALL CHANGES GO HERE
+
+**This repo is the single source of truth for ALL UBOT code.**
+
+SaveADay (`saveaday/apps/ubot/`) is a downstream mirror synced via git subtree.
+- ALL core changes (engine, UI, tools, channels, API) MUST be made HERE
+- SaveADay syncs FROM here using `/sync-ubot-upstream`
+- ALL behavioral differences are driven by `config.json`, NOT code forks
+- NEVER add `if (isSaveADay)` or similar checks — use config and extension hooks
 
 ## Stack
 
