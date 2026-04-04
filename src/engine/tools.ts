@@ -65,6 +65,20 @@ export const CORE_ORCHESTRATOR_TOOLS: ToolDefinition[] = [
       { name: 'key', type: 'string', description: 'The key to look up.', required: true },
     ],
   },
+  {
+    name: 'store_insight',
+    description: 'Store an important semantic insight into long-term vector memory for your agent.',
+    parameters: [
+      { name: 'insight', type: 'string', description: 'The text content to memorize.', required: true },
+    ],
+  },
+  {
+    name: 'recall_memory',
+    description: 'Query your long-term agent memory using semantic search.',
+    parameters: [
+      { name: 'query', type: 'string', description: 'What to search for.', required: true },
+    ],
+  },
 ];
 
 /** All available tool definitions — dynamically loaded from auto-discovered modules */

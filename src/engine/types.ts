@@ -127,12 +127,13 @@ export type ModelPurpose =
   | 'generation'        // Skill generation, onboarding analysis — creative tasks
   | 'image_generation'  // Image creation (DALL-E, Imagen, etc.)
   | 'transcription'     // Audio → text (Whisper, Gemini, etc.)
-  | 'tts';              // Text → speech
+  | 'tts'               // Text → speech
+  | 'embedding';        // Text → vector (text-embedding-004, text-embedding-3-small)
 
 /** All valid purpose keys */
 export const ALL_PURPOSES: ModelPurpose[] = [
   'chat', 'router', 'extraction', 'generation',
-  'image_generation', 'transcription', 'tts',
+  'image_generation', 'transcription', 'tts', 'embedding'
 ];
 
 /**
@@ -155,6 +156,7 @@ export const DEFAULT_PROVIDER_MODELS: Record<string, Partial<Record<ModelPurpose
     image_generation: 'imagen-3.0-generate-001',  // Imagen 3 via Gemini API
     transcription:    'gemini-2.5-flash',
     tts:              'gemini-2.5-flash',
+    embedding:        'text-embedding-004',
   },
   vertex: {
     chat:             'google/gemini-2.5-flash',
@@ -164,6 +166,7 @@ export const DEFAULT_PROVIDER_MODELS: Record<string, Partial<Record<ModelPurpose
     image_generation: 'google/imagen-3.0-generate-001',
     transcription:    'google/gemini-2.5-flash',
     tts:              'google/gemini-2.5-flash',
+    embedding:        'text-embedding-004',
   },
   openai: {
     chat:             'gpt-4.1',             // Latest flagship (Mar 2026)
@@ -173,6 +176,7 @@ export const DEFAULT_PROVIDER_MODELS: Record<string, Partial<Record<ModelPurpose
     image_generation: 'dall-e-3',            // Still best DALL-E on API
     transcription:    'whisper-1',           // No newer API equivalent yet
     tts:              'tts-1-hd',            // Better quality than tts-1
+    embedding:        'text-embedding-3-small',
   },
   openrouter: {
     chat:             'qwen/qwen3.6-plus:free',                  // Free, 1M context, tool-calling
@@ -182,6 +186,7 @@ export const DEFAULT_PROVIDER_MODELS: Record<string, Partial<Record<ModelPurpose
     image_generation: 'openai/dall-e-3',                         // No free alternative
     transcription:    'openai/whisper-1',                        // No free alternative
     tts:              'openai/tts-1-hd',                         // No free alternative
+    embedding:        'jinaai/jina-embeddings-v2-base-en',       // Good open source embedding via openrouter
   },
   ollama: {
     chat:             'qwen3.5:9b',      // Best local model (Dec 2024, 7B equiv quality)
@@ -190,6 +195,7 @@ export const DEFAULT_PROVIDER_MODELS: Record<string, Partial<Record<ModelPurpose
     generation:       'qwen3.5:9b',
     transcription:    'qwen3.5:9b',
     tts:              'qwen3.5:9b',
+    embedding:        'nomic-embed-text', // Standard local embedding model
   },
 };
 
