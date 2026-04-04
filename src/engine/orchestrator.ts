@@ -846,8 +846,8 @@ Inform the user about this possibility if it's relevant to the current conversat
       filteredTools = await getToolsForSource(isOwner);
     }
 
-    if (agentId && agents.has(agentId)) {
-      const agent = agents.get(agentId)!;
+    if (agentId && crewRegistry.hasAgent(agentId)) {
+      const agent = crewRegistry.getAgent(agentId)!;
       if (agent.allowedTools && agent.allowedTools.length > 0) {
         filteredTools = filteredTools.filter(t => agent.allowedTools!.includes(t.name));
       }
