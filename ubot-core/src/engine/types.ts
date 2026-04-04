@@ -175,13 +175,13 @@ export const DEFAULT_PROVIDER_MODELS: Record<string, Partial<Record<ModelPurpose
     tts:              'tts-1-hd',            // Better quality than tts-1
   },
   openrouter: {
-    chat:             'google/gemini-2.5-flash',              // Best value on OR
-    router:           'google/gemini-2.5-flash-lite-preview',  // Cheapest fast router
-    extraction:       'google/gemini-2.5-flash-lite-preview',
-    generation:       'anthropic/claude-3-5-haiku',            // Best non-Google quality/cost
-    image_generation: 'openai/dall-e-3',
-    transcription:    'openai/whisper-1',
-    tts:              'openai/tts-1-hd',
+    chat:             'qwen/qwen3.6-plus:free',                  // Free, 1M context, tool-calling
+    router:           'qwen/qwen3.6-plus:free',                  // Free, fast routing with tools
+    extraction:       'qwen/qwen3.6-plus:free',                  // Free, structured output
+    generation:       'meta-llama/llama-3.3-70b-instruct:free',  // Free, creative tasks
+    image_generation: 'openai/dall-e-3',                         // No free alternative
+    transcription:    'openai/whisper-1',                        // No free alternative
+    tts:              'openai/tts-1-hd',                         // No free alternative
   },
   ollama: {
     chat:             'qwen3.5:9b',      // Best local model (Dec 2024, 7B equiv quality)
