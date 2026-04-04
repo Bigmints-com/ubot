@@ -280,6 +280,13 @@ export interface AgentDefinition {
   allowedTools?: string[]; // Empty means all tools
   model?: string;
   temperature?: number;
+  autonomyTier?: 'T0' | 'T1' | 'T2' | 'T3';
+  capabilities?: string[];
+  persona?: {
+    role?: string;
+    tone?: string;
+  };
+  workflows?: string[];
 }
 
 const DEFAULT_LLM_PROVIDER_ID = 'default-gemini';

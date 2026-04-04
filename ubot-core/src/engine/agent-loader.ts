@@ -1,12 +1,14 @@
 /**
  * Agent Loader
  * 
- * Discovers and parses specialized agent definitions from ~/.ubot/workspace/agents/*.agent.md
+ * Discovers and parses specialized agent definitions from ~/.ubot/data/workspace/agents/*.agent.yaml
+ * Includes fallback logic for legacy .agent.md files
  */
 
 import fs from 'fs';
 import path from 'path';
 import type { AgentDefinition } from './types.js';
+import yaml from 'yaml';
 
 export function loadAgentDefinitions(workspacePath: string): AgentDefinition[] {
   const agentsDir = path.join(workspacePath, 'agents');
@@ -21,16 +23,20 @@ export function loadAgentDefinitions(workspacePath: string): AgentDefinition[] {
 
   const agents: AgentDefinition[] = [];
   try {
-    const files = fs.readdirSync(agentsDir).filter(f => f.endsWith('.agent.md'));
+    const files = fs.readdirSync(agentsDir);
     
     for (const file of files) {
       const filePath = path.join(agentsDir, file);
       const content = fs.readFileSync(filePath, 'utf8');
-      const id = path.basename(file, '.agent.md');
       
-      const agent = parseAgentMarkdown(id, content);
-      if (agent) {
-        agents.push(agent);
+      if (file.endsWith('.agent.yaml') || file.endsWith('.agent.yml')) {
+        const id = file.replace(/\.agent\.ya?ml$/, '');
+        const agent = parseAgentYaml(id, content);
+        if (agent) agents.push(agent);
+      } else if (file.endsWith('.agent.md')) {
+        const id = file.replace(/\.agent\.md$/, '');
+        const agent = parseAgentMarkdown(id, content);
+        if (agent) agents.push(agent);
       }
     }
   } catch (err: any) {
@@ -40,10 +46,30 @@ export function loadAgentDefinitions(workspacePath: string): AgentDefinition[] {
   return agents;
 }
 
+function parseAgentYaml(id: string, content: string): AgentDefinition | null {
+  try {
+    const parsed = yaml.parse(content);
+    return {
+      id,
+      name: parsed.name || id,
+      description: parsed.description || '',
+      systemPrompt: parsed.systemPrompt || parsed.instructions,
+      allowedTools: parsed.tools || parsed.allowedTools,
+      model: parsed.model,
+      temperature: parsed.temperature,
+      autonomyTier: parsed.autonomyTier,
+      capabilities: parsed.capabilities,
+      persona: parsed.persona,
+      workflows: parsed.workflows,
+    };
+  } catch (err: any) {
+    console.error(`[AgentLoader] Failed to parse YAML for agent ${id}: ${err.message}`);
+    return null;
+  }
+}
+
 /**
- * Basic parser for .agent.md files
- * Expects sections like # Identity, # Tools, # System Prompt
- * Sections can contain YAML-like key-value pairs
+ * Basic parser for legacy .agent.md files
  */
 function parseAgentMarkdown(id: string, content: string): AgentDefinition | null {
   const agent: AgentDefinition = {
@@ -62,14 +88,12 @@ function parseAgentMarkdown(id: string, content: string): AgentDefinition | null
     const body = lines.slice(1).join('\n').trim();
     
     if (title === 'identity' || title === 'name') {
-      // Parse name and description
       const nameMatch = body.match(/name:\s*(.+)/i);
       if (nameMatch) agent.name = nameMatch[1].trim();
       
       const descMatch = body.match(/description:\s*(.+)/i);
       if (descMatch) agent.description = descMatch[1].trim();
     } else if (title === 'tools' || title === 'allowed tools') {
-      // Parse allowed tool list
       const toolLines = body.split('\n').map(l => l.replace(/^[-*]\s*/, '').trim()).filter(Boolean);
       agent.allowedTools = toolLines;
     } else if (title === 'system prompt' || title === 'instructions') {

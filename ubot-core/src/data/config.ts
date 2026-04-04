@@ -285,8 +285,8 @@ export function resolveAuthConfig(config: UbotConfig): ResolvedAuth {
   const auth = config.server?.auth;
   let mode: AuthMode = auth?.mode ?? 'local';
 
-  // Force SSO mode when running as the SaaS platform
-  if (process.env.UBOT_MODE === 'cloud-saas') {
+  // Force SSO mode when running as the SaaS platform or shared cloud
+  if (process.env.UBOT_MODE === 'cloud-saas' || process.env.UBOT_MODE === 'cloud-shared') {
     mode = 'sso';
   }
 

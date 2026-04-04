@@ -23,7 +23,7 @@ import { type Soul, SOUL_REWRITE_PROMPT, OWNER_MERGE_PROMPT, FACT_EXTRACTION_PRO
 import { formatToolsForAPI, createToolRegistry, getToolsForSource, getToolAliases, type ToolRegistry } from './tools.js';
 import { selectToolsForMessage } from './tool-selector.js';
 import { getAllToolsWithModules } from '../tools/registry.js';
-import { loadAgentDefinitions } from './agent-loader.js';
+import { crewRegistry } from './crew-registry.js';
 import type { SkillRepository } from '../agents/skills/skill-repository.js';
 import type { SkillEngine } from '../agents/skills/skill-engine.js';
 import { metricsCollector } from '../metrics/index.js';
@@ -185,7 +185,7 @@ export function createAgentOrchestrator(
   
   // Register core orchestrator tools
   toolRegistry.register('list_agents', async () => {
-    const list = Array.from(agents.values());
+    const list = crewRegistry.listAgents();
     if (list.length === 0) return { toolName: 'list_agents', success: true, result: 'No specialized agents found in workspace/agents/', duration: 0 };
     const formatted = list.map(a => `- ${a.id}: ${a.name} (${a.description})`).join('\n');
     return { toolName: 'list_agents', success: true, result: `Available agents:\n${formatted}`, duration: 0 };
@@ -202,12 +202,12 @@ export function createAgentOrchestrator(
       return { toolName: 'switch_agent', success: true, result: 'Switched back to main Ubot persona.', duration: 0 };
     }
     
-    if (!agents.has(agentId)) {
+    if (!crewRegistry.hasAgent(agentId)) {
       return { toolName: 'switch_agent', success: false, error: `Agent "${agentId}" not found.`, duration: 0 };
     }
     
     sessionAgents.set(sessionId, agentId);
-    const agent = agents.get(agentId)!;
+    const agent = crewRegistry.getAgent(agentId)!;
     return { toolName: 'switch_agent', success: true, result: `Successfully switched to ${agent.name}. Instructions updated.`, duration: 0 };
   });
 
@@ -219,9 +219,9 @@ export function createAgentOrchestrator(
     if (!agentId) return { toolName: 'delegate_to_agent', success: false, error: 'agentId is required', duration: 0 };
     if (!task) return { toolName: 'delegate_to_agent', success: false, error: 'task is required', duration: 0 };
     
-    const agentDef = agents.get(agentId);
+    const agentDef = crewRegistry.getAgent(agentId);
     if (!agentDef) {
-      const available = Array.from(agents.keys()).join(', ');
+      const available = crewRegistry.listAgents().map(a => a.id).join(', ');
       return { toolName: 'delegate_to_agent', success: false, error: `Agent "${agentId}" not found. Available: ${available}`, duration: 0 };
     }
     
@@ -273,7 +273,7 @@ export function createAgentOrchestrator(
             prompt = prompt.replace(new RegExp(`\\{${id}.result\\}`, 'g'), res);
           }
           
-          const agentDef = agents.get(step.agentType);
+          const agentDef = crewRegistry.getAgent(step.agentType);
           const subConfig = agentDef ? {
             name: agentDef.name,
             systemPrompt: agentDef.systemPrompt,
@@ -322,7 +322,7 @@ export function createAgentOrchestrator(
     const request = String(args.request || '');
     if (!request) return { toolName: 'execute_plan', success: false, error: 'request is required', duration: 0 };
     
-    const availableAgentTypes = [...Array.from(agents.keys()), 'general'];
+    const availableAgentTypes = [...crewRegistry.listAgents().map(a => a.id), 'general'];
     const db = context?.getDatabase?.();
     const sessionId = context?.sessionId || 'default';
     
@@ -382,17 +382,12 @@ export function createAgentOrchestrator(
     });
 
     // Multi-agent state
-    const agents = new Map<string, AgentDefinition>();
     const sessionAgents = new Map<string, string>(); // sessionId -> agentId
 
-    // Load specialized agents from workspace
-  if (workspacePath) {
-    const loadedAgents = loadAgentDefinitions(workspacePath);
-    for (const agent of loadedAgents) {
-      agents.set(agent.id, agent);
-      console.log(`[Orchestrator] Loaded specialized agent: ${agent.id} (${agent.name})`);
+    // Initialize CrewRegistry (loads specialized agents from workspace)
+    if (workspacePath) {
+      crewRegistry.initialize(workspacePath);
     }
-  }
 
   function createLLMClient(): OpenAI {
     return new OpenAI({
@@ -475,8 +470,8 @@ export function createAgentOrchestrator(
     let basePrompt = currentConfig.systemPrompt;
     
     // Override with specialized agent prompt if applicable
-    if (agentId && agents.has(agentId)) {
-      const agent = agents.get(agentId)!;
+    if (agentId && crewRegistry.hasAgent(agentId)) {
+      const agent = crewRegistry.getAgent(agentId)!;
       if (agent.systemPrompt) {
         basePrompt = agent.systemPrompt;
       }
@@ -1703,13 +1698,21 @@ REQUIREMENTS:
     },
 
     listAgents(): AgentDefinition[] {
-      return Array.from(agents.values());
+      return crewRegistry.listAgents();
     },
 
     getAgentMarkdown(agentId: string): string | null {
       if (!workspacePath) return null;
-      const filePath = path.join(workspacePath, 'agents', `${agentId}.agent.md`);
-      if (!fs.existsSync(filePath)) return null;
+      const yamlPath = path.join(workspacePath, 'agents', `${agentId}.agent.yaml`);
+      const ymlPath = path.join(workspacePath, 'agents', `${agentId}.agent.yml`);
+      const mdPath = path.join(workspacePath, 'agents', `${agentId}.agent.md`);
+      
+      let filePath = '';
+      if (fs.existsSync(yamlPath)) filePath = yamlPath;
+      else if (fs.existsSync(ymlPath)) filePath = ymlPath;
+      else if (fs.existsSync(mdPath)) filePath = mdPath;
+      else return null;
+
       try {
         return fs.readFileSync(filePath, 'utf8');
       } catch (err: any) {
@@ -1723,16 +1726,13 @@ REQUIREMENTS:
       const agentsDir = path.join(workspacePath, 'agents');
       if (!fs.existsSync(agentsDir)) fs.mkdirSync(agentsDir, { recursive: true });
       
-      const filePath = path.join(agentsDir, `${agentId}.agent.md`);
+      const isYaml = content.trim().startsWith('id:') || content.trim().startsWith('name:');
+      const ext = isYaml ? '.agent.yaml' : '.agent.md';
+      const filePath = path.join(agentsDir, `${agentId}${ext}`);
+      
       try {
         fs.writeFileSync(filePath, content, 'utf8');
-        // Reload the agent definition using the already imported function
-        const loadedAgents = loadAgentDefinitions(workspacePath);
-        const updatedAgent = loadedAgents.find(a => a.id === agentId);
-        if (updatedAgent) {
-          agents.set(agentId, updatedAgent);
-          console.log(`[Orchestrator] 🔄 Reloaded specialized agent: ${agentId}`);
-        }
+        crewRegistry.reloadAgents();
       } catch (err: any) {
         console.error(`[Orchestrator] Error writing agent file ${filePath}:`, err.message);
       }
