@@ -423,7 +423,10 @@ export function createAgentOrchestrator(
     const request = String(args.request || '');
     if (!request) return { toolName: 'execute_plan', success: false, error: 'request is required', duration: 0 };
     
-    const availableAgentTypes = [...crewRegistry.listAgents().map(a => a.id), 'general'];
+    const availableAgentTypes = [
+      ...crewRegistry.listAgents().map(a => `${a.id} [${a.autonomyTier || 'T0'}]: ${a.description}`),
+      'nexus [T1]: Chief Orchestrator for delegation or complex routing'
+    ];
     const db = context?.getDatabase?.();
     const sessionId = context?.sessionId || 'default';
     
@@ -586,7 +589,13 @@ export function createAgentOrchestrator(
   async function buildMessages(sessionId: string, userMessage: string, isOwner: boolean = false, attachments?: Attachment[]): Promise<ChatMsg[]> {
     const rawHistory = await conversationStore.getHistory(sessionId, currentConfig.maxHistoryMessages);
     const history = filterStaleErrors(rawHistory);
-    const activeAgentId = sessionAgents.get(sessionId);
+    let activeAgentId = sessionAgents.get(sessionId);
+    
+    // Phase 4: Nexus defaults for Owner
+    if (isOwner && !activeAgentId && crewRegistry.hasAgent('nexus')) {
+      activeAgentId = 'nexus';
+      sessionAgents.set(sessionId, 'nexus');
+    }
     
     // Build system prompt with soul data (bot persona + owner + contact)
     let systemPrompt = buildSystemPrompt(activeAgentId);
