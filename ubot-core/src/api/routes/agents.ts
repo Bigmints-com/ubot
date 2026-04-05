@@ -36,6 +36,7 @@ export const handleAgentsRoutes: RouteHandler = async (req, res, url, method, ct
   if (path === '/api/agents' && method === 'GET') {
     try {
       const agents = crewRegistry.listAgents();
+      console.log('[DEBUG] GET /api/agents -> Returning', agents.length, 'agents. Registry details:', crewRegistry);
       json(res, { agents });
     } catch (err: any) {
       apiError(res, err.message, 500);
