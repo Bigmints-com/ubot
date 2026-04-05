@@ -53,6 +53,7 @@ import { handleToolsRoutes } from './routes/tools.js';
 import { handleCliRoutes } from './routes/cli.js';
 import { handleWebchatRoutes, ensureWebchatToken } from './routes/webchat.js';
 import { handleModulesRoutes } from './routes/modules.js';
+import { handleAgentsRoutes } from './routes/agents.js';
 import { handleTasksRoutes } from './routes/tasks.js';
 import { getPromptExperiments } from '../engine/prompt-experiment.js';
 import { json, parseBody, error as apiError, type ApiContext } from './context.js';
@@ -1974,6 +1975,8 @@ async function handleExperimentRoutes(req: http.IncomingMessage, res: http.Serve
   if (await handleVaultRoutes(req, res, url, method, ctx)) return true;
   if (await handleModulesRoutes(req, res, url, method, ctx)) return true;
   if (await handleExperimentRoutes(req, res, url, method)) return true;
+  if (await handleAgentsRoutes(req, res, url, method, ctx)) return true;
+  if (await handleTasksRoutes(req, res, url, method, ctx)) return true;
 
   return false;
 }
