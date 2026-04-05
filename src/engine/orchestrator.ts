@@ -256,24 +256,32 @@ export function createAgentOrchestrator(
     
     const sid = `subagent-${agentDef.name}-${Date.now()}`;
     if (db) {
-      await db.get_client().from('ubot_spawned_sessions').insert({
-         id: sid,
-         agent_id: agentDef.id,
-         task: task.slice(0, 500),
-         status: 'running',
-         start_time: new Date().toISOString()
-      }).catch(() => {});
+      try {
+        await db.get_client().from('ubot_spawned_sessions').insert({
+           id: sid,
+           agent_id: agentDef.id,
+           task: task.slice(0, 500),
+           status: 'running',
+           start_time: new Date().toISOString()
+        });
+      } catch (e: any) {
+        console.error('[Orchestrator] Failed to insert subagent session:', e.message);
+      }
     }
 
     const result = await runSubagent(subConfig, task, orchestratorInterface);
     
     if (db) {
-      await db.get_client().from('ubot_spawned_sessions').update({
-         status: result.status === 'completed' ? 'completed' : 'failed',
-         result: result.result || null,
-         error: result.error || null,
-         end_time: new Date().toISOString()
-      }).eq('id', sid).catch(() => {});
+      try {
+        await db.get_client().from('ubot_spawned_sessions').update({
+           status: result.status === 'completed' ? 'completed' : 'failed',
+           result: result.result || null,
+           error: result.error || null,
+           end_time: new Date().toISOString()
+        }).eq('id', sid);
+      } catch (e: any) {
+        console.error('[Orchestrator] Failed to update subagent session:', e.message);
+      }
     }
     
     if (result.status === 'completed') {
