@@ -23,3 +23,4 @@ Wants an emoji to appear when he says "smile"
 Wants an emoji to appear when he says "smile"
 Wants an emoji to appear when he says "smile"
 Wants an emoji to appear when he says "smile"
+Prefers updates delivered within a specific, short timeframe
