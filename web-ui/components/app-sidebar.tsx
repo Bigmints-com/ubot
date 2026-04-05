@@ -11,6 +11,7 @@ import {
   ShieldAlert,
   Clock,
   Settings,
+  LayoutTemplate,
   Bot,
   Brain,
   Globe,
@@ -130,6 +131,7 @@ const coreItems: NavItem[] = [
 ];
 
 const agentItems: NavItem[] = [
+  { title: "Specialized Agents", href: "/agents", icon: Bot },
   { title: "Personas", href: "/personas", icon: Brain },
   { title: "Skills", href: "/skills", icon: Puzzle },
   { title: "Agent Defaults", href: "/agent-defaults", icon: Zap },
@@ -140,6 +142,7 @@ const agentItems: NavItem[] = [
 const automationItems: NavItem[] = [
   { title: "Scheduler", href: "/scheduler", icon: Clock },
   { title: "Approvals", href: "/approvals", icon: CheckCircle },
+  { title: "Task Manager", href: "/tasks", icon: LayoutTemplate },
 ];
 
 const channelItems: NavItem[] = [

@@ -299,7 +299,8 @@ export async function handleChatRoutes(
       json(res, { sessions: [] });
       return true;
     }
-    const sessions = await ctx.agentOrchestrator.getConversationStore().listSessions();
+    const allSessions = await ctx.agentOrchestrator.getConversationStore().listSessions();
+    const sessions = allSessions.filter((s: any) => !s.id.startsWith('subagent-'));
     json(res, { sessions });
     return true;
   }

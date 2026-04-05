@@ -124,7 +124,7 @@ export default function ToolsHealthPage() {
             </TabsList>
           </Tabs>
 
-          <Card className="border-muted/40 shadow-sm">
+          <Card className="border-muted/40">
             <CardContent className="p-0">
               <Table>
                 <TableHeader>

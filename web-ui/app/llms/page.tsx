@@ -13,8 +13,9 @@ import {
 } from "@/components/ui/dialog";
 import {
   Save, Loader2, CheckCircle, Eye, EyeOff, Plus, Trash2, Pencil,
-  Sparkles, Route, Key, Bot, BarChart3, TrendingUp,
+  Route, Key, Bot, BarChart3, TrendingUp,
 } from "lucide-react";
+import { ModelSelector } from "@/components/model-selector";
 
 // ─── Provider Presets ────────────────────────────────────────
 
@@ -95,21 +96,20 @@ interface ConfiguredProvider {
   baseUrl: string;
   apiKey: string;
   model: string;
-  isDefault: boolean;
   authType?: string;
   models?: Record<string, string>;
 }
 
-/** Get the model name for a provider+purpose */
-function getModelForProvider(providerKey: string, purpose: string, providerModels?: Record<string, string>): string {
-  return providerModels?.[purpose] || DEFAULT_PROVIDER_MODELS[providerKey]?.[purpose] || '';
+/** Get the model name for a provider+purpose.
+ *  Priority: per-purpose override → provider default model → hardcoded fallback */
+function getModelForProvider(providerKey: string, purpose: string, providerModels?: Record<string, string>, defaultModel?: string): string {
+  return providerModels?.[purpose] || defaultModel || DEFAULT_PROVIDER_MODELS[providerKey]?.[purpose] || '';
 }
 
 // ─── Main Component ──────────────────────────────────────────
 
 export default function ModelsPage() {
   const [providers, setProviders] = useState<Record<string, ConfiguredProvider>>({});
-  const [defaultKey, setDefaultKey] = useState("");
   const [routing, setRouting] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -138,14 +138,12 @@ export default function ModelsPage() {
                 baseUrl: (p.baseUrl || "") as string,
                 apiKey: (p.apiKey || "") as string,
                 model: (p.model || "") as string,
-                isDefault: key === data.default,
                 authType: (p.authType || "") as string,
-                models: (p.models || DEFAULT_PROVIDER_MODELS[key] || {}) as Record<string, string>,
+                models: (p.models || {}) as Record<string, string>,
               },
             ])
           )
         );
-        setDefaultKey(data.default || "");
       }
 
       if (routeRes.ok) {
@@ -181,53 +179,60 @@ export default function ModelsPage() {
     if (enabledProviders.length === 0) return { providerId: "", model: "" };
     if (enabledProviders.length === 1) {
       const p = enabledProviders[0];
-      return { providerId: p.key, model: getModelForProvider(p.key, purpose, p.models) };
+      return { providerId: p.key, model: getModelForProvider(p.key, purpose, p.models, p.model) };
     }
 
-    const defaultProvider = enabledProviders.find((p) => p.key === defaultKey) || enabledProviders[0];
+    const fallbackProvider = enabledProviders[0];
 
     // Smart defaults based on purpose
     let picked: ConfiguredProvider;
     switch (purpose) {
       case "chat":
       case "generation":
-        picked = defaultProvider;
+        picked = fallbackProvider;
         break;
       case "router":
       case "extraction":
         // Prefer cheapest: gemini > openrouter > vertex > openai
         picked = enabledProviders.find((p) => p.key === "gemini") ||
                  enabledProviders.find((p) => p.key === "openrouter") ||
-                 defaultProvider;
+                 fallbackProvider;
         break;
       case "image_generation":
         // Prefer vertex (Imagen) > openai (DALL-E) > others
         picked = enabledProviders.find((p) => p.key === "vertex") ||
                  enabledProviders.find((p) => p.key === "openai") ||
-                 defaultProvider;
+                 fallbackProvider;
         break;
       case "transcription":
         // Prefer ollama (local whisper) > openai (whisper-1) > others
         picked = enabledProviders.find((p) => p.key === "ollama") ||
                  enabledProviders.find((p) => p.key === "openai") ||
-                 defaultProvider;
+                 fallbackProvider;
         break;
       case "tts":
         picked = enabledProviders.find((p) => p.key === "openai") ||
-                 defaultProvider;
+                 fallbackProvider;
         break;
       default:
-        picked = defaultProvider;
+        picked = fallbackProvider;
     }
-    return { providerId: picked.key, model: getModelForProvider(picked.key, purpose, picked.models) };
+    return { providerId: picked.key, model: getModelForProvider(picked.key, purpose, picked.models, picked.model) };
   }
 
   function getEffectiveProvider(purpose: string): { id: string; model: string; isAuto: boolean } {
     const override = routing[purpose];
     if (override) {
-      const p = enabledProviders.find((ep) => ep.key === override);
+      let providerId = override;
+      let specifiedModel = '';
+      if (override.includes('/')) {
+        const parts = override.split('/');
+        providerId = parts[0];
+        specifiedModel = parts.slice(1).join('/');
+      }
+      const p = enabledProviders.find((ep) => ep.key === providerId);
       if (p) {
-        return { id: p.key, model: getModelForProvider(p.key, purpose, p.models), isAuto: false };
+        return { id: p.key, model: specifiedModel || getModelForProvider(p.key, purpose, p.models, p.model), isAuto: false };
       }
     }
     const auto = getAutoRoutedProvider(purpose);
@@ -282,10 +287,7 @@ export default function ModelsPage() {
     if (res.ok) await loadData();
   }
 
-  async function setDefault(key: string) {
-    const res = await fetch(`/api/integrations/models/${key}/default`, { method: "PUT" });
-    if (res.ok) await loadData();
-  }
+
 
   // ── Routing save ───────────────────────────────────────────
 
@@ -376,9 +378,7 @@ export default function ModelsPage() {
                 key={provider.key}
                 provider={provider}
                 preset={PROVIDER_PRESETS.find((p) => p.type === provider.key)}
-                isDefault={provider.key === defaultKey}
                 onToggle={() => toggleProvider(provider.key)}
-                onSetDefault={() => setDefault(provider.key)}
                 onUpdate={(u) => updateProvider(provider.key, u)}
                 onDelete={() => deleteProvider(provider.key)}
               />
@@ -386,7 +386,6 @@ export default function ModelsPage() {
           </div>
         )}
       </div>
-
       {/* ─── Section 2: Model Routing ─────────────────────────── */}
       {enabledProviders.length > 0 && (
         <div className="space-y-4">
@@ -406,7 +405,6 @@ export default function ModelsPage() {
             <CardContent className="space-y-2">
               {PURPOSES.map((purpose) => {
                 const effective = getEffectiveProvider(purpose.key);
-                const preset = PROVIDER_PRESETS.find((pr) => pr.type === effective.id);
                 return (
                   <div
                     key={purpose.key}
@@ -425,38 +423,12 @@ export default function ModelsPage() {
                       </div>
                       <p className="text-xs text-muted-foreground">{purpose.description}</p>
                     </div>
-                    <Select
-                      value={routing[purpose.key] || "__auto__"}
-                      onValueChange={(v) => handleRoutingChange(purpose.key, v)}
-                    >
-                      <SelectTrigger className="w-[220px]">
-                        <SelectValue>
-                          {routing[purpose.key]
-                            ? `${(PROVIDER_PRESETS.find(pr => pr.type === routing[purpose.key])?.label || routing[purpose.key])}`
-                            : `Auto${effective.model ? ` — ${effective.model.split('/').pop()}` : ''}`}
-                        </SelectValue>
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="__auto__">
-                          <span className="text-muted-foreground">
-                            Auto{effective.isAuto && effective.model ? ` — ${effective.model.split('/').pop()}` : ''}
-                          </span>
-                        </SelectItem>
-                        {enabledProviders.map((p) => {
-                          const model = getModelForProvider(p.key, purpose.key, p.models);
-                          if (!model) return null;
-                          const pPreset = PROVIDER_PRESETS.find((pr) => pr.type === p.key);
-                          return (
-                            <SelectItem key={p.key} value={p.key}>
-                              <span className="capitalize">{pPreset?.label || p.key}</span>
-                              <span className="text-muted-foreground ml-1 text-xs">
-                                — {model.split('/').pop()}
-                              </span>
-                            </SelectItem>
-                          );
-                        })}
-                      </SelectContent>
-                    </Select>
+                    <ModelSelector
+                      value={routing[purpose.key]}
+                      onChange={(val) => handleRoutingChange(purpose.key, val || "__auto__")}
+                      inheritLabel={`Auto${effective.model ? ` — ${effective.model.split('/').pop()}` : ''}`}
+                      className="w-[280px]"
+                    />
                   </div>
                 );
               })}
@@ -590,53 +562,28 @@ export default function ModelsPage() {
 function ProviderCard({
   provider,
   preset,
-  isDefault,
   onToggle,
-  onSetDefault,
   onUpdate,
   onDelete,
 }: {
   provider: ConfiguredProvider;
   preset?: ProviderPreset;
-  isDefault: boolean;
   onToggle: () => void;
-  onSetDefault: () => void;
   onUpdate: (updates: Partial<ConfiguredProvider>) => void;
   onDelete: () => void;
 }) {
   const [showKey, setShowKey] = useState(false);
   const [editing, setEditing] = useState(false);
-  const [editModel, setEditModel] = useState(provider.model);
   const [editKey, setEditKey] = useState("");
-  const [discoveredModels, setDiscoveredModels] = useState<Array<{ id: string; name: string }>>([]);
-  const [loadingModels, setLoadingModels] = useState(false);
+
+  const isOllama = provider.key === 'ollama';
 
   const maskedKey = provider.apiKey
     ? provider.apiKey.slice(0, 4) + "•".repeat(Math.min(24, provider.apiKey.length - 4))
     : "";
 
-  async function discoverModels() {
-    setLoadingModels(true);
-    try {
-      const params = new URLSearchParams({
-        baseUrl: provider.baseUrl,
-        apiKey: provider.apiKey,
-        provider: provider.key,
-        providerKey: provider.key,
-      });
-      const res = await fetch(`/api/integrations/models/models?${params}`);
-      if (res.ok) {
-        const data = await res.json();
-        setDiscoveredModels(data.models || []);
-      }
-    } catch { /* ignore */ } finally {
-      setLoadingModels(false);
-    }
-  }
-
   function handleSaveEdit() {
     const updates: Partial<ConfiguredProvider> = {};
-    if (editModel && editModel !== provider.model) updates.model = editModel;
     if (editKey) updates.apiKey = editKey;
     if (Object.keys(updates).length > 0) onUpdate(updates);
     setEditing(false);
@@ -647,7 +594,7 @@ function ProviderCard({
     <div
       className={`flex items-center gap-4 p-4 rounded-lg border transition-colors ${
         provider.enabled ? "bg-card" : "bg-muted/30 opacity-60"
-      } ${isDefault ? "ring-1 ring-primary/40" : ""}`}
+      }`}
     >
       {/* Icon */}
       <div className="text-2xl w-10 h-10 rounded-lg flex items-center justify-center bg-muted/50 shrink-0">
@@ -661,11 +608,6 @@ function ProviderCard({
           <Badge variant="outline" className="text-[10px] uppercase font-mono">
             {provider.key}
           </Badge>
-          {isDefault && (
-            <Badge className="text-[10px] bg-primary/20 text-primary border-primary/30">
-              ★ Default
-            </Badge>
-          )}
           {(provider.apiKey || provider.authType === 'vertex-sa') ? (
             <Badge variant="secondary" className="text-[10px] text-emerald-700 dark:text-emerald-400 bg-emerald-500/10 border-emerald-500/20">
               ✓ {provider.authType === 'vertex-sa' ? 'Service Account' : 'Configured'}
@@ -677,7 +619,6 @@ function ProviderCard({
           )}
         </div>
         <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
-          {provider.model && <span className="font-mono">{provider.model}</span>}
           {provider.authType === 'vertex-sa' ? (
             <span className="font-mono text-muted-foreground">☁️ Vertex AI Service Account</span>
           ) : provider.apiKey ? (
@@ -694,72 +635,44 @@ function ProviderCard({
 
       {/* Actions */}
       <div className="flex items-center gap-2 shrink-0">
-        {!isDefault && provider.enabled && (
-          <Button variant="ghost" size="sm" className="text-xs" onClick={onSetDefault}>
-            Set Default
+        {!isOllama && (
+          <Button variant="ghost" size="icon" className="size-8" onClick={() => setEditing(true)}>
+            <Pencil className="size-3.5" />
           </Button>
         )}
-        <Button variant="ghost" size="icon" className="size-8" onClick={() => { setEditing(true); discoverModels(); }}>
-          <Pencil className="size-3.5" />
-        </Button>
         <Switch checked={provider.enabled} onCheckedChange={onToggle} />
         <Button variant="ghost" size="icon" className="size-8 text-destructive hover:text-destructive" onClick={onDelete}>
           <Trash2 className="size-3.5" />
         </Button>
       </div>
 
-      {/* Edit Dialog */}
-      <Dialog open={editing} onOpenChange={setEditing}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle className="capitalize">Edit {provider.key}</DialogTitle>
-            <DialogDescription>Update API key and model selection</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 pt-2">
-            <div className="space-y-2">
-              <Label>API Key</Label>
-              <Input
-                type="password"
-                placeholder="Leave blank to keep current key"
-                value={editKey}
-                onChange={(e) => setEditKey(e.target.value)}
-              />
+      {/* Edit Dialog — API key only */}
+      {!isOllama && (
+        <Dialog open={editing} onOpenChange={setEditing}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle className="capitalize">Edit {provider.key}</DialogTitle>
+              <DialogDescription>Update your API key</DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 pt-2">
+              <div className="space-y-2">
+                <Label>API Key</Label>
+                <Input
+                  type="password"
+                  placeholder="Leave blank to keep current key"
+                  value={editKey}
+                  onChange={(e) => setEditKey(e.target.value)}
+                  autoFocus
+                />
+              </div>
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={() => setEditing(false)}>Cancel</Button>
+                <Button onClick={handleSaveEdit} disabled={!editKey}>Save</Button>
+              </div>
             </div>
-            <div className="space-y-2">
-              <Label>Model</Label>
-              {discoveredModels.length > 0 ? (
-                <Select value={editModel} onValueChange={setEditModel}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select model" />
-                  </SelectTrigger>
-                  <SelectContent className="max-h-[300px]">
-                    {discoveredModels.map((m) => (
-                      <SelectItem key={m.id} value={m.id}>
-                        {m.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              ) : (
-                <div className="flex gap-2">
-                  <Input
-                    value={editModel}
-                    onChange={(e) => setEditModel(e.target.value)}
-                    placeholder="e.g. gpt-4o, gemini-2.0-flash..."
-                  />
-                  <Button variant="outline" size="sm" onClick={discoverModels} disabled={loadingModels}>
-                    {loadingModels ? <Loader2 className="size-3.5 animate-spin" /> : "Discover"}
-                  </Button>
-                </div>
-              )}
-            </div>
-            <div className="flex justify-end gap-2">
-              <Button variant="outline" onClick={() => setEditing(false)}>Cancel</Button>
-              <Button onClick={handleSaveEdit}>Save</Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
+          </DialogContent>
+        </Dialog>
+      )}
     </div>
   );
 }
@@ -778,7 +691,6 @@ function AddProviderDialog({
   const [open, setOpen] = useState(false);
   const [selectedType, setSelectedType] = useState("");
   const [apiKey, setApiKey] = useState("");
-  const [model, setModel] = useState("");
   const [saving, setSaving] = useState(false);
 
   // Vertex-specific state
@@ -823,16 +735,17 @@ function AddProviderDialog({
           return;
         }
         // Then add the provider
-        onAdd("vertex", "__vertex_sa__", model, { projectId, region, serviceAccountJson });
+        onAdd("vertex", "__vertex_sa__", "", { projectId, region, serviceAccountJson });
+      } else if (selectedType === 'ollama') {
+        onAdd('ollama', '', '');
       } else {
         if (!apiKey) return;
-        onAdd(selectedType, apiKey, model);
+        onAdd(selectedType, apiKey, "");
       }
 
       setOpen(false);
       setSelectedType("");
       setApiKey("");
-      setModel("");
       setServiceAccountJson("");
       setProjectId("");
       setRegion("us-central1");
@@ -843,7 +756,9 @@ function AddProviderDialog({
 
   const canSubmit = isVertex
     ? !!serviceAccountJson && !!projectId
-    : !!selectedType && !!apiKey;
+    : selectedType === 'ollama'
+      ? true
+      : !!selectedType && !!apiKey;
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -883,27 +798,25 @@ function AddProviderDialog({
             </div>
           </div>
 
-          {selectedType && !isVertex && (
-            <>
-              <div className="space-y-2">
-                <Label>API Key</Label>
-                <Input
-                  type="password"
-                  placeholder={`Enter your ${presets.find((p) => p.type === selectedType)?.label} API key`}
-                  value={apiKey}
-                  onChange={(e) => setApiKey(e.target.value)}
-                  autoFocus
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Model <span className="text-muted-foreground">(optional — can discover later)</span></Label>
-                <Input
-                  placeholder="e.g. gpt-4o, gemini-2.0-flash, etc."
-                  value={model}
-                  onChange={(e) => setModel(e.target.value)}
-                />
-              </div>
-            </>
+          {selectedType && !isVertex && selectedType !== 'ollama' && (
+            <div className="space-y-2">
+              <Label>API Key</Label>
+              <Input
+                type="password"
+                placeholder={`Enter your ${presets.find((p) => p.type === selectedType)?.label} API key`}
+                value={apiKey}
+                onChange={(e) => setApiKey(e.target.value)}
+                autoFocus
+              />
+            </div>
+          )}
+
+          {selectedType === 'ollama' && (
+            <div className="rounded-lg border bg-muted/30 p-4 text-sm text-muted-foreground">
+              <p className="font-medium text-foreground mb-1">🦙 Local Ollama</p>
+              <p>Ollama runs locally — no API key needed. Just make sure Ollama is running on your machine.</p>
+              <p className="mt-2 font-mono text-xs">http://localhost:11434</p>
+            </div>
           )}
 
           {isVertex && (
@@ -964,14 +877,7 @@ function AddProviderDialog({
                   </Select>
                 </div>
               </div>
-              <div className="space-y-2">
-                <Label>Model <span className="text-muted-foreground">(optional)</span></Label>
-                <Input
-                  placeholder="e.g. gemini-2.0-flash, gemini-1.5-pro"
-                  value={model}
-                  onChange={(e) => setModel(e.target.value)}
-                />
-              </div>
+
             </>
           )}
 

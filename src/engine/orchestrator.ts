@@ -254,7 +254,27 @@ export function createAgentOrchestrator(
         orchestrator.chat(sid, msg, 'sub-agent', context?.contactName, context?.isOwner, undefined, spo)
     };
     
+    const sid = `subagent-${agentDef.name}-${Date.now()}`;
+    if (db) {
+      await db.get_client().from('ubot_spawned_sessions').insert({
+         id: sid,
+         agent_id: agentDef.id,
+         task: task.slice(0, 500),
+         status: 'running',
+         start_time: new Date().toISOString()
+      }).catch(() => {});
+    }
+
     const result = await runSubagent(subConfig, task, orchestratorInterface);
+    
+    if (db) {
+      await db.get_client().from('ubot_spawned_sessions').update({
+         status: result.status === 'completed' ? 'completed' : 'failed',
+         result: result.result || null,
+         error: result.error || null,
+         end_time: new Date().toISOString()
+      }).eq('id', sid).catch(() => {});
+    }
     
     if (result.status === 'completed') {
       return { toolName: 'delegate_to_agent', success: true, result: `Agent '${agentDef.name}' completed: ${result.result}`, duration: 0 };
@@ -367,6 +387,8 @@ export function createAgentOrchestrator(
         const stepsToRun = group.filter(s => s.status === 'pending' || s.status === 'running');
         if (stepsToRun.length === 0) continue;
         
+        let groupRequiresApproval = false;
+
         await Promise.all(stepsToRun.map(async (step) => {
           // Inject results from previous steps
           let prompt = step.prompt || step.description;
@@ -375,6 +397,17 @@ export function createAgentOrchestrator(
           }
           
           const agentDef = crewRegistry.getAgent(step.agentType);
+          
+          // Phase 5: Governance Check
+          if (agentDef && ['T2', 'T3'].includes(agentDef.autonomyTier || 'T0')) {
+             if (step.status !== 'running') {
+               step.status = 'awaiting_approval';
+               updateStepStatus(plan.id, step.id, 'awaiting_approval', undefined, undefined, db as any);
+               groupRequiresApproval = true;
+               return; // Skip execution until approved
+             }
+          }
+
           const subConfig = agentDef ? {
             name: agentDef.name,
             systemPrompt: agentDef.systemPrompt,
@@ -407,6 +440,11 @@ export function createAgentOrchestrator(
             throw new Error(`Step ${step.id} failed: ${result.error}`);
           }
         }));
+
+        if (groupRequiresApproval) {
+          updatePlanStatus(plan.id, 'awaiting_approval', db as any);
+          throw new Error('Plan paused awaiting Owner approval (T2/T3 Agent Request).');
+        }
       }
       
       updatePlanStatus(plan.id, 'completed', db as any);
@@ -507,7 +545,14 @@ export function createAgentOrchestrator(
    */
   async function getClientForPurpose(purpose: ModelPurpose): Promise<{ client: OpenAI; model: string; providerId: string }> {
     const routing = currentConfig.modelRouting || {};
-    const routedProviderId = routing[purpose];
+    let routedProviderId = routing[purpose];
+    let specifiedModel = '';
+
+    if (routedProviderId && routedProviderId.includes('/')) {
+      const parts = routedProviderId.split('/');
+      routedProviderId = parts[0];
+      specifiedModel = parts.slice(1).join('/');
+    }
 
     if (routedProviderId) {
       const provider = currentConfig.llmProviders.find(p => p.id === routedProviderId);
@@ -531,8 +576,8 @@ export function createAgentOrchestrator(
           baseUrl = baseUrl.replace(/\/?$/, '') + '/openai/';
         }
 
-        // Use per-purpose model from config, falling back to catalog defaults, then provider.model
-        const purposeModel = getModelForPurpose(routedProviderId, purpose, provider.models) || provider.model;
+        // Use strict override, then per-purpose config, falling back to catalog defaults, then provider.model
+        const purposeModel = specifiedModel || getModelForPurpose(routedProviderId, purpose, provider.models) || provider.model;
 
         return {
           client: new OpenAI({ apiKey, baseURL: baseUrl }),
@@ -947,6 +992,9 @@ Inform the user about this possibility if it's relevant to the current conversat
   }> {
     const { client, model: routedModel, providerId } = await getClientForPurpose(purpose);
     
+    // Per-agent model override: if the agent defines a model, use it instead of the global route
+    let activeModel = routedModel;
+    
     // Use pre-selected tools if provided (from Phase 1 tool selection),
     // otherwise fall back to the full tool set
     let filteredTools: ToolDefinition[];
@@ -961,10 +1009,15 @@ Inform the user about this possibility if it's relevant to the current conversat
       if (agent.allowedTools && agent.allowedTools.length > 0) {
         filteredTools = filteredTools.filter(t => agent.allowedTools!.includes(t.name));
       }
+      // Model override — agent-specific model takes priority over global routing
+      if (agent.model) {
+        activeModel = agent.model;
+        log.info('Agent', `Model override for ${agentId}: ${activeModel} (was ${routedModel})`);
+      }
     }
 
     const tools = filteredTools.length > 0 ? formatToolsForAPI(filteredTools) : undefined;
-    log.info('Agent', `Calling LLM: ${routedModel} [${purpose}] (via ${providerId})`);
+    log.info('Agent', `Calling LLM: ${activeModel} [${purpose}] (via ${providerId})`);
     log.info('Agent', `Tools available: ${filteredTools.length} (isOwner: ${isOwner}${preSelectedTools ? ', phase-2 selected' : ''})`);
 
     
@@ -996,7 +1049,7 @@ Inform the user about this possibility if it's relevant to the current conversat
 
     try {
       const completion = await client.chat.completions.create({
-        model: routedModel,
+        model: activeModel,
         messages,
         temperature: currentConfig.temperature,
         max_tokens: currentConfig.maxTokens,
@@ -1080,13 +1133,13 @@ Inform the user about this possibility if it's relevant to the current conversat
       try {
         const meter = getMetering();
         if (meter && usage) {
-          meter.record(routedModel, purpose, providerId, usage.promptTokens, usage.completionTokens);
+          meter.record(activeModel, purpose, providerId, usage.promptTokens, usage.completionTokens);
         }
       } catch { /* metering should never block LLM calls */ }
 
-      return { content: cleanContent, toolCalls, usage, model: routedModel, thinking };
+      return { content: cleanContent, toolCalls, usage, model: activeModel, thinking };
     } catch (err: any) {
-      log.error('Agent', `LLM call failed [${purpose}/${routedModel}]: ${err.message}`);
+      log.error('Agent', `LLM call failed [${purpose}/${activeModel}]: ${err.message}`);
       throw new Error(`LLM call failed: ${err.message}`);
     }
   }
@@ -1677,6 +1730,9 @@ REQUIREMENTS:
       finalContent = finalContent.replace(/\n?\[Used tools?:.*?\]/gi, '').trimEnd();
 
       // Store the assistant response
+      const activeAgentId = sessionAgents.get(sessionId) || 'nexus';
+      const activeAgent = crewRegistry.hasAgent(activeAgentId) ? crewRegistry.getAgent(activeAgentId) : undefined;
+      
       const assistantMetadata: ChatMessageMetadata = {
         source: 'web',
         toolCall: toolResults.length > 0 ? {
@@ -1686,6 +1742,8 @@ REQUIREMENTS:
         usage: lastUsage,
         model: lastModel,
         thinking: thinkingContent,
+        agentId: activeAgentId,
+        agentName: activeAgent?.name || 'Nexus',
       };
       conversationStore.addMessage(sessionId, 'assistant', finalContent, assistantMetadata);
 
