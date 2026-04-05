@@ -53,6 +53,7 @@ import { handleToolsRoutes } from './routes/tools.js';
 import { handleCliRoutes } from './routes/cli.js';
 import { handleWebchatRoutes, ensureWebchatToken } from './routes/webchat.js';
 import { handleModulesRoutes } from './routes/modules.js';
+import { handleTasksRoutes } from './routes/tasks.js';
 import { getPromptExperiments } from '../engine/prompt-experiment.js';
 import { json, parseBody, error as apiError, type ApiContext } from './context.js';
 
@@ -111,7 +112,7 @@ let waError: string | null = null;
 const waMessages: Array<{ from: string; to: string; body: string; timestamp: string; isFromMe: boolean }> = [];
 const MAX_WA_MESSAGES = 100;
 
-
+import { crewRegistry } from '../engine/crew-registry.js';
 let scheduler: TaskSchedulerService | null = null;
 let agentOrchestrator: AgentOrchestrator | null = null;
 
@@ -873,6 +874,9 @@ export function initializeApi(
 ): { skillRepo: SkillRepository | null, skillEngine: SkillEngine | null } {
   migrateConfig();
   workspacePath = wsPath || null;
+  if (workspacePath) {
+    crewRegistry.initialize(workspacePath);
+  }
   if (workspace) workspaceProvider = workspace;
   if (db) {
 

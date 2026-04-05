@@ -33,6 +33,10 @@ export interface ChatMessageMetadata {
   attachments?: Attachment[];
   /** LLM thinking/reasoning content (from thinking-enabled models like Gemini 2.5+) */
   thinking?: string;
+  /** Agent ID that generated the message */
+  agentId?: string;
+  /** Human-readable Agent Name */
+  agentName?: string;
 }
 
 export interface ConversationSession {
@@ -286,7 +290,7 @@ export interface AgentDefinition {
   allowedTools?: string[]; // Empty means all tools
   model?: string;
   temperature?: number;
-  autonomyTier?: 'T0' | 'T1' | 'T2' | 'T3';
+  autonomyTier?: 'T1' | 'T2' | 'T3';
   capabilities?: string[];
   persona?: {
     role?: string;

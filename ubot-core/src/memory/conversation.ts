@@ -41,20 +41,49 @@ export function createConversationStore(db: DatabaseConnection): ConversationSto
         console.error('[Supabase] owner_id resolution failed:', e);
       }
 
-      const { error } = await getClient()
-        .from('ubot_chat_sessions')
-        .upsert({
-          id,
-          type,
-          name: sessionName,
-          owner_id: ownerId || '00000000-0000-0000-0000-000000000000',
-          created_at: now,
-          updated_at: now
-        }, { onConflict: 'id', ignoreDuplicates: true });
+      let error: any = null;
+      try {
+        const { data: existing } = await getClient()
+          .from('ubot_chat_sessions')
+          .select('id')
+          .eq('id', id)
+          .maybeSingle();
+
+        if (existing) {
+          const { error: updErr } = await getClient()
+            .from('ubot_chat_sessions')
+            .update({
+              type,
+              name: sessionName,
+              owner_id: ownerId || '00000000-0000-0000-0000-000000000000',
+              updated_at: now
+            })
+            .eq('id', id);
+          error = updErr;
+        } else {
+          const { error: insErr } = await getClient()
+            .from('ubot_chat_sessions')
+            .insert({
+              id,
+              type,
+              name: sessionName,
+              owner_id: ownerId || '00000000-0000-0000-0000-000000000000',
+              created_at: now,
+              updated_at: now
+            });
+          
+          // Ignore unique violation if another process inserted simultaneously
+          if (insErr && insErr.code !== '23505') {
+            error = insErr;
+          }
+        }
+      } catch (err) {
+        error = err;
+      }
 
       if (error) {
         console.error('[Supabase] createSession Error:', error);
-        throw new Error(`Failed to create session: ${error.message}`);
+        throw new Error(`Failed to create session: ${error.message || error}`);
       }
 
       return {
@@ -71,20 +100,25 @@ export function createConversationStore(db: DatabaseConnection): ConversationSto
       const { data, error } = await getClient()
         .from('ubot_chat_sessions')
         .select(`
-          id, type, name, created_at, updated_at,
-          ubot_chat_messages (id)
+          id, type, name, created_at, updated_at
         `)
         .eq('id', id)
         .single();
         
       if (error || !data) return undefined;
+
+      const { count } = await getClient()
+        .from('ubot_chat_messages')
+        .select('id', { count: 'exact', head: true })
+        .eq('session_id', id);
+
       return {
         id: data.id,
         type: data.type as any,
         name: data.name,
         createdAt: new Date(data.created_at),
         updatedAt: new Date(data.updated_at),
-        messageCount: data.ubot_chat_messages?.length || 0,
+        messageCount: count || 0,
       };
     },
 
@@ -98,8 +132,7 @@ export function createConversationStore(db: DatabaseConnection): ConversationSto
       const { data, error } = await getClient()
         .from('ubot_chat_sessions')
         .select(`
-          id, type, name, created_at, updated_at,
-          ubot_chat_messages (id)
+          id, type, name, created_at, updated_at
         `)
         .order('updated_at', { ascending: false });
         
@@ -110,13 +143,22 @@ export function createConversationStore(db: DatabaseConnection): ConversationSto
 
       if (!data) return [];
       
+      const { data: messages } = await getClient()
+        .from('ubot_chat_messages')
+        .select('session_id');
+
+      const counts = messages?.reduce((acc: any, msg: any) => {
+        acc[msg.session_id] = (acc[msg.session_id] || 0) + 1;
+        return acc;
+      }, {}) || {};
+      
       return data.map((row: any) => ({
         id: row.id,
         type: row.type,
         name: row.name,
         createdAt: new Date(row.created_at),
         updatedAt: new Date(row.updated_at),
-        messageCount: row.ubot_chat_messages?.length || 0,
+        messageCount: counts[row.id] || 0,
       }));
     },
 

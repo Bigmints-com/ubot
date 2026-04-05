@@ -38,6 +38,8 @@ interface ChatMessage {
     toolCalls?: Array<{ name: string; args?: unknown }>;
     tokenUsage?: { prompt: number; completion: number; total: number };
     duration?: number;
+    agentId?: string;
+    agentName?: string;
   };
 }
 
@@ -249,6 +251,8 @@ export default function ChatPage() {
             tokenUsage,
             toolCalls,
             duration: meta.duration as number | undefined,
+            agentId: meta.agentId as string | undefined,
+            agentName: meta.agentName as string | undefined,
           }
         : undefined,
     };
@@ -435,6 +439,8 @@ export default function ChatPage() {
               : undefined,
             toolCalls: res.toolCalls?.map((tc) => ({ name: tc.toolName })),
             duration: res.duration,
+            agentId: "main", // Immediately active message fallback, mostly overriden on reload
+            agentName: "Nexus",
           },
         },
       ]);
@@ -737,11 +743,16 @@ export default function ChatPage() {
               className={`flex gap-3 ${msg.role === "user" ? "justify-end" : "justify-start"}`}
             >
               {msg.role === "assistant" && (
-                <Avatar className="size-8 shrink-0">
-                  <AvatarFallback className="bg-primary text-primary-foreground text-xs">
-                    <Bot className="size-4" />
-                  </AvatarFallback>
-                </Avatar>
+                <div className="flex flex-col items-center gap-1 shrink-0">
+                  <Avatar className="size-8">
+                    <AvatarFallback className="bg-primary text-primary-foreground text-xs font-semibold">
+                      {msg.metadata?.agentName ? msg.metadata.agentName.substring(0, 2).toUpperCase() : <Bot className="size-4" />}
+                    </AvatarFallback>
+                  </Avatar>
+                  <span className="text-[10px] text-muted-foreground font-medium">
+                    {msg.metadata?.agentName || "Nexus"}
+                  </span>
+                </div>
               )}
               <div
                 className={`max-w-[80%] space-y-1 ${msg.role === "user" ? "items-end" : "items-start"}`}

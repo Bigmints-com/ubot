@@ -1,14 +1,35 @@
 /**
  * Agent Loader
  * 
- * Discovers and parses specialized agent definitions from ~/.ubot/data/workspace/agents/*.agent.yaml
- * Includes fallback logic for legacy .agent.md files
+ * Discovers and parses specialized agent definitions from <workspace>/agents/*.agent.yaml
+ * Includes fallback logic for legacy .agent.md files.
+ * When saving, legacy .md files are replaced by .yaml to prevent duplicates.
  */
 
 import fs from 'fs';
 import path from 'path';
 import type { AgentDefinition } from './types.js';
 import yaml from 'yaml';
+
+/**
+ * Normalise autonomyTier from various formats to the canonical 'T1'|'T2'|'T3' union.
+ * Handles: numbers (1→'T1'), strings ('T2'→'T2', '2'→'T2'), undefined → undefined.
+ */
+function normaliseAutonomyTier(raw: unknown): AgentDefinition['autonomyTier'] | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  if (typeof raw === 'string') {
+    const upper = raw.toUpperCase();
+    if (upper === 'T1' || upper === 'T2' || upper === 'T3') return upper as AgentDefinition['autonomyTier'];
+    // Try numeric string: '1' → 'T1'
+    const n = parseInt(raw, 10);
+    if (n >= 1 && n <= 3) return `T${n}` as AgentDefinition['autonomyTier'];
+    return undefined;
+  }
+  if (typeof raw === 'number' && raw >= 1 && raw <= 3) {
+    return `T${raw}` as AgentDefinition['autonomyTier'];
+  }
+  return undefined;
+}
 
 export function loadAgentDefinitions(workspacePath: string): AgentDefinition[] {
   const agentsDir = path.join(workspacePath, 'agents');
@@ -22,21 +43,42 @@ export function loadAgentDefinitions(workspacePath: string): AgentDefinition[] {
   }
 
   const agents: AgentDefinition[] = [];
+  // Track IDs to avoid duplicates when both .yaml and .md exist for the same agent.
+  // YAML takes precedence over .md.
+  const seenIds = new Set<string>();
+
   try {
     const files = fs.readdirSync(agentsDir);
     
-    for (const file of files) {
+    // Sort so .yaml/.yml files come before .md — YAML takes priority
+    const sorted = files.sort((a, b) => {
+      const aIsYaml = a.endsWith('.agent.yaml') || a.endsWith('.agent.yml');
+      const bIsYaml = b.endsWith('.agent.yaml') || b.endsWith('.agent.yml');
+      if (aIsYaml && !bIsYaml) return -1;
+      if (!aIsYaml && bIsYaml) return 1;
+      return a.localeCompare(b);
+    });
+
+    for (const file of sorted) {
       const filePath = path.join(agentsDir, file);
       const content = fs.readFileSync(filePath, 'utf8');
       
       if (file.endsWith('.agent.yaml') || file.endsWith('.agent.yml')) {
         const id = file.replace(/\.agent\.ya?ml$/, '');
+        if (seenIds.has(id)) continue;
         const agent = parseAgentYaml(id, content);
-        if (agent) agents.push(agent);
+        if (agent) {
+          agents.push(agent);
+          seenIds.add(id);
+        }
       } else if (file.endsWith('.agent.md')) {
         const id = file.replace(/\.agent\.md$/, '');
+        if (seenIds.has(id)) continue; // YAML version already loaded
         const agent = parseAgentMarkdown(id, content);
-        if (agent) agents.push(agent);
+        if (agent) {
+          agents.push(agent);
+          seenIds.add(id);
+        }
       }
     }
   } catch (err: any) {
@@ -54,10 +96,10 @@ function parseAgentYaml(id: string, content: string): AgentDefinition | null {
       name: parsed.name || id,
       description: parsed.description || '',
       systemPrompt: parsed.systemPrompt || parsed.instructions,
-      allowedTools: parsed.tools || parsed.allowedTools,
+      allowedTools: parsed.allowedTools || parsed.tools, // Accept both, canonical is allowedTools
       model: parsed.model,
       temperature: parsed.temperature,
-      autonomyTier: parsed.autonomyTier,
+      autonomyTier: normaliseAutonomyTier(parsed.autonomyTier),
       capabilities: parsed.capabilities,
       persona: parsed.persona,
       workflows: parsed.workflows,
@@ -104,8 +146,44 @@ function parseAgentMarkdown(id: string, content: string): AgentDefinition | null
       
       const tempMatch = body.match(/temperature:\s*(.+)/i);
       if (tempMatch) agent.temperature = parseFloat(tempMatch[1]);
+
+      const tierMatch = body.match(/autonomyTier:\s*(.+)/i);
+      if (tierMatch) agent.autonomyTier = normaliseAutonomyTier(tierMatch[1].trim());
     }
   }
 
   return agent;
+}
+
+export function saveAgentYaml(workspacePath: string, agent: AgentDefinition): void {
+  const agentsDir = path.join(workspacePath, 'agents');
+  if (!fs.existsSync(agentsDir)) {
+    fs.mkdirSync(agentsDir, { recursive: true });
+  }
+
+  // Remove legacy .md file if it exists to prevent duplicate loading
+  const legacyMdPath = path.join(agentsDir, `${agent.id}.agent.md`);
+  if (fs.existsSync(legacyMdPath)) {
+    fs.unlinkSync(legacyMdPath);
+    console.log(`[AgentLoader] Removed legacy .agent.md for ${agent.id} (migrated to YAML)`);
+  }
+
+  const filePath = path.join(agentsDir, `${agent.id}.agent.yaml`);
+  const yamlObj: Record<string, unknown> = {
+    name: agent.name,
+    description: agent.description,
+  };
+  
+  if (agent.systemPrompt) yamlObj.systemPrompt = agent.systemPrompt;
+  if (agent.allowedTools) yamlObj.allowedTools = agent.allowedTools;
+  if (agent.model) yamlObj.model = agent.model;
+  if (agent.temperature !== undefined) yamlObj.temperature = agent.temperature;
+  if (agent.autonomyTier) yamlObj.autonomyTier = agent.autonomyTier;
+  if (agent.capabilities) yamlObj.capabilities = agent.capabilities;
+  if (agent.persona) yamlObj.persona = agent.persona;
+  if (agent.workflows) yamlObj.workflows = agent.workflows;
+
+  const content = yaml.stringify(yamlObj);
+  fs.writeFileSync(filePath, content, 'utf8');
+  console.log(`[AgentLoader] Saved agent definition to ${filePath}`);
 }

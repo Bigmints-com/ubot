@@ -47,7 +47,7 @@ export function LoginScreen() {
         </div>
 
         {/* Login Card */}
-        <div className="bg-card border border-border rounded-xl shadow-lg p-6 ">
+        <div className="bg-card border border-border rounded-xl p-6 ">
           <form onSubmit={handleSubmit} className="space-y-4">
             {/* Error Banner */}
             {error && (

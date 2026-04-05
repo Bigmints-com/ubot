@@ -7,9 +7,9 @@
 export interface TaskStep {
   id: string;              // e.g., "step-1"
   description: string;     // Human-readable description
-  agentType: string;       // 'researcher' | 'writer' | 'browser-operator' | 'publisher' | 'coder' | 'general'
+  agentType: string;       // target agent (coder, general, nexus, etc)
   dependsOn: string[];     // Step IDs that must complete first
-  status: 'pending' | 'running' | 'completed' | 'failed' | 'skipped';
+  status: 'pending' | 'awaiting_approval' | 'rejected' | 'running' | 'completed' | 'failed' | 'skipped';
   prompt?: string;         // The prompt to send to the subagent
   result?: string;         // Output from the subagent
   error?: string;          // Error if failed
@@ -21,7 +21,7 @@ export interface TaskPlan {
   originalRequest: string;
   steps: TaskStep[];
   createdAt: Date;
-  status: 'planning' | 'executing' | 'completed' | 'failed' | 'partial';
+  status: 'planning' | 'executing' | 'awaiting_approval' | 'completed' | 'failed' | 'partial';
 }
 
 /**
