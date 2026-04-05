@@ -118,7 +118,7 @@ async function findRecentOutboundMessages(
 
 export interface AgentOrchestrator {
   /** Process a message and return the agent's response */
-  chat(sessionId: string, message: string, source?: 'web' | 'whatsapp' | 'telegram' | 'webchat' | 'sub-agent', contactName?: string, isOwner?: boolean, attachments?: Attachment[], skillContext?: string): Promise<AgentResponse>;
+  chat(sessionId: string, message: string, source?: 'web' | 'whatsapp' | 'telegram' | 'webchat' | 'sub-agent', contactName?: string, isOwner?: boolean, attachments?: Attachment[], skillContext?: string, onProgress?: (event: any) => void): Promise<AgentResponse>;
   /** Direct LLM text generation (no tools) — for skill generation, etc. */
   generate(systemPrompt: string, userMessage: string): Promise<string>;
   /** Get the current config */
@@ -242,6 +242,9 @@ export function createAgentOrchestrator(
       return { toolName: 'delegate_to_agent', success: false, error: `Agent "${agentId}" not found. Available: ${available}`, duration: 0 };
     }
     
+    const sid = `subagent-${agentDef.name}-${Date.now()}`;
+    sessionAgents.set(sid, agentDef.id);
+
     const subConfig = {
       name: agentDef.name,
       systemPrompt: agentDef.systemPrompt,
@@ -250,11 +253,9 @@ export function createAgentOrchestrator(
     };
     
     const orchestratorInterface = {
-      chat: (sid: string, msg: string, spo?: string) => 
-        orchestrator.chat(sid, msg, 'sub-agent', context?.contactName, context?.isOwner, undefined, spo)
+      chat: (_ignoredSid: string, msg: string, spo?: string) => 
+        orchestrator.chat(sid, msg, 'sub-agent', context?.contactName, context?.isOwner, undefined, spo, context?.reportProgress)
     };
-    
-    const sid = `subagent-${agentDef.name}-${Date.now()}`;
     if (db) {
       try {
         await db.get_client().from('ubot_spawned_sessions').insert({
@@ -279,8 +280,11 @@ export function createAgentOrchestrator(
            error: result.error || null,
            end_time: new Date().toISOString()
         }).eq('id', sid);
+        
+        // Ensure no lingering history chunks clog the main DB memory array
+        await db.get_client().from('ubot_sessions').delete().eq('id', sid);
       } catch (e: any) {
-        console.error('[Orchestrator] Failed to update subagent session:', e.message);
+        console.error('[Orchestrator] Failed to update/cleanup subagent session:', e.message);
       }
     }
     
@@ -426,15 +430,26 @@ export function createAgentOrchestrator(
             timeoutMs: 120000,
           };
           
+          const sid = `subplan-${step.id}-${Date.now()}`;
+          sessionAgents.set(sid, step.agentType);
+
           const orchestratorInterface = {
-            chat: (sid: string, msg: string, spo?: string) => 
-              orchestrator.chat(sid, msg, 'sub-agent', context?.contactName, context?.isOwner, undefined, spo)
+            chat: (_ignoredSid: string, msg: string, spo?: string) => 
+              orchestrator.chat(sid, msg, 'sub-agent', context?.contactName, context?.isOwner, undefined, spo, context?.reportProgress)
           };
           
           step.status = 'running';
           updateStepStatus(plan.id, step.id, 'running', undefined, undefined, db as any);
           
           const result = await runSubagent(subConfig, prompt, orchestratorInterface);
+          
+          if (db) {
+            try {
+              await db.get_client().from('ubot_sessions').delete().eq('id', sid);
+            } catch (e: any) {
+              console.error('[Orchestrator] Failed to cleanup plan subagent session:', e.message);
+            }
+          }
           
           if (result.status === 'completed') {
             step.status = 'completed';
@@ -991,6 +1006,7 @@ Inform the user about this possibility if it's relevant to the current conversat
     agentId?: string,
     preSelectedTools?: ToolDefinition[],
     purpose: ModelPurpose = 'chat',
+    source?: string,
   ): Promise<{
     content: string;
     toolCalls: Array<{ id: string; toolName: string; arguments: Record<string, unknown> }>;
@@ -1010,6 +1026,12 @@ Inform the user about this possibility if it's relevant to the current conversat
       filteredTools = preSelectedTools;
     } else {
       filteredTools = await getToolsForSource(isOwner);
+    }
+
+    // CRITICAL: Sub-agents must NEVER be allowed to spawn deeper sub-agents or re-plan,
+    // which prevents recursive infinity loops in the multi-agent execution hierarchy.
+    if (source === 'sub-agent') {
+      filteredTools = filteredTools.filter(t => !['delegate_to_agent', 'execute_plan', 'switch_agent'].includes(t.name));
     }
 
     if (agentId && crewRegistry.hasAgent(agentId)) {
@@ -1161,6 +1183,7 @@ Inform the user about this possibility if it's relevant to the current conversat
       isOwner: boolean = false,
       attachments?: Attachment[],
       skillContext?: string,
+      onProgress?: (event: any) => void
     ): Promise<AgentResponse> {
       const startTime = Date.now();
       const toolResults: ToolExecutionResult[] = [];
@@ -1260,7 +1283,7 @@ Inform the user about this possibility if it's relevant to the current conversat
       // Visitor sessions already have a small filtered set, so skip Phase 1.
       let selectedTools: ToolDefinition[] | undefined;
 
-      if (ownerFlag && !skillContext) {
+      if (ownerFlag && !skillContext && source !== 'sub-agent') {
         // Skill-driven messages need full tool access (skills are automations)
         try {
           // Use getClientForPurpose('router') so Vertex AI gets a fresh OAuth2 token.
@@ -1428,7 +1451,7 @@ If a skill matches the user's request, call run_skill with the skill ID. Otherwi
         iteration++;
 
         const activeAgentId = sessionAgents.get(sessionId);
-        const llmResult = await callLLM(messages, ownerFlag, activeAgentId, selectedTools, 'chat');
+        const llmResult = await callLLM(messages, ownerFlag, activeAgentId, selectedTools, 'chat', source);
         lastUsage = llmResult.usage;
         lastModel = llmResult.model || currentConfig.llmModel;
         // Capture thinking from the first iteration (where real reasoning happens)
@@ -1536,8 +1559,18 @@ If a skill matches the user's request, call run_skill with the skill ID. Otherwi
             getDatabase: () => db,
             getAgent: () => orchestrator,
             skillRepo,
-            skillEngine
+            skillEngine,
+            reportProgress: onProgress
           };
+
+          if (onProgress) {
+            onProgress({
+              agent: sessionAgents.get(sessionId) || 'Nexus',
+              action: `Using \`${resolvedToolName}\``,
+              tool: resolvedToolName,
+              args: toolCall.arguments,
+            });
+          }
 
           const beforeResult = await pipeline.runBeforeTool(middlewareCtx);
           let result: ToolExecutionResult;
@@ -1683,7 +1716,7 @@ REQUIREMENTS:
           const extraMax = Math.min(3, currentConfig.maxToolIterations - iteration);
           for (let extra = 0; extra < extraMax; extra++) {
             iteration++;
-            const retryResult = await callLLM(messages, ownerFlag, sessionAgents.get(sessionId), selectedTools, 'chat');
+            const retryResult = await callLLM(messages, ownerFlag, sessionAgents.get(sessionId), selectedTools, 'chat', source);
             lastUsage = retryResult.usage;
             lastModel = retryResult.model || currentConfig.llmModel;
 
@@ -1708,11 +1741,20 @@ REQUIREMENTS:
               const als = getToolAliases();
               if (als.has(tc.toolName)) resolvedName = als.get(tc.toolName)!;
 
+              if (onProgress) {
+                onProgress({
+                  agent: sessionAgents.get(sessionId) || 'Nexus',
+                  action: `Recovering with \`${resolvedName}\``,
+                  tool: resolvedName,
+                  args: tc.arguments,
+                });
+              }
+
               const result = await toolRegistry.execute({
                 toolName: resolvedName,
                 arguments: tc.arguments,
                 rawText: '',
-              }, { sessionId, isOwner: ownerFlag, contactName, source, getDatabase: () => db, getAgent: () => orchestrator, skillRepo, skillEngine });
+              }, { sessionId, isOwner: ownerFlag, contactName, source, getDatabase: () => db, getAgent: () => orchestrator, skillRepo, skillEngine, reportProgress: onProgress });
 
               toolResults.push(result);
               metricsCollector.recordTool(tc.toolName, result.success, result.duration, sessionId);
