@@ -15,6 +15,7 @@ const MESSAGING_TOOLS: ToolDefinition[] = [
       { name: 'to', type: 'string', description: 'Phone number with country code (e.g. +971501234567) or contact/group ID', required: true },
       { name: 'body', type: 'string', description: 'The message text to send', required: true },
       { name: 'channel', type: 'string', description: 'Messaging channel (whatsapp, telegram). Defaults to the connected one.', required: false },
+      { name: 'as_voice_note', type: 'boolean', description: 'If true, synthesizes the text into speech and sends it as an authentic voice note.', required: false },
     ],
   },
   {
@@ -137,6 +138,9 @@ const messagingToolModule: ToolModule = {
         ? String((rawBody as any).value || (rawBody as any).text || JSON.stringify(rawBody))
         : String(rawBody);
       if (!to || !body) return { toolName: 'send_message', success: false, error: 'Missing "to" or "body" parameter', duration: 0 };
+      
+      const asVoiceNote = args.as_voice_note === true || args.as_voice_note === 'true';
+
       try {
         let channel = args.channel as string | undefined;
         
@@ -154,8 +158,42 @@ const messagingToolModule: ToolModule = {
         }
         
         const provider = mr.resolveProvider(channel);
-        await provider.sendMessage(to, body);
-        return { toolName: 'send_message', success: true, result: `Message sent to ${to} via ${provider.channel}: "${body}"`, duration: 0 };
+        
+        let sendOpts: any = {};
+        let resultMessage = `Message sent to ${to} via ${provider.channel}: "${body}"`;
+
+        if (asVoiceNote) {
+          try {
+            const { isTtsAvailable, textToSpeech } = await import('../capabilities/tts/service.js');
+            if (isTtsAvailable()) {
+              const result = textToSpeech(body, { speed: 1.0 });
+              sendOpts = {
+                mediaType: 'audio',
+                mediaPath: result.audioPath,
+                ptt: true,
+                mimetype: 'audio/wav',
+              };
+              resultMessage = `Voice note generated and sent to ${to} via ${provider.channel}. text: "${body}"`;
+            } else {
+              console.warn("TTS requested but not available. Sending as text.");
+            }
+          } catch (err: any) {
+            console.error("Failed to generate voice note:", err.message);
+            // Will gracefully fall back to text because sendOpts remains empty
+          }
+        }
+
+        await provider.sendMessage(to, body, sendOpts);
+        
+        // Setup deferred cleanup if a temporary audio file was created
+        if (sendOpts.mediaPath) {
+          setTimeout(async () => {
+             const { unlinkSync } = await import('fs');
+             try { unlinkSync(sendOpts.mediaPath); } catch {}
+          }, 60000); // 1-minute delay before cleanup to ensure Baileys transmits it
+        }
+
+        return { toolName: 'send_message', success: true, result: resultMessage, duration: 0 };
       } catch (err: any) {
         return { toolName: 'send_message', success: false, error: err.message, duration: 0 };
       }

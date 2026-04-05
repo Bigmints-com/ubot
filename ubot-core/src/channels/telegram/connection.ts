@@ -128,7 +128,7 @@ export class TelegramConnection {
     }
   }
 
-  async sendMessage(chatId: number | string, text: string, replyToMessageId?: number): Promise<TelegramBot.Message> {
+  async sendMessage(chatId: number | string, text: string, replyToMessageId?: number, sendMediaOpts?: import('../types.js').SendOptions): Promise<TelegramBot.Message> {
     if (!this.bot) {
       throw new Error('Not connected to Telegram');
     }
@@ -136,6 +136,28 @@ export class TelegramConnection {
     const opts: TelegramBot.SendMessageOptions = {};
     if (replyToMessageId) {
       opts.reply_to_message_id = replyToMessageId;
+    }
+
+    if (sendMediaOpts?.mediaType) {
+      const source = sendMediaOpts.mediaUrl || sendMediaOpts.mediaPath || (sendMediaOpts.mediaBase64 ? Buffer.from(sendMediaOpts.mediaBase64, 'base64') : null);
+      if (!source) throw new Error("Media source is required when mediaType is specified");
+
+      const fileOpts = sendMediaOpts.fileName ? { filename: sendMediaOpts.fileName, contentType: sendMediaOpts.mimetype } : undefined;
+      const mediaOpts = { ...opts, caption: sendMediaOpts.caption || (text !== '' ? text : undefined) };
+
+      switch (sendMediaOpts.mediaType) {
+        case 'image':
+          return this.bot.sendPhoto(chatId, source, mediaOpts, fileOpts);
+        case 'video':
+          return this.bot.sendVideo(chatId, source, mediaOpts, fileOpts);
+        case 'audio':
+          if (sendMediaOpts.ptt) {
+            return this.bot.sendVoice(chatId, source, mediaOpts, fileOpts);
+          }
+          return this.bot.sendAudio(chatId, source, mediaOpts, fileOpts);
+        case 'document':
+          return this.bot.sendDocument(chatId, source, mediaOpts, fileOpts);
+      }
     }
 
     return this.bot.sendMessage(chatId, text, opts);

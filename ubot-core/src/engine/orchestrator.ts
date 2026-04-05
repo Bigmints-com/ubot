@@ -1349,7 +1349,11 @@ Inform the user about this possibility if it's relevant to the current conversat
       }
       // ── Skill-First Routing ──────────────────────────────────
       // Check if any saved skills match this request.
-      // If so, inject a STRONG directive so the LLM uses run_skill instead of manual execution.
+      // If so, inject a STRONG directive avoiding manual execution for agents.
+      // CRITICAL: Nexus is pure orchestration. It gets a dictionary, not a directive.
+      const currentAgentId = sessionAgents.get(sessionId);
+      const isNexus = !currentAgentId || currentAgentId === 'nexus' || currentAgentId.toLowerCase() === 'nexus';
+
       if (ownerFlag && skillEngine && !skillContext) {
         try {
           const skills = skillEngine.getSkills();
@@ -1405,7 +1409,17 @@ Inform the user about this possibility if it's relevant to the current conversat
 
             const insertIdx = messages.length - 1;
 
-            if (bestMatch && bestMatch.score >= 3) {
+            if (isNexus) {
+              messages.splice(insertIdx, 0, {
+                role: 'system',
+                content: `## Available Skills Dictionary
+The following automation skills exist in the workspace:
+${skillSummary}
+
+As the Orchestrator, be aware these skills exist. DO NOT use them to answer basic queries (e.g. weather). You may use \`run_skill\` if the user explicitly asks to run one, or delegate related tasks to specialized agents who will use them.`,
+              } as ChatMsg);
+              log.info('Agent', `Skill-first: injected Dictionary for Nexus (${enabledSkills.length} skills max score ${bestMatch?.score || 0})`);
+            } else if (bestMatch && bestMatch.score >= 3) {
               // STRONG match — inject a mandatory directive
               const s = bestMatch.skill;
               messages.splice(insertIdx, 0, {
@@ -1452,6 +1466,12 @@ If a skill matches the user's request, call run_skill with the skill ID. Otherwi
 
         const activeAgentId = sessionAgents.get(sessionId);
         const llmResult = await callLLM(messages, ownerFlag, activeAgentId, selectedTools, 'chat', source);
+
+        log.info('Orchestrator', `RAW LLM RESPONSE: ${JSON.stringify({
+          text: llmResult.content.substring(0, 500),
+          toolCalls: llmResult.toolCalls
+        })}`);
+
         lastUsage = llmResult.usage;
         lastModel = llmResult.model || currentConfig.llmModel;
         // Capture thinking from the first iteration (where real reasoning happens)

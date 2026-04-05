@@ -109,9 +109,48 @@ export class WhatsAppMessagingProvider implements MessagingProvider {
     if (!socket) throw new Error('WhatsApp not connected');
 
     const jid = this.normalizeJid(to);
-    const content: AnyMessageContent = opts?.replyToId
-      ? { text: body, contextInfo: { stanzaId: opts.replyToId, participant: jid } }
-      : { text: body };
+    
+    let content: AnyMessageContent;
+    
+    if (opts?.mediaType) {
+      const mediaSource = opts.mediaUrl 
+        ? { url: opts.mediaUrl } 
+        : opts.mediaPath 
+          ? { url: opts.mediaPath } 
+          : opts.mediaBase64 
+            ? Buffer.from(opts.mediaBase64, 'base64') 
+            : null;
+      
+      if (!mediaSource) {
+        throw new Error("Media source (path, url, or base64) is required when mediaType is specified");
+      }
+
+      // fallback body to caption if no explicit caption is provided (except audio docs)
+      const caption = opts.caption || (body ? body : undefined);
+      
+      switch (opts.mediaType) {
+        case 'image':
+          content = { image: mediaSource, caption };
+          break;
+        case 'video':
+          content = { video: mediaSource, caption, mimetype: opts.mimetype };
+          break;
+        case 'audio':
+          content = { audio: mediaSource, mimetype: opts.mimetype || 'audio/mp4', ptt: opts.ptt };
+          break;
+        case 'document':
+          content = { document: mediaSource, mimetype: opts.mimetype || 'application/octet-stream', fileName: opts.fileName || 'Attachment', caption };
+          break;
+        default:
+          content = { text: body };
+      }
+    } else {
+      content = { text: body };
+    }
+
+    if (opts?.replyToId) {
+      (content as any).contextInfo = { stanzaId: opts.replyToId, participant: jid };
+    }
 
     const sent = await this.connection.sendMessage(jid, content);
     if (!sent?.key?.id) throw new Error('Failed to send message');

@@ -96,7 +96,7 @@ export class TelegramMessagingProvider implements MessagingProvider {
     const chatId = parseInt(to, 10) || to;
     const replyToId = opts?.replyToId ? parseInt(opts.replyToId, 10) : undefined;
 
-    const sent = await this.connection.sendMessage(chatId, body, replyToId);
+    const sent = await this.connection.sendMessage(chatId, body, replyToId, opts);
 
     const msg: Message = {
       id: sent.message_id.toString(),

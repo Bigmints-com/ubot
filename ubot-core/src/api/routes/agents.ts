@@ -90,6 +90,7 @@ export const handleAgentsRoutes: RouteHandler = async (req, res, url, method, ct
           temperature: typeof body.temperature === 'number' ? body.temperature : undefined,
           autonomyTier: normaliseTierInput(body.autonomyTier),
           capabilities: Array.isArray(body.capabilities) ? body.capabilities : undefined,
+          skills: Array.isArray(body.skills) ? body.skills : undefined,
           persona: typeof body.persona === 'object' && body.persona ? body.persona as AgentDefinition['persona'] : undefined,
           workflows: Array.isArray(body.workflows) ? body.workflows : undefined,
         };
