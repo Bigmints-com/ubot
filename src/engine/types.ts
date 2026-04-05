@@ -292,6 +292,7 @@ export interface AgentDefinition {
   temperature?: number;
   autonomyTier?: 'T1' | 'T2' | 'T3';
   capabilities?: string[];
+  skills?: string[];
   persona?: {
     role?: string;
     tone?: string;

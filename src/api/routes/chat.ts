@@ -148,7 +148,10 @@ export async function handleChatRoutes(
 
       // Fire and forget
       ctx.agentOrchestrator.chat(
-        sessionId, message, 'web', undefined, true, attachments
+        sessionId, message, 'web', undefined, true, attachments, undefined,
+        (event) => {
+          ctx.asyncJobStore?.addEvent(jobId, event).catch(() => {});
+        }
       ).then((response) => {
         ctx.asyncJobStore?.update(jobId, { 
           status: 'completed', 

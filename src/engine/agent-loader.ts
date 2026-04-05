@@ -101,6 +101,7 @@ function parseAgentYaml(id: string, content: string): AgentDefinition | null {
       temperature: parsed.temperature,
       autonomyTier: normaliseAutonomyTier(parsed.autonomyTier),
       capabilities: parsed.capabilities,
+      skills: parsed.skills,
       persona: parsed.persona,
       workflows: parsed.workflows,
     };
@@ -180,6 +181,7 @@ export function saveAgentYaml(workspacePath: string, agent: AgentDefinition): vo
   if (agent.temperature !== undefined) yamlObj.temperature = agent.temperature;
   if (agent.autonomyTier) yamlObj.autonomyTier = agent.autonomyTier;
   if (agent.capabilities) yamlObj.capabilities = agent.capabilities;
+  if (agent.skills) yamlObj.skills = agent.skills;
   if (agent.persona) yamlObj.persona = agent.persona;
   if (agent.workflows) yamlObj.workflows = agent.workflows;
 

@@ -30,6 +30,7 @@ interface AgentDefinition {
   temperature?: number;
   autonomyTier?: "T1" | "T2" | "T3";
   capabilities?: string[];
+  skills?: string[];
 }
 
 const TIER_META: Record<string, { label: string; color: string }> = {
@@ -53,6 +54,8 @@ export default function AgentsPage() {
   const [saving, setSaving] = useState(false);
   const [justSaved, setJustSaved] = useState(false);
   const [newTool, setNewTool] = useState("");
+  const [newSkill, setNewSkill] = useState("");
+  const [availableSkills, setAvailableSkills] = useState<{id: string, name: string}[]>([]);
 
   const loadAgents = useCallback(async () => {
     setLoading(true);
@@ -71,6 +74,12 @@ export default function AgentsPage() {
       loadAgents();
     }
   }, [selectedId, loadAgents]);
+
+  useEffect(() => {
+    api<{ skills: {id: string, name: string}[] }>("/api/skills")
+      .then(data => setAvailableSkills(data.skills || []))
+      .catch(() => {});
+  }, []);
 
   const loadAgentDetails = useCallback(async (id: string) => {
     setLoading(true);
@@ -123,6 +132,22 @@ export default function AgentsPage() {
     setAgentForm({ ...agentForm, allowedTools: (agentForm.allowedTools || []).filter(t => t !== tool) });
   };
 
+  const addSkill = () => {
+    if (!agentForm || !newSkill.trim()) return;
+    const skills = agentForm.skills || [];
+    if (skills.includes(newSkill.trim())) {
+      toast.error("Skill already exists");
+      return;
+    }
+    setAgentForm({ ...agentForm, skills: [...skills, newSkill.trim()] });
+    setNewSkill("");
+  };
+
+  const removeSkill = (skill: string) => {
+    if (!agentForm) return;
+    setAgentForm({ ...agentForm, skills: (agentForm.skills || []).filter(s => s !== skill) });
+  };
+
   const hasChanges = JSON.stringify(agentForm) !== JSON.stringify(originalForm);
 
   // ── Editor View ────────────────────────────────────────────
@@ -131,7 +156,7 @@ export default function AgentsPage() {
       <div className="p-6 space-y-6">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <Button variant="ghost" size="icon" onClick={() => { setSelectedId(null); setNewTool(""); }}>
+            <Button variant="ghost" size="icon" onClick={() => { setSelectedId(null); setNewTool(""); setNewSkill(""); }}>
               <ArrowLeft className="size-4" />
             </Button>
             <div>
@@ -269,6 +294,52 @@ export default function AgentsPage() {
                     </Button>
                   </div>
                 </div>
+
+                <Separator />
+                
+                <div className="space-y-2 pt-1">
+                  <Label>Assigned Skills</Label>
+                  <div className="flex flex-wrap gap-1.5 mt-1">
+                    {(agentForm.skills || []).map((s) => (
+                      <Badge key={s} variant="secondary" className="font-mono text-xs gap-1 pr-1 border-primary/20 bg-primary/5 text-primary">
+                        {s}
+                        <button
+                          type="button"
+                          onClick={() => removeSkill(s)}
+                          className="ml-0.5 rounded-full p-0.5 hover:bg-destructive/20 hover:text-destructive transition-colors"
+                        >
+                          <X className="size-3" />
+                        </button>
+                      </Badge>
+                    ))}
+                    {(!agentForm.skills || agentForm.skills.length === 0) && (
+                      <span className="text-sm text-muted-foreground">No automated skills assigned</span>
+                    )}
+                  </div>
+                  <div className="flex gap-2 mt-2">
+                    <Select onValueChange={(val) => {
+                      if (!agentForm) return;
+                      const skills = agentForm.skills || [];
+                      if (!skills.includes(val)) {
+                        setAgentForm({ ...agentForm, skills: [...skills, val] });
+                      }
+                    }}>
+                      <SelectTrigger className="font-mono text-xs h-8 flex-1">
+                        <SelectValue placeholder="Select a skill to add..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {availableSkills.filter(s => !(agentForm.skills || []).includes(s.id)).map(s => (
+                          <SelectItem key={s.id} value={s.id} className="font-mono text-xs">
+                            {s.id} <span className="text-muted-foreground ml-2">({s.name})</span>
+                          </SelectItem>
+                        ))}
+                        {availableSkills.filter(s => !(agentForm.skills || []).includes(s.id)).length === 0 && (
+                          <SelectItem value="_empty" disabled>All available skills assigned</SelectItem>
+                        )}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
               </CardContent>
             </Card>
           </div>
@@ -377,6 +448,11 @@ export default function AgentsPage() {
                       <Cpu className="size-3 mr-1 opacity-70" />
                       {agent.allowedTools?.length || 0} Tools
                     </Badge>
+                    {(agent.skills && agent.skills.length > 0) && (
+                      <Badge variant="secondary" className="border-primary/20 bg-primary/5 text-primary">
+                        {agent.skills.length} Skills
+                      </Badge>
+                    )}
                     {agent.model && (
                       <Badge variant="outline" className="font-mono text-xs bg-primary/5 text-primary border-primary/20">
                         {agent.model.length > 25 ? agent.model.slice(0, 22) + "…" : agent.model}

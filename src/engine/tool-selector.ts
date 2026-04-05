@@ -20,10 +20,10 @@ const ALWAYS_INCLUDE_MODULES = new Set([
   'personas',       // save_memory, get_profile — soul system
   'followups',      // conversation continuity
   'web-fetch',      // always need URL fetching as fallback
-  'web-search',     // always need web search capability (includes tavily MCP)
-  'browser',        // playwright MCP — always available for browsing
-  'orchestrator',   // delegate_to_agent, execute_plan — multi-agent control
+  'web-search',     // always need web search capability — use this FIRST for lookups
   'skills',         // run_skill — MUST be available so LLM uses pre-built workflows
+  // 'orchestrator' intentionally omitted — only injected for complex multi-step tasks
+  // 'browser' intentionally omitted — only injected when browsing/automation is needed
 ]);
 
 /** Static one-liner descriptions per module — used in the compact catalog */
@@ -48,7 +48,7 @@ const MODULE_DESCRIPTIONS: Record<string, string> = {
   scheduler:     'Schedule messages, reminders, and agent tasks',
   browser:       'Browser automation, screenshots, form filling',
   mcp:           'External MCP server tools',
-  orchestrator:  'Delegate tasks to specialized agents, decompose complex multi-step requests into plans',
+  orchestrator:  'Multi-agent coordination ONLY: delegate to specialized agents (researcher, writer, coder, publisher) or decompose requests requiring 3+ distinct capabilities. Do NOT use for simple lookups, weather, facts, or single-tool tasks.',
 };
 
 /**
@@ -81,7 +81,14 @@ Rules:
 - Only include modules that are actually needed
 - If unsure, include the module
 - If the user mentions websites, URLs, browsing, or checking a site, include "browser"
-- If the user mentions a custom tool/integration, also include "browser" as fallback`;
+- If the user mentions a custom tool/integration, also include "browser" as fallback
+
+CRITICAL — orchestrator rules (multi-agent delegation):
+- NEVER include "orchestrator" for simple lookups (weather, facts, prices, news, calculations)
+- NEVER include "orchestrator" if a single web search or API call can answer the question
+- ONLY include "orchestrator" when the task REQUIRES multiple specialized agents working in sequence
+- Examples that NEED orchestrator: "research X, write an article, then publish it", "build a feature, test it, deploy it"
+- Examples that do NOT need orchestrator: "what is the weather in Dubai", "search for X", "send a message", "check my email"`;
 
 export interface ToolSelectionResult {
   tools: ToolDefinition[];

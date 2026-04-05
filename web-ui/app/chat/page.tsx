@@ -93,6 +93,7 @@ export default function ChatPage() {
   const captionInputRef = useRef<HTMLInputElement>(null);
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
   const [expandedThinking, setExpandedThinking] = useState<Set<number>>(new Set());
+  const [subagentEvents, setSubagentEvents] = useState<any[]>([]);
 
   const handleCopy = (content: string, index: number) => {
     navigator.clipboard.writeText(content);
@@ -397,6 +398,7 @@ export default function ChatPage() {
       const body: Record<string, unknown> = {
         message: trimmed || `Please analyze the attached file(s): ${attachmentsToSend.map(a => a.file.name).join(", ")}`,
         sessionId: activeThreadId,
+        async: true, // Use async worker flow
       };
 
       if (attachmentsToSend.length > 0) {
@@ -407,18 +409,37 @@ export default function ChatPage() {
         }));
       }
 
-      const res = await api<{
-        content: string;
-        toolCalls?: Array<{ toolName: string }>;
-        usage?: { promptTokens: number; completionTokens: number; totalTokens: number };
-        model?: string;
-        duration?: number;
-        attachments?: Array<{ id: string; filename: string; mimeType: string }>;
-        thinking?: string;
-      }>("/api/chat", {
+      setSubagentEvents([]); // reset before polling
+      
+      const initRes = await api<{ jobId: string; error?: string }>("/api/chat", {
         method: "POST",
         body,
       });
+
+      if (!initRes.jobId) {
+        throw new Error(initRes.error || "Failed to initialize chat stream.");
+      }
+
+      const jobId = initRes.jobId;
+      let finalRes: any = null;
+
+      // Poll until finished
+      while (true) {
+        await new Promise(r => setTimeout(r, 2000));
+        const jobInfo = await api<any>(`/api/chat/job/${jobId}`);
+        
+        if (jobInfo.result?._type === 'transient_events') {
+          setSubagentEvents(jobInfo.result.events || []);
+        } else if (jobInfo.status === 'completed') {
+          finalRes = jobInfo.result;
+          setSubagentEvents([]);
+          break;
+        } else if (jobInfo.status === 'failed') {
+          throw new Error(jobInfo.error || "Agent task failed");
+        }
+      }
+
+      const res = finalRes;
 
       messageCountRef.current += 1;
       setMessages((prev) => [
@@ -437,7 +458,7 @@ export default function ChatPage() {
                   total: res.usage.totalTokens,
                 }
               : undefined,
-            toolCalls: res.toolCalls?.map((tc) => ({ name: tc.toolName })),
+            toolCalls: res.toolCalls?.map((tc: any) => ({ name: tc.toolName })),
             duration: res.duration,
             agentId: "main", // Immediately active message fallback, mostly overriden on reload
             agentName: "Nexus",
@@ -930,8 +951,8 @@ export default function ChatPage() {
                   <Bot className="size-4" />
                 </AvatarFallback>
               </Avatar>
-              <Card className="px-4 py-3 bg-muted">
-                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Card className="px-4 py-3 bg-muted min-w-[200px]">
+                <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
                   <Loader2 className="size-4 animate-spin text-primary" />
                   <span>Thinking</span>
                   <span className="inline-flex gap-0.5">
@@ -940,6 +961,16 @@ export default function ChatPage() {
                     <span className="animate-bounce" style={{ animationDelay: "300ms" }}>.</span>
                   </span>
                 </div>
+                {subagentEvents.length > 0 && (
+                  <div className="mt-2 text-xs border-t pt-2 space-y-1">
+                    {subagentEvents.map((ev, i) => (
+                      <div key={i} className="flex gap-2 text-muted-foreground">
+                        <span className="font-semibold text-foreground/70">{ev.agent}:</span>
+                        <span>{ev.action}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </Card>
             </div>
           )}

@@ -2,9 +2,11 @@
 
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import rehypeRaw from "rehype-raw";
 import { useState, useCallback } from "react";
-import { Copy, Check, ExternalLink, Download, Play, Pause } from "lucide-react";
+import { Copy, Check, ExternalLink, Download, Play, Pause, TrendingUp, TrendingDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 
 interface MessageContentProps {
   content: string;
@@ -12,9 +14,83 @@ interface MessageContentProps {
 }
 
 /**
+ * Audio Card Component for rendering inline voice notes.
+ */
+function AudioCard({ text }: { text: string }) {
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [audio, setAudio] = useState<HTMLAudioElement | null>(null);
+
+  const toggleVoice = async () => {
+    if (audio) {
+      if (isPlaying) {
+        audio.pause();
+        setIsPlaying(false);
+      } else {
+        audio.play();
+        setIsPlaying(true);
+      }
+      return;
+    }
+
+    try {
+      setIsPlaying(true);
+      const response = await fetch("/api/tts/speak", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text }),
+      });
+
+      if (!response.ok) throw new Error("Failed to generate audio");
+      
+      const audioBlob = await response.blob();
+      const audioUrl = URL.createObjectURL(audioBlob);
+      const newAudio = new Audio(audioUrl);
+      
+      newAudio.onended = () => {
+        setIsPlaying(false);
+        URL.revokeObjectURL(audioUrl);
+        setAudio(null);
+      };
+      newAudio.onerror = () => {
+        setIsPlaying(false);
+        URL.revokeObjectURL(audioUrl);
+        setAudio(null);
+      };
+      
+      setAudio(newAudio);
+      await newAudio.play();
+    } catch (err) {
+      console.error(err);
+      setIsPlaying(false);
+    }
+  };
+
+  return (
+    <Card className="my-3 inline-block min-w-[280px] max-w-[80%] border-primary/20 bg-primary/5">
+      <CardContent className="p-3 flex items-start gap-3">
+        <Button 
+          variant="default" 
+          size="icon" 
+          className="shrink-0 rounded-full size-10" 
+          onClick={toggleVoice}
+        >
+          {isPlaying ? <Pause className="size-4" /> : <Play className="size-4 ml-0.5" />}
+        </Button>
+        <div className="flex-1">
+          <div className="text-xs font-semibold text-primary mb-1">
+            Voice Note
+          </div>
+          <div className="text-sm italic leading-snug">"{text}"</div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+/**
  * Rich markdown renderer for chat messages.
  * Renders: images, code blocks with copy, tables, links,
- * headings, lists, blockquotes — similar to Claude/ChatGPT.
+ * youtube iframes, metrics cards, audio cards, headings, lists, blockquotes
  */
 export function MessageContent({ content, role }: MessageContentProps) {
   if (!content) return null;
@@ -28,31 +104,80 @@ export function MessageContent({ content, role }: MessageContentProps) {
     );
   }
 
+  // Auto-linkify naked youtube URLs to ensure the embed always triggers, even if the agent forgets Markdown
+  const safeContent = content.replace(
+    /(?<![="\]'\(])(https?:\/\/(?:www\.)?(?:youtube\.com\/watch\?v=|youtu\.be\/)[^\s\n<]+)/g,
+    (match) => `[YouTube Video](${match})`
+  );
+
   return (
     <div className="text-sm leading-relaxed prose-chat">
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
+        rehypePlugins={[rehypeRaw]}
         components={{
-          // ── Code blocks with syntax highlight + copy button ──
-          code({ className, children, ...props }) {
+          // ── Code blocks / pre ──
+          code({ node, inline, className, children, ...props }: any) {
             const match = /language-(\w+)/.exec(className || "");
-            const isInline = !match && !String(children).includes("\n");
 
-            if (isInline) {
+            // ── Generative UI: Natively intercept audiocard JSON blocks ──
+            if (!inline && match && match[1].toLowerCase() === "audiocard") {
+              try {
+                const data = JSON.parse(String(children));
+                return <AudioCard text={data.text} />;
+              } catch (e) {
+                return (
+                  <div className="text-red-500 text-xs my-2 border p-2 bg-red-500/10 rounded">
+                    [Failed to render audiocard: Invalid JSON data]
+                  </div>
+                );
+              }
+            }
+
+            // ── Generative UI: Natively intercept metricscard JSON blocks ──
+            if (!inline && match && match[1].toLowerCase() === "metricscard") {
+              try {
+                const data = JSON.parse(String(children));
+                const isUp = String(data.trend).startsWith("+");
+                const isDown = String(data.trend).startsWith("-");
+                return (
+                  <Card className="my-3 inline-block min-w-[200px]">
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm font-medium text-muted-foreground">{data.title}</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="text-2xl font-bold">{data.value}</div>
+                      {data.trend && (
+                        <p className={`text-xs mt-1 flex items-center gap-1 ${isUp ? "text-green-500" : isDown ? "text-red-500" : "text-muted-foreground"}`}>
+                          {isUp && <TrendingUp className="size-3" />}
+                          {isDown && <TrendingDown className="size-3" />}
+                          {data.trend}
+                        </p>
+                      )}
+                    </CardContent>
+                  </Card>
+                );
+              } catch (e) {
+                return (
+                  <div className="text-red-500 text-xs my-2 border p-2 bg-red-500/10 rounded">
+                    [Failed to render metricscard: Invalid JSON data]
+                  </div>
+                );
+              }
+            }
+
+            if (!inline && match) {
               return (
-                <code
-                  className="bg-muted px-1.5 py-0.5 rounded text-xs font-mono"
-                  {...props}
-                >
-                  {children}
-                </code>
+                <CodeBlock language={match[1]}>
+                  {String(children).replace(/\n$/, "")}
+                </CodeBlock>
               );
             }
 
             return (
-              <CodeBlock language={match?.[1] || ""}>
-                {String(children).replace(/\n$/, "")}
-              </CodeBlock>
+              <code className="bg-muted px-1.5 py-0.5 rounded text-xs font-mono" {...props}>
+                {children}
+              </code>
             );
           },
 
@@ -63,12 +188,40 @@ export function MessageContent({ content, role }: MessageContentProps) {
             );
           },
 
-          // ── Links — open in new tab with icon ──
+          // ── Links — open in new tab with icon, embed Youtube ──
           a({ href, children, ...props }) {
-            const isExternal = href?.startsWith("http");
+            const url = String(href || "");
+            
+            // YouTube embed detection
+            if (url.includes("youtube.com/watch?v=") || url.includes("youtu.be/")) {
+              let videoId = "";
+              if (url.includes("youtube.com/watch?v=")) {
+                videoId = new URL(url).searchParams.get("v") || "";
+              } else if (url.includes("youtu.be/")) {
+                videoId = url.split("youtu.be/")[1]?.split("?")[0] || "";
+              }
+              
+              if (videoId) {
+                return (
+                  <div className="my-3 overflow-hidden rounded-lg aspect-video border border-border bg-muted">
+                    <iframe
+                      width="100%"
+                      height="100%"
+                      src={`https://www.youtube.com/embed/${videoId}`}
+                      title="YouTube Video"
+                      frameBorder="0"
+                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                      allowFullScreen
+                    ></iframe>
+                  </div>
+                );
+              }
+            }
+
+            const isExternal = url.startsWith("http");
             return (
               <a
-                href={href}
+                href={url}
                 target={isExternal ? "_blank" : undefined}
                 rel={isExternal ? "noopener noreferrer" : undefined}
                 className="text-primary underline underline-offset-2 decoration-primary/40 hover:decoration-primary inline-flex items-center gap-0.5"
@@ -77,6 +230,30 @@ export function MessageContent({ content, role }: MessageContentProps) {
                 {children}
                 {isExternal && <ExternalLink className="size-3 shrink-0" />}
               </a>
+            );
+          },
+          
+          // ── Generative UI Components via custom tags ──
+          // @ts-ignore
+          metricscard({ title, value, trend, ...props }: any) {
+            const isUp = String(trend).startsWith("+");
+            const isDown = String(trend).startsWith("-");
+            return (
+              <Card className="my-3 inline-block min-w-[200px]" {...props}>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-medium text-muted-foreground">{title}</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{value}</div>
+                  {trend && (
+                    <p className={`text-xs mt-1 flex items-center gap-1 ${isUp ? "text-green-500" : isDown ? "text-red-500" : "text-muted-foreground"}`}>
+                      {isUp && <TrendingUp className="size-3" />}
+                      {isDown && <TrendingDown className="size-3" />}
+                      {trend}
+                    </p>
+                  )}
+                </CardContent>
+              </Card>
             );
           },
 
@@ -162,7 +339,7 @@ export function MessageContent({ content, role }: MessageContentProps) {
           },
         }}
       >
-        {content}
+        {safeContent}
       </ReactMarkdown>
     </div>
   );
