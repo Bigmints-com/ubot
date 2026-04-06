@@ -395,6 +395,7 @@ export async function handleChatRoutes(
       webchatEnabled: webchat.enabled !== false,
       webchatToken: webchat.connection_token || '',
       webchatRelayUrl: webchat.relay_url || '',
+      relaySlug: webchat.relay_slug || '',
       webchatBotSecret: webchat.bot_secret || '',
       webchatOwnerKey: webchat.owner_key || '',
       webchatWidgetTitle: webchat.widget_title || '',
@@ -429,6 +430,7 @@ export async function handleChatRoutes(
     if (body.webchatWidgetColor !== undefined) { if (!cfg.channels) cfg.channels = {}; if (!cfg.channels.webchat) cfg.channels.webchat = {}; cfg.channels.webchat.widget_color = body.webchatWidgetColor; }
     if (body.webchatWelcomeMessage !== undefined) { if (!cfg.channels) cfg.channels = {}; if (!cfg.channels.webchat) cfg.channels.webchat = {}; cfg.channels.webchat.welcome_message = body.webchatWelcomeMessage; }
     if (body.webchatRelayUrl !== undefined) { if (!cfg.channels) cfg.channels = {}; if (!cfg.channels.webchat) cfg.channels.webchat = {}; cfg.channels.webchat.relay_url = body.webchatRelayUrl; }
+    if (body.relaySlug !== undefined) { if (!cfg.channels) cfg.channels = {}; if (!cfg.channels.webchat) cfg.channels.webchat = {}; cfg.channels.webchat.relay_slug = body.relaySlug; }
     if (body.webchatBotSecret !== undefined) { if (!cfg.channels) cfg.channels = {}; if (!cfg.channels.webchat) cfg.channels.webchat = {}; cfg.channels.webchat.bot_secret = body.webchatBotSecret; }
     if (body.webchatOwnerKey !== undefined) { if (!cfg.channels) cfg.channels = {}; if (!cfg.channels.webchat) cfg.channels.webchat = {}; cfg.channels.webchat.owner_key = body.webchatOwnerKey; }
     if (body.webchatAvatarUrl !== undefined) { if (!cfg.channels) cfg.channels = {}; if (!cfg.channels.webchat) cfg.channels.webchat = {}; cfg.channels.webchat.avatar_url = body.webchatAvatarUrl; }
