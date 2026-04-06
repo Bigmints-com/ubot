@@ -615,7 +615,9 @@ async function loadExtensions(): Promise<void> {
   }
 
   // Try to load ubot.extensions.ts/js from UBOT_HOME or current directory
-  const searchDirs = UBOT_HOME ? [UBOT_HOME, process.cwd()] : [process.cwd()];
+  const searchDirs = UBOT_HOME 
+    ? [UBOT_HOME, process.cwd(), path.join(process.cwd(), 'dist')] 
+    : [process.cwd(), path.join(process.cwd(), 'dist')];
   for (const dir of searchDirs) {
     for (const ext of ['ubot.extensions.js', 'ubot.extensions.ts']) {
       const extPath = path.join(dir, ext);
