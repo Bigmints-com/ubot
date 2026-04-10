@@ -140,6 +140,20 @@ _do_install:
 		echo "   Synced default skills to $(UBOT_HOME)/workspace/skills/"; \
 	fi
 
+	@# Copy default agents (e.g. Nexus orchestrator - respects user deletions)
+	@mkdir -p $(UBOT_HOME)/workspace/agents
+	@if [ -d $(CORE_DIR)/agents ]; then \
+		for agent_file in $(CORE_DIR)/agents/*; do \
+			if [ -f "$$agent_file" ]; then \
+				agent_name=$$(basename "$$agent_file"); \
+				if [ ! -e "$(UBOT_HOME)/workspace/agents/$$agent_name" ]; then \
+					cp "$$agent_file" "$(UBOT_HOME)/workspace/agents/$$agent_name"; \
+				fi; \
+			fi; \
+		done; \
+		echo "   Synced default agents to $(UBOT_HOME)/workspace/agents/"; \
+	fi
+
 
 	@# ── Application code (replaced on every install/update) ────────────
 	@# These are safe to replace — they contain only compiled code, not user data.
