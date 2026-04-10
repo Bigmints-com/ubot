@@ -126,7 +126,7 @@ export interface UbotConfig {
     access_password?: string;
   };
   database?: {
-    provider?: 'sqlite' | 'supabase';
+    provider?: 'supabase';
     path?: string;
     supabase_url?: string;
     supabase_service_key?: string;

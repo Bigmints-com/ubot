@@ -82,17 +82,6 @@ const appState: AppState = {
 };
 
 // Initialize database
-const dbPath = ubotConfig.database?.path
-  ? (path.isAbsolute(ubotConfig.database.path)
-    ? ubotConfig.database.path
-    : path.join(UBOT_HOME || process.cwd(), ubotConfig.database.path))
-  : (UBOT_HOME ? path.join(UBOT_HOME, 'data', 'local', 'ubot.db') : './data/local/ubot.db');
-// Ensure data directory exists
-const dataDir = path.dirname(dbPath);
-if (!fs.existsSync(dataDir)) {
-  fs.mkdirSync(dataDir, { recursive: true });
-}
-
 const db = createConnection({
   config: Object.assign({}, createDefaultConfig(), ubotConfig.database || {})
 });

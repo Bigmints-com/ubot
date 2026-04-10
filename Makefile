@@ -122,11 +122,6 @@ _do_install:
 		echo "   Synced default skills to $(UBOT_HOME)/workspace/skills/"; \
 	fi
 
-	@# ── Backup database before install ─────────────────────────────────
-	@if [ -f $(UBOT_HOME)/data/ubot.db ]; then \
-		cp $(UBOT_HOME)/data/ubot.db $(UBOT_HOME)/data/ubot.db.bak; \
-		echo "   Backed up database to data/ubot.db.bak"; \
-	fi
 
 	@# ── Application code (replaced on every install/update) ────────────
 	@# These are safe to replace — they contain only compiled code, not user data.

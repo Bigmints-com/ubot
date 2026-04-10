@@ -1,7 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 export interface DatabaseConfig {
-  provider?: 'sqlite' | 'supabase';
+  provider?: 'supabase';
   supabase_url?: string;
   supabase_service_key?: string;
 }
