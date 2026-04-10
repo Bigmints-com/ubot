@@ -68,6 +68,7 @@ export const FEATURES: Record<string, boolean> = {
   whatsapp:       isLocal,
   imessage:       isLocal,
   ollama:         isLocal,
+  lmstudio:       isLocal,
   localWhisper:   isLocal,
   localTts:       isLocal,
   filesystem:     isLocal,

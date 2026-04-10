@@ -44,8 +44,8 @@ const CAPABILITY_FEATURE_MAP: Record<string, FeatureName> = {
   apple: 'appleServices',
   filesystem: 'filesystem',
   cli: 'cli',
-  transcription: 'localWhisper',
-  tts: 'localTts',
+  // transcription: always enabled — uses configured LLM provider, no local model required
+  // tts: always enabled — uses configured LLM provider, no local binary required
   // models: always enabled (model management is core)
   // google: always enabled
   // 'web-search': always enabled

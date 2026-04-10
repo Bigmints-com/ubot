@@ -318,9 +318,14 @@ export async function selectToolsForMessage(
       }
     }
 
-    const selectedTools = allToolsWithModules
+    let selectedTools = allToolsWithModules
       .filter(t => selectedModules.includes(t.module))
       .map(t => t.tool);
+
+    if (!isOwner) {
+      const { VISITOR_SAFE_TOOL_NAMES } = await import('./tools.js');
+      selectedTools = selectedTools.filter(t => VISITOR_SAFE_TOOL_NAMES.has(t.name));
+    }
 
     const selectedPayloadChars = JSON.stringify(selectedTools.map(t => ({
       name: t.name, description: t.description, parameters: t.parameters,

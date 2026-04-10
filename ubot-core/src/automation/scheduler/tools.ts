@@ -30,11 +30,13 @@ const SCHEDULER_TOOLS: ToolDefinition[] = [
   },
   {
     name: 'create_reminder',
-    description: 'Create a reminder for the owner. Will be sent via their connected messaging channel.',
+    description: 'Create a reminder for the owner. Will be sent via their connected messaging channel. IMPORTANT: NEVER call this multiple times to simulate a recurring pattern — use recurrence or interval_minutes instead. For "every X minutes/hours", use interval_minutes. For daily/weekly/monthly, use recurrence.',
     parameters: [
       { name: 'message', type: 'string', description: 'What to remind about', required: true },
-      { name: 'time', type: 'string', description: 'When to remind. Supports natural language: "in 30 minutes", "at 3:00pm", "tomorrow at 9am"', required: true },
-      { name: 'recurrence', type: 'string', description: 'Optional: "once" (default), "daily", "weekly", "monthly"', required: false },
+      { name: 'time', type: 'string', description: 'When to start. Supports natural language: "in 30 minutes", "at 3:00pm", "tomorrow at 9am", "now"', required: true },
+      { name: 'recurrence', type: 'string', description: 'How often: "once" (default), "daily", "weekly", "monthly". For sub-daily intervals use interval_minutes instead.', required: false },
+      { name: 'interval_minutes', type: 'number', description: 'Repeat every N minutes (e.g. 10 for every 10 minutes). Takes priority over recurrence. Use duration_minutes to limit how long it runs.', required: false },
+      { name: 'duration_minutes', type: 'number', description: 'Only used with interval_minutes. Stop repeating after this many minutes total (e.g. 60 to run for 1 hour).', required: false },
     ],
   },
   {
@@ -180,11 +182,14 @@ const schedulerToolModule: ToolModule = {
       const message = String(args.message || '');
       const time = String(args.time || '');
       const recurrence = String(args.recurrence || 'once') as 'once' | 'daily' | 'weekly' | 'monthly';
+      const intervalMinutes = args.interval_minutes ? Number(args.interval_minutes) : undefined;
+      const durationMinutes = args.duration_minutes ? Number(args.duration_minutes) : undefined;
       if (!message || !time) return { toolName: 'create_reminder', success: false, error: 'Missing required parameters (message, time)', duration: 0 };
 
-      const scheduledDate = chrono.parseDate(time, new Date()) || new Date(time);
-      if (!scheduledDate || isNaN(scheduledDate.getTime())) return { toolName: 'create_reminder', success: false, error: `Could not parse time: "${time}".`, duration: 0 };
-      if (scheduledDate.getTime() <= Date.now() && recurrence === 'once') return { toolName: 'create_reminder', success: false, error: `Time "${time}" resolves to the past.`, duration: 0 };
+      // Parse start time — allow "now" for interval-based reminders
+      const startDate = time.toLowerCase() === 'now' ? new Date() : (chrono.parseDate(time, new Date()) || new Date(time));
+      if (!startDate || isNaN(startDate.getTime())) return { toolName: 'create_reminder', success: false, error: `Could not parse time: "${time}".`, duration: 0 };
+      if (startDate.getTime() <= Date.now() && recurrence === 'once' && !intervalMinutes) return { toolName: 'create_reminder', success: false, error: `Time "${time}" resolves to the past.`, duration: 0 };
 
       const sched = ctx.getScheduler();
       if (!sched) return { toolName: 'create_reminder', success: false, error: 'Scheduler service not initialized', duration: 0 };
@@ -196,30 +201,60 @@ const schedulerToolModule: ToolModule = {
         const tg = ctx.getTelegram();
         const wa = ctx.getWhatsApp();
 
+        const reminderHandler = async (_ctx: any, data: { message: string; ownerTelegramId?: string }) => {
+          const reminderText = `⏰ **Reminder:** ${data.message}`;
+          if (data.ownerTelegramId && tg) {
+            try { await tg.sendMessage(Number(data.ownerTelegramId), reminderText); return { sent: true, channel: 'telegram' }; } catch {}
+          }
+          const ownerPhone = config?.ownerPhone;
+          if (wa?.isConnected && ownerPhone) {
+            try {
+              const jid = `${ownerPhone.replace(/\D/g, '')}@s.whatsapp.net`;
+              await wa.sendMessage(jid, { text: reminderText });
+              return { sent: true, channel: 'whatsapp' };
+            } catch {}
+          }
+          return { sent: false, stored: true };
+        };
+
+        // ── Interval-based recurrence (e.g. every 10 minutes) ──
+        if (intervalMinutes && intervalMinutes > 0) {
+          const endTime = durationMinutes ? new Date(Date.now() + durationMinutes * 60 * 1000) : undefined;
+          const taskIds: string[] = [];
+          let current = new Date(startDate.getTime() <= Date.now() ? Date.now() + 60000 : startDate.getTime());
+          const limit = endTime ? Math.floor((endTime.getTime() - current.getTime()) / (intervalMinutes * 60 * 1000)) + 1 : 1;
+          const maxTasks = Math.min(limit, 100); // safety cap
+
+          for (let i = 0; i < maxTasks; i++) {
+            const task = await sched.createTask({
+              name: `Reminder: ${message.slice(0, 50)} [${i + 1}/${maxTasks}]`,
+              description: `Interval reminder every ${intervalMinutes}min`,
+              schedule: { recurrence: 'once', startDate: new Date(current) },
+              data: { message, ownerTelegramId },
+              tags: ['reminder', 'interval'],
+              metadata: { createdBy: 'chat', message, intervalGroup: true },
+              handler: reminderHandler,
+            });
+            taskIds.push(task.id);
+            current = new Date(current.getTime() + intervalMinutes * 60 * 1000);
+            if (endTime && current.getTime() > endTime.getTime()) break;
+          }
+
+          const durationStr = durationMinutes ? ` for ${durationMinutes} minutes` : '';
+          return { toolName: 'create_reminder', success: true, result: `✅ Set ${taskIds.length} reminders every ${intervalMinutes} minutes${durationStr}: "${message}". First fires at ${new Date(Date.now() + (startDate.getTime() <= Date.now() ? 60000 : startDate.getTime() - Date.now())).toLocaleTimeString()}.`, duration: 0 };
+        }
+
+        // ── Standard single/recurring reminder ──
         const task = await sched.createTask({
           name: `Reminder: ${message.slice(0, 50)}`,
-          description: `Remind owner: "${message}" at ${scheduledDate.toLocaleString()}`,
-          schedule: { recurrence, startDate: scheduledDate },
+          description: `Remind owner: "${message}" at ${startDate.toLocaleString()}`,
+          schedule: { recurrence, startDate },
           data: { message, ownerTelegramId },
           tags: ['reminder'],
           metadata: { createdBy: 'chat', message },
-          handler: async (_ctx: any, data: { message: string; ownerTelegramId?: string }) => {
-            const reminderText = `⏰ **Reminder:** ${data.message}`;
-            if (data.ownerTelegramId && tg) {
-              try { await tg.sendMessage(Number(data.ownerTelegramId), reminderText); return { sent: true, channel: 'telegram' }; } catch {}
-            }
-            const ownerPhone = config?.ownerPhone;
-            if (wa?.isConnected && ownerPhone) {
-              try {
-                const jid = `${ownerPhone.replace(/\D/g, '')}@s.whatsapp.net`;
-                await wa.sendMessage(jid, { text: reminderText });
-                return { sent: true, channel: 'whatsapp' };
-              } catch {}
-            }
-            return { sent: false, stored: true };
-          },
+          handler: reminderHandler,
         });
-        return { toolName: 'create_reminder', success: true, result: `Reminder set: "${message}" at ${scheduledDate.toLocaleString()}${recurrence !== 'once' ? ` (${recurrence})` : ''}. Task ID: ${task.id}`, duration: 0 };
+        return { toolName: 'create_reminder', success: true, result: `Reminder set: "${message}" at ${startDate.toLocaleString()}${recurrence !== 'once' ? ` (${recurrence})` : ''}. Task ID: ${task.id}`, duration: 0 };
       } catch (err: any) {
         return { toolName: 'create_reminder', success: false, error: err.message, duration: 0 };
       }

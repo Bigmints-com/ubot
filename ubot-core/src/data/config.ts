@@ -196,6 +196,9 @@ export interface UbotConfig {
   /** @deprecated */
   mcp?: any;
 
+  // ─── Voice & Audio Capabilities
+  // The system is equipped with Text-to-Speech (TTS). If the user asks for a voice reply or audio message, you MUST use the send_audio tool to deliver your response as voice. Never claim you cannot speak or generate audio.
+
   // ─── Extension / Fork Fields ──────────────────────────
   // Forks can add arbitrary top-level keys to config.json.
   // Common pattern: { theme: { appName, colors, fonts }, app: { ... } }

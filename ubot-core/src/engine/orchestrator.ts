@@ -555,9 +555,11 @@ export function createAgentOrchestrator(
     }
 
   function createLLMClient(): OpenAI {
+    let baseUrl = currentConfig.llmBaseUrl || '';
+    if (baseUrl.includes('://localhost:')) baseUrl = baseUrl.replace('://localhost:', '://127.0.0.1:');
     return new OpenAI({
       apiKey: currentConfig.llmApiKey,
-      baseURL: currentConfig.llmBaseUrl,
+      baseURL: baseUrl,
     });
   }
 
@@ -598,6 +600,11 @@ export function createAgentOrchestrator(
         if (baseUrl.includes('generativelanguage.googleapis.com') && !baseUrl.includes('/openai')) {
           baseUrl = baseUrl.replace(/\/?$/, '') + '/openai/';
         }
+        
+        // Auto-fix: IPv6 localhost resolution issues
+        if (baseUrl.includes('://localhost:')) {
+          baseUrl = baseUrl.replace('://localhost:', '://127.0.0.1:');
+        }
 
         // Use strict override, then per-purpose config, falling back to catalog defaults, then provider.model
         const purposeModel = specifiedModel || getModelForPurpose(routedProviderId, purpose, provider.models) || provider.model;
@@ -619,9 +626,12 @@ export function createAgentOrchestrator(
     if (defaultProvider && (defaultProviderId === 'vertex' || defaultProvider.provider === 'vertex')) {
       const token = await getVertexAccessToken();
       if (token) {
-        let baseUrl = defaultProvider.baseUrl;
+        let baseUrl = defaultProvider.baseUrl || '';
         if (baseUrl.includes('generativelanguage.googleapis.com') && !baseUrl.includes('/openai')) {
           baseUrl = baseUrl.replace(/\/?$/, '') + '/openai/';
+        }
+        if (baseUrl.includes('://localhost:')) {
+          baseUrl = baseUrl.replace('://localhost:', '://127.0.0.1:');
         }
         return {
           client: new OpenAI({ apiKey: token, baseURL: baseUrl }),
@@ -653,6 +663,60 @@ export function createAgentOrchestrator(
   }
 
   type ChatMsg = OpenAI.Chat.Completions.ChatCompletionMessageParam;
+
+  /**
+   * Trim the messages array so the estimated token count fits within the
+   * model's context window. Oldest history messages are dropped first;
+   * the system prompt and the final user message are always preserved.
+   *
+   * Token estimate: chars / 4 (conservative — real BPE varies but this is
+   * safe for English/Arabic mixed content).
+   *
+   * Context limits by model prefix (tokens):
+   *   gemma*          4 096
+   *   llama3*:3b      8 192
+   *   qwen*:3b        8 192
+   *   phi4*           16 384
+   *   (default)       32 768  — safe fallback for unknown models
+   */
+  function trimMessagesToContextWindow(messages: ChatMsg[], model: string): ChatMsg[] {
+    // Reserve 20% for output tokens and tool call overhead
+    const CTX_LIMITS: Array<[RegExp, number]> = [
+      [/^gemma/i,         4_096],
+      [/llama3[.\d]*:3b/i, 8_192],
+      [/qwen[.\d]*:3b/i,  8_192],
+      [/phi4-mini/i,      16_384],
+    ];
+    const DEFAULT_CTX = 32_768;
+    let ctxLimit = DEFAULT_CTX;
+    for (const [pattern, limit] of CTX_LIMITS) {
+      if (pattern.test(model)) { ctxLimit = limit; break; }
+    }
+    const budget = Math.floor(ctxLimit * 0.80); // keep 20% for output
+
+    const estimateTokens = (msgs: ChatMsg[]) =>
+      msgs.reduce((sum, m) => sum + Math.ceil((typeof m.content === 'string' ? m.content : JSON.stringify(m.content ?? '')).length / 4), 0);
+
+    if (estimateTokens(messages) <= budget) return messages;
+
+    // Split: system (index 0) + middle history + final user message (last)
+    const system = messages[0];
+    const lastUser = messages[messages.length - 1];
+    let history = messages.slice(1, -1);
+
+    // Drop oldest pairs until we fit
+    while (history.length > 0 && estimateTokens([system, ...history, lastUser]) > budget) {
+      history = history.slice(Math.min(2, history.length)); // drop oldest turn pair
+    }
+
+    const trimmed = [system, ...history, lastUser];
+    const dropped = messages.length - trimmed.length;
+    if (dropped > 0) {
+      log.warn('Orchestrator', `Context trim: dropped ${dropped} messages to fit ${model} (${ctxLimit} ctx, budget ${budget} tokens)`);
+    }
+    return trimmed;
+  }
+
 
   async function buildMessages(sessionId: string, userMessage: string, isOwner: boolean = false, attachments?: Attachment[]): Promise<ChatMsg[]> {
     const rawHistory = await conversationStore.getHistory(sessionId, currentConfig.maxHistoryMessages);
@@ -723,7 +787,13 @@ Inform the user about this possibility if it's relevant to the current conversat
       const docTexts: string[] = [];
       for (const att of attachments) {
         if (att.textContent) {
-          docTexts.push(`[Content of ${att.filename}]:\n${att.textContent}`);
+          if (att.mimeType.startsWith('audio/')) {
+            docTexts.push(`[Audio message attached at: ${att.path}]\n[Auto-transcription]:\n${att.textContent}\n(Note: This was already transcribed for you. Only use transcribe_audio tool if you explicitly need to re-transcribe it.)`);
+          } else {
+            docTexts.push(`[Content of ${att.filename} at ${att.path}]:\n${att.textContent}`);
+          }
+        } else if (att.path) {
+          docTexts.push(`[File attached: ${att.filename}. Absolute path on disk: ${att.path}]`);
         }
       }
       
@@ -1020,9 +1090,44 @@ Inform the user about this possibility if it's relevant to the current conversat
     let activeModel = routedModel;
     
     // Use pre-selected tools if provided (from Phase 1 tool selection),
-    // otherwise fall back to the full tool set
+    // otherwise fall back to the full tool set.
+    //
+    // Fast Lane + Dynamic Merge:
+    // If the active agent has `allowedTools`, those are the "Fast Lane" — always guaranteed.
+    // We then MERGE those with the Phase 1 dynamically-selected tools so that orphaned
+    // tools (e.g. gmail, vault, apple) become accessible when the request needs them.
+    // This prevents the 90% of tools that aren't statically mapped to any agent from
+    // being permanently invisible.
     let filteredTools: ToolDefinition[];
-    if (preSelectedTools) {
+    const agent = agentId && crewRegistry.hasAgent(agentId) ? crewRegistry.getAgent(agentId)! : undefined;
+
+    if (agent && agent.allowedTools && agent.allowedTools.length > 0) {
+      const allTools = await getToolsForSource(isOwner);
+      const allToolsWithMods = await getAllToolsWithModules();
+      const toolModuleMap = new Map(allToolsWithMods.map((t: { module: string; tool: ToolDefinition }) => [t.tool.name, t.module]));
+      const fastLane = allTools.filter(t => agent.allowedTools!.includes(t.name));
+      if (preSelectedTools && preSelectedTools.length > 0) {
+        // Modules safe to dynamically inject into any agent.
+        // Excludes dangerous/build-only modules: cli, exec, patch — these must be
+        // explicitly granted via allowedTools and should never come from Phase 1 selection.
+        const SAFE_DYNAMIC_MODULES = new Set([
+          'google', 'apple', 'messaging', 'vault', 'sessions', 'personas',
+          'media', 'transcription', 'web-search', 'web-fetch', 'files',
+          'approvals', 'followups', 'scheduler', 'browser', 'mcp',
+        ]);
+        const fastLaneNames = new Set(fastLane.map(t => t.name));
+        const dynamicExtras = preSelectedTools.filter(t => {
+          if (fastLaneNames.has(t.name)) return false; // already in fast lane
+          const mod = toolModuleMap.get(t.name) || '';
+          return SAFE_DYNAMIC_MODULES.has(mod); // only safe modules
+        });
+        filteredTools = [...fastLane, ...dynamicExtras];
+        log.info('Agent', `Fast Lane: ${fastLane.length} fixed + ${dynamicExtras.length} dynamic = ${filteredTools.length} total`);
+      } else {
+        // No Phase 1 result (e.g. pure chat) — just the fast lane
+        filteredTools = fastLane;
+      }
+    } else if (preSelectedTools) {
       filteredTools = preSelectedTools;
     } else {
       filteredTools = await getToolsForSource(isOwner);
@@ -1034,11 +1139,7 @@ Inform the user about this possibility if it's relevant to the current conversat
       filteredTools = filteredTools.filter(t => !['delegate_to_agent', 'execute_plan', 'switch_agent'].includes(t.name));
     }
 
-    if (agentId && crewRegistry.hasAgent(agentId)) {
-      const agent = crewRegistry.getAgent(agentId)!;
-      if (agent.allowedTools && agent.allowedTools.length > 0) {
-        filteredTools = filteredTools.filter(t => agent.allowedTools!.includes(t.name));
-      }
+    if (agent) {
       // Model override — agent-specific model takes priority over global routing
       if (agent.model) {
         activeModel = agent.model;
@@ -1230,6 +1331,14 @@ Inform the user about this possibility if it's relevant to the current conversat
 
       // Build the messages array with history (pass isOwner for soul prompt framing)
       let messages = await buildMessages(sessionId, message, ownerFlag, attachments);
+
+      // Trim history to fit the active model's context window.
+      // Prevents "n_keep >= n_ctx" errors on small local models (gemma4:e4b = 4K ctx).
+      // Must run after buildMessages so we know the final system prompt size.
+      try {
+        const { model: chatModel } = await getClientForPurpose('chat');
+        messages = trimMessagesToContextWindow(messages, chatModel);
+      } catch { /* ignore — trimming is best-effort */ }
 
       // ── Prompt Experiment A/B Testing ───────────────────────
       const experiments = getPromptExperiments();
@@ -1490,46 +1599,13 @@ If a skill matches the user's request, call run_skill with the skill ID. Otherwi
           const lowerContent = llmResult.content.toLowerCase();
           const signalsInability = cantPhrases.some(p => lowerContent.includes(p));
 
-          if (signalsInability && iteration === 1 && toolRegistry.has('cli_triage')) {
-            // Auto-triage: check if we actually DO have tools for this
-            log.info('Agent', `Fallback triage triggered — LLM said it can't, checking if tools exist`);
-            const triageResult = await toolRegistry.execute({
-              toolName: 'cli_triage',
-              arguments: { request: message },
-              rawText: '',
-            });
-            toolResults.push(triageResult);
-            metricsCollector.recordTool('cli_triage', triageResult.success, triageResult.duration, sessionId);
-
-            if (triageResult.success && triageResult.result) {
-              // Re-inject triage result and let LLM reconsider
-              messages.push({
-                role: 'assistant',
-                content: llmResult.content || null,
-                tool_calls: [{
-                  id: 'auto_triage',
-                  type: 'function' as const,
-                  function: { name: 'cli_triage', arguments: JSON.stringify({ request: message }) },
-                }],
-              } as ChatMsg);
-              messages.push({
-                role: 'tool',
-                tool_call_id: 'auto_triage',
-                content: triageResult.result,
-              } as ChatMsg);
-              log.info('Agent', `Fallback triage result: ${triageResult.result.slice(0, 200)}`);
-              // Audit log the triage
-              logCapability({
-                action: 'triage',
-                request: message,
-                triageVerdict: triageResult.result.match(/Verdict:\s*(\w+)/i)?.[1] || 'unknown',
-                triageReason: triageResult.result.slice(0, 500),
-                sessionId,
-                source,
-              });
-              // Continue the loop — LLM will see triage result and act on it
-              continue;
-            }
+          if (signalsInability && iteration === 1) {
+            // LLM signalled it can't do something.
+            // Log it for debugging but do NOT auto-invoke cli_triage —
+            // that tool is for the Coder agent only and costs 9000+ tokens.
+            // The Nexus system prompt explicitly instructs the agent to use
+            // delegate_to_agent or available tools instead of giving up.
+            log.info('Agent', `LLM signalled inability — letting agent handle via delegation or available tools`);
           }
 
           // Truly the final response
@@ -1815,6 +1891,43 @@ REQUIREMENTS:
         agentId: activeAgentId,
         agentName: activeAgent?.name || 'Nexus',
       };
+      // ── Empty Content Guard ────────────────────────────────
+      // If the LLM produced no text content (e.g. tool-only response that ran out
+      // of iterations, or a tool failed and the model returned nothing), synthesize
+      // a meaningful fallback from the tool results rather than emitting a blank bubble.
+      if (!finalContent || finalContent.trim() === '') {
+        if (toolResults.length > 0) {
+          const failures = toolResults.filter(r => !r.success);
+          const successes = toolResults.filter(r => r.success);
+
+          if (failures.length > 0 && successes.length === 0) {
+            // All tools failed — surface the errors clearly
+            const errSummary = failures.map(f =>
+              `• \`${f.toolName}\` failed: ${f.error || 'Unknown error'}`
+            ).join('\n');
+            finalContent = `⚠️ I ran into an issue completing your request:\n\n${errSummary}\n\nPlease check the details above and try again.`;
+          } else if (successes.length > 0 && failures.length === 0) {
+            // All tools succeeded but no text was generated — give a brief summary
+            const summary = successes.map(r =>
+              `• \`${r.toolName}\`: ${(r.result || 'Completed').toString().slice(0, 150)}`
+            ).join('\n');
+            finalContent = `✅ Done! Here's what I completed:\n\n${summary}`;
+          } else {
+            // Mixed — some succeeded, some failed
+            const successNames = successes.map(r => `\`${r.toolName}\``).join(', ');
+            const errSummary = failures.map(f =>
+              `• \`${f.toolName}\`: ${f.error || 'Unknown error'}`
+            ).join('\n');
+            finalContent = `⚠️ Partially completed. ${successNames} succeeded, but:\n\n${errSummary}`;
+          }
+          log.warn('Agent', `Empty content guard triggered — synthesized fallback from ${toolResults.length} tool results`);
+        } else {
+          // No tools, no content — generic fallback
+          finalContent = "I'm sorry, I wasn't able to generate a response. Please try rephrasing your request.";
+          log.warn('Agent', 'Empty content guard triggered — no tools, no content');
+        }
+      }
+
       conversationStore.addMessage(sessionId, 'assistant', finalContent, assistantMetadata);
 
       // Track outgoing message

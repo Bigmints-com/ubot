@@ -207,6 +207,39 @@ export async function handleChatRoutes(
         }
       } catch { /* auto-naming is best-effort */ }
 
+      // ── API-level empty content guard ──────────────────────
+      // Belt-and-suspenders: ensure we never send an empty content bubble
+      // to the frontend, even if the orchestrator somehow returns empty.
+      if (!response.content || (response.content as string).trim() === '') {
+        const toolCalls = response.toolCalls || [];
+        if (toolCalls.length > 0) {
+          const failures = toolCalls.filter((t: any) => !t.success);
+          const successes = toolCalls.filter((t: any) => t.success);
+          if (failures.length > 0 && successes.length === 0) {
+            const errSummary = failures.map((f: any) =>
+              `• \`${f.toolName}\` failed: ${f.error || 'Unknown error'}`
+            ).join('\n');
+            response.content = `⚠️ I ran into an issue completing your request:\n\n${errSummary}\n\nPlease try again.`;
+          } else if (successes.length > 0 && failures.length === 0) {
+            const summary = successes.map((r: any) =>
+              `• \`${r.toolName}\`: ${String(r.result || 'Completed').slice(0, 150)}`
+            ).join('\n');
+            response.content = `✅ Done!\n\n${summary}`;
+          } else if (successes.length > 0) {
+            const successNames = successes.map((r: any) => `\`${r.toolName}\``).join(', ');
+            const errSummary = failures.map((f: any) =>
+              `• \`${f.toolName}\`: ${f.error || 'Unknown error'}`
+            ).join('\n');
+            response.content = `⚠️ Partially completed. ${successNames} succeeded, but:\n\n${errSummary}`;
+          } else {
+            response.content = "I wasn't able to complete that. Please try rephrasing your request.";
+          }
+        } else {
+          response.content = "I wasn't able to generate a response. Please try again.";
+        }
+        console.warn('[Chat API] Empty content guard triggered — patched response before sending to client');
+      }
+
       json(res, response);
     } catch (e: any) {
       console.error('[API] Chat error:', e);
@@ -484,7 +517,10 @@ export async function handleChatRoutes(
 
       if (providerType === 'ollama') {
         const ollamaHost = baseUrl.replace(/\/v1\/?$/, '');
-        const ollamaRes = await fetch(`${ollamaHost}/api/tags`);
+        let fetchHost = ollamaHost;
+        if (fetchHost.includes('://localhost:')) fetchHost = fetchHost.replace('://localhost:', '://127.0.0.1:');
+
+        const ollamaRes = await fetch(`${fetchHost}/api/tags`);
         if (ollamaRes.ok) {
           const data = await ollamaRes.json() as any;
           const allModels = (data.models || []) as any[];
@@ -524,10 +560,13 @@ export async function handleChatRoutes(
       } else {
         const normalizedUrl = baseUrl.replace(/\/+$/, '');
         const modelsUrl = `${normalizedUrl}/models`;
+        let fetchUrl = modelsUrl;
+        if (fetchUrl.includes('://localhost:')) fetchUrl = fetchUrl.replace('://localhost:', '://127.0.0.1:');
+
         const headers: Record<string, string> = { 'Content-Type': 'application/json' };
         if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
 
-        const modelsRes = await fetch(modelsUrl, { headers });
+        const modelsRes = await fetch(fetchUrl, { headers });
         if (modelsRes.ok) {
           const data = await modelsRes.json() as any;
           models = (data.data || []).map((m: any) => ({

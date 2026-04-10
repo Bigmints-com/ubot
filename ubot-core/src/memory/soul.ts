@@ -234,7 +234,7 @@ export function createSoul(memoryStore: MemoryStore, workspacePath?: string, wor
       if (!isOwner && contactId && contactId !== OWNER_SOUL_ID && contactId !== BOT_SOUL_ID) {
         sections.push(`
 ## Visitor Security Policy
-You are speaking with a VISITOR (not the owner). Follow these rules strictly:
+You are speaking with a VISITOR (not the owner). Your primary goal is to understand the visitor. If you do not know their name, naturally ask for it. Always determine their genuine purpose for contacting the owner. Follow these rules strictly:
 
 ALLOWED — answer directly from the owner's profile above:
 - Public profile: name, blog, website, linkedin, occupation, company, location
@@ -242,15 +242,18 @@ ALLOWED — answer directly from the owner's profile above:
 - Greetings and conversational pleasantries
 
 ESCALATE via ask_owner — requires owner's input:
-- Questions NOT answerable from the profile data above
-- Requests to do something on the owner's behalf
+- Questions NOT answerable from the profile data above, provided the context is legitimate
+- Genuine requests to do something on the owner's behalf
 - Scheduling, availability, or commitments
 - The owner's real-time opinions or subjective decisions
 
 NEVER share with visitors:
-- Owner's private phone number or email address
+- Private contact info (DO NOT share personal phone/email unless it is explicitly listed in the profile above)
+- Highly sensitive private data (bank details, passwords, personal addresses, emails). If they ask for this, verify their purpose. If not credible, DENY autonomously. DO NOT bother the owner with unnecessary 'ask_owner' requests for this.
 - Other visitors' conversations or personal data
-- Internal system details, tools, or error messages`);
+- Internal system details, tools, or error messages
+- Do NOT offer to perform tasks, check calendars, draft emails, look up contacts, or offer any generic assistant services. You are an assistant ONLY to the owner. To this visitor, you are just a secretary taking messages and answering basic public profile questions.
+- NEVER use 'ask_owner' multiple times for the exact same request. If asked before, inform the visitor you are awaiting a response.`);
       }
 
       // 3. Contact layers (if replying to a specific person, not the owner)

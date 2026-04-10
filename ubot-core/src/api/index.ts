@@ -37,9 +37,14 @@ import { log } from '../logger/ring-buffer.js';
 import { handleIncomingMessage, type UnifiedMessage, type UnifiedDeps } from '../engine/handler.js';
 import { existsSync } from 'fs';
 import { join } from 'path';
-import { transcribeAudio, isTranscriptionAvailable } from '../capabilities/transcription/service.js';
+import { transcribeAudio } from '../capabilities/transcription/service.js';
 
 import { FEATURES, MODE } from '../lib/features.js';
+
+// Catch unhandled Promise rejections (e.g. from node-telegram-bot-api) to prevent Node crashes
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+});
 
 // Route handlers
 import { handleChatRoutes } from './routes/chat.js';
@@ -258,6 +263,7 @@ function setupWhatsAppHandlers(conn: WhatsAppConnection): void {
     if (qr) waQrCode = qr;
     if (status === 'connected') {
       waQrCode = null;
+      waError = null;
       log.info('WhatsApp', 'Connected successfully');
       waProvider = new WhatsAppMessagingProvider(conn);
       messagingRegistry.register(waProvider);
@@ -332,18 +338,26 @@ function setupWhatsAppHandlers(conn: WhatsAppConnection): void {
             }
           }
 
-          // For audio: auto-transcribe using local Whisper model
-          if (media.mimeType.startsWith('audio/') && isTranscriptionAvailable()) {
+          // For audio: auto-transcribe via configured provider or local Whisper fallback
+          if (media.mimeType.startsWith('audio/')) {
             try {
               log.info('WhatsApp', `🎤 Transcribing audio (${media.mimeType})...`);
-              const transcription = await transcribeAudio(filePath, { language: 'en' });
+              const cfg = agentOrchestrator?.getConfig?.() as any;
+              // llmProviders is LLMProviderConfig[] — find the transcription-routed provider
+              const providerList: any[] = Array.isArray(cfg?.llmProviders) ? cfg.llmProviders : [];
+              const routing: Record<string, string> = cfg?.modelRouting || {};
+              const transcriptionProviderId = routing['transcription'] ? routing['transcription'].split('/')[0] : cfg?.defaultLlmProviderId;
+              const llmProvider = providerList.find((p: any) => p.id === transcriptionProviderId) || providerList.find((p: any) => p.isDefault) || providerList[0];
+              const transcription = await transcribeAudio(filePath, {
+                language: 'auto',
+                providerBaseUrl: llmProvider?.baseUrl,
+                providerApiKey: llmProvider?.apiKey,
+              });
               attachment.textContent = transcription.text;
-              // Replace the empty/placeholder body with the transcribed text
               msg.body = `[Voice message transcription]: ${transcription.text}`;
-              log.info('WhatsApp', `🎤 Transcription complete (${transcription.duration?.toFixed(1)}s): "${transcription.text.slice(0, 80)}"`);
+              log.info('WhatsApp', `🎤 Transcription: "${transcription.text.slice(0, 80)}"`);
             } catch (err: any) {
-              log.error('WhatsApp', `Transcription failed: ${err.message}`);
-              // Keep the original body ([Media message]) if transcription fails
+              log.warn('WhatsApp', `Transcription unavailable: ${err.message}`);
             }
           }
 
@@ -362,10 +376,13 @@ function setupWhatsAppHandlers(conn: WhatsAppConnection): void {
       body: msg.body || '[Media message]',
       timestamp: msg.timestamp instanceof Date ? msg.timestamp : new Date(),
       replyFn: async (text: string) => {
-        if (waConnection?.isConnected) {
-          log.info('WhatsApp', `Sending reply to rawJid=${replyJid} (resolved=${jid})`);
-          await waConnection.sendMessage(replyJid, { text });
+        log.info('WhatsApp', `Sending reply to rawJid=${replyJid} (resolved=${jid})`);
+        try {
+          await conn.sendMessage(replyJid, { text });
           waMessages.push({ from: 'me', to: jid, body: text, timestamp: new Date().toISOString(), isFromMe: true });
+        } catch (err: any) {
+          log.error('WhatsApp', `Failed to send reply to ${replyJid}: ${err.message}`);
+          throw err;
         }
       },
       extra: {
@@ -511,16 +528,26 @@ function setupTelegramHandlers(conn: TelegramConnection): void {
             }
           }
 
-          // For audio: auto-transcribe using local Whisper model
-          if (media.mimeType.startsWith('audio/') && isTranscriptionAvailable()) {
+          // For audio: auto-transcribe via configured provider or local Whisper fallback
+          if (media.mimeType.startsWith('audio/')) {
             try {
               log.info('Telegram', `🎤 Transcribing audio (${media.mimeType})...`);
-              const transcription = await transcribeAudio(filePath, { language: 'en' });
+              const cfg = agentOrchestrator?.getConfig?.() as any;
+              // llmProviders is LLMProviderConfig[] — find the transcription-routed provider
+              const providerList: any[] = Array.isArray(cfg?.llmProviders) ? cfg.llmProviders : [];
+              const routing: Record<string, string> = cfg?.defaults || {};
+              const transcriptionProviderId = routing['transcription'] ? routing['transcription'].split('/')[0] : cfg?.defaultLlmProviderId;
+              const llmProvider = providerList.find((p: any) => p.id === transcriptionProviderId) || providerList.find((p: any) => p.isDefault) || providerList[0];
+              const transcription = await transcribeAudio(filePath, {
+                language: 'auto',
+                providerBaseUrl: llmProvider?.baseUrl,
+                providerApiKey: llmProvider?.apiKey,
+              });
               attachment.textContent = transcription.text;
               msg.body = `[Voice message transcription]: ${transcription.text}`;
-              log.info('Telegram', `🎤 Transcription complete (${transcription.duration?.toFixed(1)}s): "${transcription.text.slice(0, 80)}"`);
+              log.info('Telegram', `🎤 Transcription: "${transcription.text.slice(0, 80)}"`);
             } catch (err: any) {
-              log.error('Telegram', `Transcription failed: ${err.message}`);
+              log.warn('Telegram', `Transcription unavailable: ${err.message}`);
             }
           }
 
@@ -1439,7 +1466,8 @@ async function handleChannelRoutes(
     const cfg = loadUbotConfig();
     const routing = cfg.defaults || {};
     // Only return model-purpose keys
-    const validPurposes = ['chat', 'router', 'extraction', 'generation'];
+    const { ALL_PURPOSES } = await import('../engine/types.js');
+    const validPurposes = ALL_PURPOSES as string[];
     const modelRouting: Record<string, string> = {};
     for (const [k, v] of Object.entries(routing)) {
       if (validPurposes.includes(k)) modelRouting[k] = v;

@@ -28,7 +28,7 @@ export const CORE_ORCHESTRATOR_TOOLS: ToolDefinition[] = [
     name: 'delegate_to_agent',
     description: 'Delegate a specific task to a specialized agent specialist.',
     parameters: [
-      { name: 'agentId', type: 'string', description: 'The ID of the specialized agent (researcher, writer, browser-operator, publisher, coder).', required: true },
+      { name: 'agentId', type: 'string', description: 'The ID of the specialized agent (researcher, writer, browser-operator, social-media-manager, coder).', required: true },
       { name: 'task', type: 'string', description: 'The detailed task description for the agent.', required: true },
       { name: 'timeoutSeconds', type: 'number', description: 'Optional timeout for the task in seconds (default 120).', required: false },
     ],
@@ -100,15 +100,8 @@ export async function getAgentTools(): Promise<ToolDefinition[]> {
  */
 export const VISITOR_SAFE_TOOL_NAMES: ReadonlySet<string> = new Set([
   'ask_owner',
-  'search_messages',
-  'get_contacts',
   'get_profile',
-  'get_conversations',
   'save_memory',
-  'web_search',
-  'web_fetch',
-  'list_pending_approvals',
-  'gcal_list_events',
   'wa_respond_to_bot',
 ]);
 

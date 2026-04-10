@@ -105,7 +105,7 @@ export interface LLMProviderConfig {
   /** Display name, e.g. "Gemini Flash" */
   name: string;
   /** Provider type */
-  provider: 'openai' | 'gemini' | 'openrouter' | 'vertex' | 'ollama' | 'custom';
+  provider: 'openai' | 'gemini' | 'openrouter' | 'vertex' | 'ollama' | 'lmstudio' | 'custom';
   /** API base URL */
   baseUrl: string;
   /** API key (empty for Ollama) */
@@ -200,6 +200,15 @@ export const DEFAULT_PROVIDER_MODELS: Record<string, Partial<Record<ModelPurpose
     transcription:    'qwen3.5:9b',
     tts:              'qwen3.5:9b',
     embedding:        'nomic-embed-text', // Standard local embedding model
+  },
+  lmstudio: {
+    chat:             'local-model',
+    router:           'local-model',
+    extraction:       'local-model',
+    generation:       'local-model',
+    transcription:    'local-model',
+    tts:              'local-model',
+    embedding:        'local-model',
   },
 };
 

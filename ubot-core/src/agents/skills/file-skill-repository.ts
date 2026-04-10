@@ -72,10 +72,14 @@ function parseFrontmatter(content: string): { meta: SkillFrontmatter; body: stri
     const [, key, rawVal] = kv;
     let val: any = rawVal.trim();
 
-    // Parse arrays: [item1, item2]
-    const arrMatch = val.match(/^\[(.+)\]$/);
+    // Parse arrays: [item1, item2] or []
+    const arrMatch = val.match(/^\[(.*)\]$/);
     if (arrMatch) {
-      val = arrMatch[1].split(',').map((s: string) => s.trim().replace(/^['"]|['"]$/g, ''));
+      if (arrMatch[1].trim() === '') {
+        val = [];
+      } else {
+        val = arrMatch[1].split(',').map((s: string) => s.trim().replace(/^['"]|['"]$/g, ''));
+      }
     }
     // Parse booleans
     else if (val === 'true') val = true;

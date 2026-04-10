@@ -26,6 +26,7 @@ export interface Features {
   whatsapp: boolean;
   imessage: boolean;
   ollama: boolean;
+  lmstudio: boolean;
   localWhisper: boolean;
   localTts: boolean;
   filesystem: boolean;
@@ -66,6 +67,7 @@ const DEFAULT_FEATURES: FeaturesResponse = {
     whatsapp: true,
     imessage: true,
     ollama: true,
+    lmstudio: true,
     localWhisper: true,
     localTts: true,
     filesystem: true,

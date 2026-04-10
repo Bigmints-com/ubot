@@ -26,7 +26,7 @@ import crypto from 'crypto';
 
 // ─── UBOT_HOME resolution ──────────────────────────────────────────────────────
 const UBOT_HOME = process.env.UBOT_HOME || '';
-const IS_PRODUCTION = process.env.NODE_ENV === 'production';
+const IS_PRODUCTION = process.env.NODE_ENV === 'production' || !!UBOT_HOME;
 
 const ubotConfig = loadUbotConfig();
 
@@ -615,9 +615,7 @@ async function loadExtensions(): Promise<void> {
   }
 
   // Try to load ubot.extensions.ts/js from UBOT_HOME or current directory
-  const searchDirs = UBOT_HOME 
-    ? [UBOT_HOME, process.cwd(), path.join(process.cwd(), 'dist')] 
-    : [process.cwd(), path.join(process.cwd(), 'dist')];
+  const searchDirs = UBOT_HOME ? [UBOT_HOME, process.cwd()] : [process.cwd()];
   for (const dir of searchDirs) {
     for (const ext of ['ubot.extensions.js', 'ubot.extensions.ts']) {
       const extPath = path.join(dir, ext);
@@ -659,3 +657,4 @@ if (process.env.NODE_ENV !== 'test' && !process.env.VITEST) {
 }
 
 export { createServer, getAppState, AppState, handleRequest, resetState };
+// trigger restart

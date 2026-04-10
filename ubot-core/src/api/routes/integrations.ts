@@ -389,40 +389,99 @@ export async function handleIntegrationRoutes(
   if (url === '/api/tts/speak' && method === 'POST') {
     try {
       const body = await parseBody(req) as { text: string; voice?: string; speed?: number };
+      if (!body.text?.trim()) { error(res, 'Missing "text" field'); return true; }
 
-      if (!body.text) {
-        error(res, 'Missing "text" field');
-        return true;
+      const cleanText = body.text
+        .replace(/```[\s\S]*?```/g, 'code block omitted')
+        .replace(/`([^`]+)`/g, '$1')
+        .replace(/\*\*(.+?)\*\*/g, '$1')
+        .replace(/\*(.+?)\*/g, '$1')
+        .replace(/#{1,6}\s/g, '')
+        .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+        .replace(/\n{2,}/g, '. ')
+        .replace(/\n/g, ' ')
+        .replace(/\s{2,}/g, ' ')
+        .trim()
+        .slice(0, 2000);
+
+      if (!cleanText) { error(res, 'No speakable text'); return true; }
+
+      const voice = body.voice || 'alloy';
+      const speed = body.speed ?? 1.0;
+
+      // ── 1. Configured LLM provider TTS ─────────────────
+      let audioBuffer: Buffer | null = null;
+
+      try {
+        const cfg = ctx.agentOrchestrator?.getConfig?.() as any;
+        const providers: Record<string, any> = cfg?.llmProviders || {};
+        const defaultId = cfg?.defaultLlmProviderId;
+        const provider = defaultId ? providers[defaultId] : Object.values(providers)[0] as any;
+
+        if (provider?.baseUrl) {
+          let baseUrl = String(provider.baseUrl).replace(/\/+$/, '');
+          baseUrl = baseUrl.replace(/\/openai\/?$/, '');
+          if (!baseUrl.endsWith('/v1')) baseUrl = baseUrl + '/v1';
+          if (baseUrl.includes('://localhost:')) baseUrl = baseUrl.replace('://localhost:', '://127.0.0.1:');
+
+          const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+          if (provider.apiKey) headers['Authorization'] = `Bearer ${provider.apiKey}`;
+
+          const ttsRes = await fetch(`${baseUrl}/audio/speech`, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({ model: 'tts-1', input: cleanText, voice, speed, response_format: 'wav' }),
+          });
+
+          if (ttsRes.ok) {
+            audioBuffer = Buffer.from(await ttsRes.arrayBuffer());
+          } else {
+            const errBody = await ttsRes.text().catch(() => '');
+            console.warn(`[TTS] Provider ${ttsRes.status}: ${errBody.slice(0, 150)} — falling back`);
+          }
+        }
+      } catch (err: any) {
+        console.warn(`[TTS] Provider error: ${err.message} — falling back`);
       }
 
-      const { textToSpeech, isTtsAvailable } = await import('../../capabilities/tts/service.js');
+      // ── 2. macOS say + afconvert fallback ───────────────
+      if (!audioBuffer) {
+        const { exec } = await import('child_process');
+        const { writeFile, readFile, unlink } = await import('fs/promises');
+        const { tmpdir } = await import('os');
+        const { join } = await import('path');
+        const { randomUUID } = await import('crypto');
 
-      if (!isTtsAvailable()) {
-        error(res, 'TTS not available. Install piper-tts and download a voice model.', 503);
-        return true;
+        const id = randomUUID();
+        const txtFile = join(tmpdir(), `ubot-tts-${id}.txt`);
+        const aiffFile = join(tmpdir(), `ubot-tts-${id}.aiff`);
+        const wavFile = join(tmpdir(), `ubot-tts-${id}.wav`);
+
+        await writeFile(txtFile, cleanText, 'utf8');
+        await new Promise<void>((resolve, reject) => {
+          exec(`say -f '${txtFile}' -o '${aiffFile}'`, (err) => {
+            unlink(txtFile).catch(() => {});
+            err ? reject(new Error(`say: ${err.message}`)) : resolve();
+          });
+        });
+        await new Promise<void>((resolve, reject) => {
+          exec(`afconvert -f WAVE -d LEI16 '${aiffFile}' '${wavFile}'`, (err) => {
+            unlink(aiffFile).catch(() => {});
+            err ? reject(new Error(`afconvert: ${err.message}`)) : resolve();
+          });
+        });
+        audioBuffer = await readFile(wavFile);
+        await unlink(wavFile).catch(() => {});
       }
-
-      const result = textToSpeech(body.text, {
-        voice: body.voice,
-        speed: body.speed,
-      });
-
-      // Read WAV file and send as audio response
-      const { readFileSync, unlinkSync } = await import('fs');
-      const audioData = readFileSync(result.audioPath);
 
       res.writeHead(200, {
         'Content-Type': 'audio/wav',
-        'Content-Length': audioData.length,
-        'X-TTS-Duration': String(result.duration),
-        'X-TTS-Voice': result.voice,
+        'Content-Length': audioBuffer.length,
+        'Cache-Control': 'no-store',
       });
-      res.end(audioData);
-
-      // Clean up temp file
-      try { unlinkSync(result.audioPath); } catch {}
+      res.end(audioBuffer);
     } catch (err: any) {
-      error(res, err.message, 500);
+      error(res, `TTS failed: ${err.message}`, 500);
     }
     return true;
   }

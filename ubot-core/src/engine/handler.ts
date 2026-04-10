@@ -393,7 +393,7 @@ export async function handleIncomingMessage(
       messageToSend,
       'web',
       msg.senderName || undefined,
-      undefined,
+      isOwner,
       msg.attachments,
     );
 

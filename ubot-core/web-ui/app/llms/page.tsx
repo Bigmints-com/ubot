@@ -32,6 +32,8 @@ const PROVIDER_PRESETS: ProviderPreset[] = [
   { type: "openai", label: "OpenAI", baseUrl: "https://api.openai.com/v1/", icon: "◎", color: "from-green-500/20 to-emerald-500/20" },
   { type: "openrouter", label: "OpenRouter", baseUrl: "https://openrouter.ai/api/v1/", icon: "⬡", color: "from-purple-500/20 to-violet-500/20" },
   { type: "vertex", label: "Vertex AI", baseUrl: "", icon: "△", color: "from-orange-500/20 to-amber-500/20" },
+  { type: "ollama", label: "Ollama", baseUrl: "http://localhost:11434/v1/", icon: "🦙", color: "from-yellow-500/20 to-orange-500/20" },
+  { type: "lmstudio", label: "LM Studio", baseUrl: "http://localhost:1234/v1/", icon: "🖥️", color: "from-teal-500/20 to-emerald-500/20" },
 ];
 
 // ─── Default models per provider per purpose ─────────────────
@@ -66,6 +68,11 @@ const DEFAULT_PROVIDER_MODELS: Record<string, Record<string, string>> = {
     chat: 'llama3.2:3b', router: 'llama3.2:3b',
     extraction: 'llama3.2:3b', generation: 'llama3.2:3b',
     transcription: 'whisper',
+  },
+  lmstudio: {
+    chat: 'local-model', router: 'local-model',
+    extraction: 'local-model', generation: 'local-model',
+    transcription: 'local-model', tts: 'local-model',
   },
 };
 
@@ -405,6 +412,13 @@ export default function ModelsPage() {
             <CardContent className="space-y-2">
               {PURPOSES.map((purpose) => {
                 const effective = getEffectiveProvider(purpose.key);
+                const providerMeta = effective.id ? PROVIDER_PRESETS.find(p => p.type === effective.id) : null;
+                // Strip the provider prefix from model display (e.g. "openrouter/qwen/..." → "qwen/...")
+                const displayModel = effective.model
+                  ? effective.model.startsWith(`${effective.id}/`)
+                    ? effective.model.slice(effective.id.length + 1)
+                    : effective.model
+                  : '';
                 return (
                   <div
                     key={purpose.key}
@@ -412,11 +426,17 @@ export default function ModelsPage() {
                   >
                     <span className="text-xl w-8 text-center">{purpose.icon}</span>
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <span className="font-medium text-sm">{purpose.label}</span>
-                        {effective.model && (
-                          <Badge variant="outline" className="text-xs font-normal">
-                            {effective.model}
+                        {providerMeta && (
+                          <Badge variant="secondary" className="text-[10px] px-1.5 py-0 gap-0.5">
+                            <span>{providerMeta.icon}</span>
+                            <span>{providerMeta.label}</span>
+                          </Badge>
+                        )}
+                        {displayModel && (
+                          <Badge variant="outline" className="text-xs font-mono font-normal">
+                            {displayModel}
                             {effective.isAuto && <span className="ml-1 opacity-60">(auto)</span>}
                           </Badge>
                         )}
@@ -426,7 +446,7 @@ export default function ModelsPage() {
                     <ModelSelector
                       value={routing[purpose.key]}
                       onChange={(val) => handleRoutingChange(purpose.key, val || "__auto__")}
-                      inheritLabel={`Auto${effective.model ? ` — ${effective.model.split('/').pop()}` : ''}`}
+                      inheritLabel={`Auto${providerMeta ? ` · ${providerMeta.icon} ${providerMeta.label}` : ''}${displayModel ? ` — ${displayModel.split('/').pop()}` : ''}`}
                       className="w-[280px]"
                     />
                   </div>
@@ -577,6 +597,8 @@ function ProviderCard({
   const [editKey, setEditKey] = useState("");
 
   const isOllama = provider.key === 'ollama';
+  const isLmstudio = provider.key === 'lmstudio';
+  const isLocalFree = isOllama || isLmstudio;
 
   const maskedKey = provider.apiKey
     ? provider.apiKey.slice(0, 4) + "•".repeat(Math.min(24, provider.apiKey.length - 4))
@@ -635,7 +657,7 @@ function ProviderCard({
 
       {/* Actions */}
       <div className="flex items-center gap-2 shrink-0">
-        {!isOllama && (
+        {!isLocalFree && (
           <Button variant="ghost" size="icon" className="size-8" onClick={() => setEditing(true)}>
             <Pencil className="size-3.5" />
           </Button>
@@ -647,7 +669,7 @@ function ProviderCard({
       </div>
 
       {/* Edit Dialog — API key only */}
-      {!isOllama && (
+      {!isLocalFree && (
         <Dialog open={editing} onOpenChange={setEditing}>
           <DialogContent>
             <DialogHeader>
@@ -736,8 +758,8 @@ function AddProviderDialog({
         }
         // Then add the provider
         onAdd("vertex", "__vertex_sa__", "", { projectId, region, serviceAccountJson });
-      } else if (selectedType === 'ollama') {
-        onAdd('ollama', '', '');
+      } else if (selectedType === 'ollama' || selectedType === 'lmstudio') {
+        onAdd(selectedType, '', '');
       } else {
         if (!apiKey) return;
         onAdd(selectedType, apiKey, "");
@@ -756,7 +778,7 @@ function AddProviderDialog({
 
   const canSubmit = isVertex
     ? !!serviceAccountJson && !!projectId
-    : selectedType === 'ollama'
+    : (selectedType === 'ollama' || selectedType === 'lmstudio')
       ? true
       : !!selectedType && !!apiKey;
 
