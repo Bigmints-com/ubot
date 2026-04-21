@@ -1,0 +1,125 @@
+queue:
+  - name: "Fix browser module disable + classification fallback"
+    prompt: "Fix TWO critical bugs in /Users/pretheesh/Projects/ubot-workspace/ubot/ubot-core/src/engine/tool-selector.ts:
+
+1. Remove the hardcoded 'browser' module from ALWAYS_DISABLED in registry.ts (it's a dead code path since browser tools come from MCP). Remove this line: const ALWAYS_DISABLED = new Set(['browser']);
+
+2. Fix the classification failure fallback. Currently when the router model fails to parse JSON, it falls back to ALL 114 tools (defeating the 75% token savings). Change it to:
+   - Fall back to only the ALWAYS_INCLUDE_MODULES tools (a small safe subset)
+   - Add better JSON parsing that tries to extract arrays from markdown code fences
+   - Log more diagnostic info: show what the model actually returned
+   - Add a retry with a simpler prompt if first parse fails
+
+3. In the catch block for JSON parsing, instead of returning all tools, return only tools from ALWAYS_INCLUDE_MODULES with a warning log.
+
+Return a summary of all changes made."
+    workdir: /Users/pretheesh/Projects/ubot-workspace/ubot/ubot-core
+    model: qwen/qwen3.6-35b-a3b
+    approval_mode: yolo
+
+  - name: "Split ToolContext into focused interfaces"
+    prompt: "Refactor /Users/pretheesh/Projects/ubot-workspace/ubot/ubot-core/src/tools/types.ts to reduce the god object coupling in ToolContext.
+
+Currently ToolContext has 15 get*() methods with 'any' return types. Split it into smaller, focused interfaces:
+
+1. Create ToolDatabaseContext with: getDatabase(), getWorkspacePath(), getWorkspaceProvider()
+2. Create ToolMessagingContext with: getMessagingRegistry(), getWhatsApp(), getTelegram()
+3. Create ToolServiceContext with: getScheduler(), getApprovalStore(), getSkillEngine(), getCliService(), getEventBus()
+4. Create ToolSessionContext with: sessionId, getFollowUpStore(), getSpawnedSessionStore(), reportProgress, getAgent()
+
+Then update ToolContext to extend all four interfaces:
+export interface ToolContext extends ToolDatabaseContext, ToolMessagingContext, ToolServiceContext, ToolSessionContext {}
+
+This maintains backward compatibility but makes the dependencies explicit and type-safe.
+
+Return a summary of all changes made."
+    workdir: /Users/pretheesh/Projects/ubot-workspace/ubot/ubot-core
+    model: qwen/qwen3.6-35b-a3b
+    approval_mode: yolo
+
+  - name: "Add runtime tool enable/disable API"
+    prompt: "Add runtime tool enable/disable capability to /Users/pretheesh/Projects/ubot-workspace/ubot/ubot-core/src/tools/registry.ts.
+
+Currently DISABLED_MODULES is computed once at startup. Add:
+
+1. A runtime toggle function: toggleToolModule(moduleName: string, enabled: boolean): boolean
+   - Adds to or removes from a runtime-disabled set
+   - Returns true if successful, false if module not found
+
+2. Update getDisabledModules() to also check a runtime-disabled set
+
+3. Add a simple API endpoint at /api/tools/toggle (POST) that accepts { module: string, enabled: boolean }
+   - Add this to /Users/pretheesh/Projects/ubot-workspace/ubot/ubot-core/src/api/index.ts
+   - Returns { success: boolean, message: string }
+
+4. Add a GET endpoint at /api/tools/status that returns all module names and their enabled/disabled status
+
+Return a summary of all changes made."
+    workdir: /Users/pretheesh/Projects/ubot-workspace/ubot/ubot-core
+    model: qwen/qwen3.6-35b-a3b
+    approval_mode: yolo
+
+  - name: "Improve safeExecutor error handling"
+    prompt: "Improve error handling in /Users/pretheesh/Projects/ubot-workspace/ubot/ubot-core/src/tools/types.ts.
+
+The current safeExecutor only logs err.message. Update it to:
+
+1. Log the full error stack trace: console.error(`[${toolName}] Error:`, err.stack)
+2. Add error categorization:
+   - 'timeout' if err.code === 'ETIMEDOUT' or 'ECONNABORTED'
+   - 'network' if err.code === 'ECONNREFUSED', 'ENOTFOUND', 'UND_ERR_SOCKET'
+   - 'auth' if err.message includes '401', '403', 'unauthorized', 'forbidden'
+   - 'validation' if err.message includes 'invalid', 'missing', 'required'
+   - 'unknown' for everything else
+3. Include the category in the error result: return { toolName, success: false, error: err.message, category, stack: err.stack?.slice(0, 500) }
+4. Update ToolExecutionResult type to include optional 'category' and 'stack' fields
+
+Return a summary of all changes made."
+    workdir: /Users/pretheesh/Projects/ubot-workspace/ubot/ubot-core
+    model: qwen/qwen3.6-35b-a3b
+    approval_mode: yolo
+
+  - name: "Add tool execution metrics"
+    prompt: "Add tool execution metrics tracking to /Users/pretheesh/Projects/ubot-workspace/ubot/ubot-core/src/engine/orchestrator.ts.
+
+Currently there's no way to measure which tools fail most, average latency, or token usage per tool. Add:
+
+1. A simple metrics collector class in /Users/pretheesh/Projects/ubot-workspace/ubot/ubot-core/src/engine/metrics.ts:
+   - Track: toolName, success (bool), duration (ms), tokenUsage (if available)
+   - Store in memory with a sliding window (last 1000 entries)
+   - Provide: getStats(toolName?), getTotalStats()
+   - Auto-cleanup entries older than 24 hours
+
+2. Call metricsCollector.recordTool(toolName, success, duration, sessionId) in the orchestrator after each tool execution
+
+3. Add API endpoints:
+   - GET /api/metrics/tools - returns all tool stats
+   - GET /api/metrics/tools/:name - returns stats for a specific tool
+
+4. Log a summary every 100 tool executions: "Metrics: 500 tools called, 98% success, avg 1.2s"
+
+Return a summary of all changes made."
+    workdir: /Users/pretheesh/Projects/ubot-workspace/ubot/ubot-core
+    model: qwen/qwen3.6-35b-a3b
+    approval_mode: yolo
+
+  - name: "Add tool versioning and rollback"
+    prompt: "Add tool versioning to /Users/pretheesh/Projects/ubot-workspace/ubot/ubot-core/src/tools/types.ts and registry.ts.
+
+Add:
+
+1. A version field to ToolDefinition: version?: string (semantic versioning like '1.0.0')
+2. A version field to ToolModule: version?: string
+3. A simple version tracker that logs when tools change:
+   - On startup, log all tool versions
+   - On module reload, detect version changes and log them
+4. A rollback function in registry.ts: rollbackToolVersion(moduleName: string, version: string): boolean
+   - Stores previous versions in a Map
+   - Allows reverting to a previous version
+
+5. Update the tool discovery process to read version from package.json or a version field in the module
+
+Return a summary of all changes made."
+    workdir: /Users/pretheesh/Projects/ubot-workspace/ubot/ubot-core
+    model: qwen/qwen3.6-35b-a3b
+    approval_mode: yolo

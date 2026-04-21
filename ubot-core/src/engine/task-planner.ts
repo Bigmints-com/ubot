@@ -7,9 +7,9 @@
 export interface TaskStep {
   id: string;              // e.g., "step-1"
   description: string;     // Human-readable description
-  agentType: string;       // 'researcher' | 'writer' | 'browser-operator' | 'publisher' | 'coder' | 'general'
+  agentType: string;       // target agent (coder, general, nexus, etc)
   dependsOn: string[];     // Step IDs that must complete first
-  status: 'pending' | 'running' | 'completed' | 'failed' | 'skipped';
+  status: 'pending' | 'awaiting_approval' | 'rejected' | 'running' | 'completed' | 'failed' | 'skipped';
   prompt?: string;         // The prompt to send to the subagent
   result?: string;         // Output from the subagent
   error?: string;          // Error if failed
@@ -21,7 +21,7 @@ export interface TaskPlan {
   originalRequest: string;
   steps: TaskStep[];
   createdAt: Date;
-  status: 'planning' | 'executing' | 'completed' | 'failed' | 'partial';
+  status: 'planning' | 'executing' | 'awaiting_approval' | 'completed' | 'failed' | 'partial';
 }
 
 /**
@@ -44,7 +44,7 @@ export async function createTaskPlan(
         {
           id: 'step-1',
           description: request,
-          agentType: 'general',
+          agentType: 'nexus',
           dependsOn: [],
           status: 'pending',
           prompt: request
@@ -55,17 +55,19 @@ export async function createTaskPlan(
     };
   }
 
-  const systemPrompt = `You are a task decomposition planner. Given a complex request, break it into sequential steps.
+  const systemPrompt = `You are Nexus, the Chief Orchestrator. Given a complex request, break it into sequential steps using your crew.
 
-Available agent types: ${agentTypes.join(', ')}
+Available agent types and capabilities:
+${agentTypes.map(a => `- ${a}`).join('\n')}
 
 Rules:
 - Each step should be a single, clear action for one agent
 - Use dependsOn to express ordering (step 2 depends on step 1's output)
 - Steps with no dependsOn can run in parallel
-- Keep it minimal — don't over-decompose simple tasks
+- Assign tasks to the lowest Autonomy Tier agent capable of doing it
+- If the task requires specialized tools, pick the correct specialist
 - If the task is simple (1-2 steps), return just 1-2 steps
-- If the task doesn't need decomposition, return a single step with agentType "general"
+- If the task doesn't need a specialist, return a single step with agentType "nexus"
 
 Respond with ONLY valid JSON (no markdown fences):
 {
@@ -126,7 +128,7 @@ Respond with ONLY valid JSON (no markdown fences):
         {
           id: 'step-1',
           description: request,
-          agentType: 'general',
+          agentType: 'nexus',
           dependsOn: [],
           status: 'pending',
           prompt: request

@@ -1,0 +1,21 @@
+Update the Blackboard class in /Users/pretheesh/Projects/ubot-workspace/ubot/ubot-core/src/engine/blackboard.ts to add typed key support.
+
+Add these new methods:
+
+1. writeTyped(key: string, schema: string, value: any, author: string, ttlSeconds?: number) - Writes with a schema description
+2. readTyped(key: string): { value: any; schema: string; author: string; timestamp: Date } | undefined - Reads with metadata
+3. listKeys(): { key: string; schema?: string; author: string; timestamp: Date }[] - Lists all keys with their schemas
+4. describeKey(key: string): { schema?: string; author: string; lastUpdated: Date } | null - Gets schema info for a key
+
+Also add a new internal data structure to track schemas. The existing write and read methods should continue to work (backward compatible).
+
+Add a BlackboardKey interface:
+interface BlackboardKey {
+  key: string;
+  schema?: string;
+  author: string;
+  timestamp: Date;
+  expiresAt?: Date;
+}
+
+Only modify blackboard.ts. Return a summary of what you changed.

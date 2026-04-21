@@ -1,0 +1,90 @@
+Fix TWO critical bugs in the Ubot tooling system:
+
+## Bug 1: Dead 'browser' module disable (registry.ts)
+Remove the hardcoded 'browser' module from ALWAYS_DISABLED in /Users/pretheesh/Projects/ubot-workspace/ubot/ubot-core/src/tools/registry.ts. This is a dead code path since browser tools come from MCP (Playwright), not the browser module.
+
+Find and remove or comment out this line:
+```typescript
+const ALWAYS_DISABLED = new Set(['browser']);
+```
+
+Also remove 'browser' from the module descriptions in tool-selector.ts if it's listed there as a disabled module.
+
+## Bug 2: Classification failure fallback (tool-selector.ts)
+Fix /Users/pretheesh/Projects/ubot-workspace/ubot/ubot-core/src/engine/tool-selector.ts
+
+The current code in selectToolsForMessage() has this dangerous fallback:
+```typescript
+} catch {
+  log.warn('ToolSelector', `Failed to parse: ${response.slice(0, 200)} — using all tools`);
+  return {
+    tools: allTools,
+    selectedModules: allModules,
+    skipped: false,
+    tokensSaved: 0,
+    routerModel,
+  };
+}
+```
+
+When the router model fails to parse JSON (common with thinking models), it falls back to ALL 114 tools. This defeats the entire 75% token savings and bloats context to ~12,600 tokens.
+
+## Required Changes:
+
+1. Change the fallback to use only ALWAYS_INCLUDE_MODULES tools (a small safe subset)
+2. Add better JSON parsing that tries to extract arrays from markdown code fences
+3. Add a retry mechanism with a simpler prompt if first parse fails
+4. Log more diagnostic info: show what the model actually returned
+5. Add a graceful degradation path that never returns all tools
+
+## Implementation details:
+
+Create a new function:
+```typescript
+function parseToolSelection(response: string, allModules: string[]): string[] {
+  // Try multiple parsing strategies:
+  // 1. Direct JSON parse
+  // 2. Extract from markdown code fences
+  // 3. Extract from thinking tags
+  // 4. Return empty array if nothing works
+}
+```
+
+Update the catch block to:
+```typescript
+} catch (parseErr: any) {
+  log.warn('ToolSelector', `JSON parse failed: ${parseErr.message}. Response: ${response.slice(0, 200)}`);
+
+  // Try to extract useful modules from the response
+  const fallbackModules = extractFallbackModules(response, allModules);
+
+  if (fallbackModules.length > 0) {
+    log.info('ToolSelector', `Using fallback modules: ${fallbackModules.join(', ')}`);
+    const fallbackTools = allToolsWithModules
+      .filter(t => fallbackModules.includes(t.module))
+      .map(t => t.tool);
+    return {
+      tools: fallbackTools,
+      selectedModules: fallbackModules,
+      skipped: false,
+      tokensSaved: Math.floor((fullPayloadChars - JSON.stringify(fallbackTools.map(t => ({name: t.name, description: t.description, parameters: t.parameters})).length) / 4),
+      routerModel,
+    };
+  }
+
+  // Ultimate fallback: only core modules
+  const coreTools = allToolsWithModules
+    .filter(t => ALWAYS_INCLUDE_MODULES.has(t.module))
+    .map(t => t.tool);
+  log.warn('ToolSelector', `No modules extracted, using core-only tools`);
+  return {
+    tools: coreTools,
+    selectedModules: [...ALWAYS_INCLUDE_MODULES],
+    skipped: false,
+    tokensSaved: Math.floor((fullPayloadChars - JSON.stringify(coreTools.map(t => ({name: t.name, description: t.description, parameters: t.parameters})).length) / 4),
+    routerModel,
+  };
+}
+```
+
+Return a summary of all changes made.

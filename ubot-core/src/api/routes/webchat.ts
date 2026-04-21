@@ -113,6 +113,7 @@ export async function handleWebchatRoutes(
     const deps: UnifiedDeps = {
       orchestrator: ctx.agentOrchestrator,
       approvalStore: ctx.approvalStore || null,
+      followUpStore: null,
       eventBus: ctx.eventBus || null,
       skillEngine: ctx.skillEngine || null,
       saveConfigValue: ctx.saveConfigValue || (() => {}),

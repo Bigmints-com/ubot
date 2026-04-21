@@ -28,7 +28,7 @@ export const CORE_ORCHESTRATOR_TOOLS: ToolDefinition[] = [
     name: 'delegate_to_agent',
     description: 'Delegate a specific task to a specialized agent specialist.',
     parameters: [
-      { name: 'agentId', type: 'string', description: 'The ID of the specialized agent (researcher, writer, browser-operator, publisher, coder).', required: true },
+      { name: 'agentId', type: 'string', description: 'The ID of the specialized agent (researcher, writer, browser-operator, social-media-manager, minions-coder). For coding tasks, prefer minions-coder.', required: true },
       { name: 'task', type: 'string', description: 'The detailed task description for the agent.', required: true },
       { name: 'timeoutSeconds', type: 'number', description: 'Optional timeout for the task in seconds (default 120).', required: false },
     ],
@@ -38,6 +38,45 @@ export const CORE_ORCHESTRATOR_TOOLS: ToolDefinition[] = [
     description: 'Decompose a complex multi-step request into a plan and execute it using specialized agents.',
     parameters: [
       { name: 'request', type: 'string', description: 'The complex multi-step request to execute.', required: true },
+    ],
+  },
+  {
+    name: 'broadcast_message',
+    description: 'Send a message to another agent via the internal message bus.',
+    parameters: [
+      { name: 'topic', type: 'string', description: 'The topic or subject of the message.', required: true },
+      { name: 'payload', type: 'string', description: 'The message content (JSON string or text).', required: true },
+      { name: 'targetAgentId', type: 'string', description: 'The specific target agent ID. Leave empty to broadcast to all.', required: false },
+    ],
+  },
+  {
+    name: 'blackboard_write',
+    description: 'Write shared data to the blackboard so other agents can read it later.',
+    parameters: [
+      { name: 'key', type: 'string', description: 'A unique key for the data.', required: true },
+      { name: 'value', type: 'string', description: 'The data to store (JSON string or text).', required: true },
+      { name: 'ttlSeconds', type: 'number', description: 'Optional time-to-live in seconds before the data expires.', required: false },
+    ],
+  },
+  {
+    name: 'blackboard_read',
+    description: 'Read shared data from the blackboard.',
+    parameters: [
+      { name: 'key', type: 'string', description: 'The key to look up.', required: true },
+    ],
+  },
+  {
+    name: 'store_insight',
+    description: 'Store an important semantic insight into long-term vector memory for your agent.',
+    parameters: [
+      { name: 'insight', type: 'string', description: 'The text content to memorize.', required: true },
+    ],
+  },
+  {
+    name: 'recall_memory',
+    description: 'Query your long-term agent memory using semantic search.',
+    parameters: [
+      { name: 'query', type: 'string', description: 'What to search for.', required: true },
     ],
   },
 ];
@@ -61,15 +100,8 @@ export async function getAgentTools(): Promise<ToolDefinition[]> {
  */
 export const VISITOR_SAFE_TOOL_NAMES: ReadonlySet<string> = new Set([
   'ask_owner',
-  'search_messages',
-  'get_contacts',
   'get_profile',
-  'get_conversations',
   'save_memory',
-  'web_search',
-  'web_fetch',
-  'list_pending_approvals',
-  'gcal_list_events',
   'wa_respond_to_bot',
 ]);
 

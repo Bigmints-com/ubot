@@ -137,6 +137,12 @@ export class WhatsAppConnection {
   }
 
   async connect(): Promise<WASocket> {
+    if (this.socket) {
+      try {
+        await this.socket.end(undefined);
+      } catch (err) { /* ignore */ }
+      this.socket = null;
+    }
     this.isManualDisconnect = false;
     this.updateStatus('connecting');
     
@@ -182,27 +188,34 @@ export class WhatsAppConnection {
       
       return new Promise((resolve, reject) => {
         const timeout = setTimeout(() => {
+          this.off('connection.update', onConnected as any);
+          this.off('connection.update', onDisconnected);
           reject(new Error('Connection timeout'));
         }, this.config.connectTimeoutMs);
 
-        const onConnected = () => {
-          clearTimeout(timeout);
-          this.off('connection.update', onConnected);
-          resolve(this.socket!);
+        const onConnected = (status: WhatsAppConnectionStatus, qr?: string) => {
+          if (status === 'connected' || (status === 'connecting' && qr)) {
+            clearTimeout(timeout);
+            this.off('connection.update', onConnected as any);
+            this.off('connection.update', onDisconnected);
+            resolve(this.socket!);
+          }
         };
 
         const onDisconnected = (status: WhatsAppConnectionStatus) => {
           if (status === 'logged_out' || status === 'disconnected') {
             clearTimeout(timeout);
             this.off('connection.update', onDisconnected);
+            this.off('connection.update', onConnected as any);
             reject(new Error('Connection failed'));
           }
         };
 
-        this.on('connection.update', onConnected);
+        this.on('connection.update', onConnected as any);
         this.on('connection.update', onDisconnected);
       });
     } catch (error) {
+
       this.updateStatus('disconnected');
       throw error;
     }
@@ -318,9 +331,18 @@ export class WhatsAppConnection {
       if (connection === 'close') {
         const statusCode = (lastDisconnect?.error as any)?.output?.statusCode;
         const isLoggedOut = statusCode === DisconnectReason.loggedOut;
+        const isReplaced = statusCode === 440;
+
+        console.log('[WhatsApp] Disconnect reason:', (lastDisconnect?.error as any)?.message, 'code:', statusCode);
 
         if (this.isManualDisconnect) {
           console.log('[WhatsApp] ⏹️  Manual disconnect — stopping auto-reconnect.');
+          this.updateStatus('disconnected');
+          return;
+        }
+
+        if (isReplaced) {
+          console.log('[WhatsApp] ⏹️  Connection replaced by another session/instance (code 440). Stopping to avoid infinite loop.');
           this.updateStatus('disconnected');
           return;
         }
@@ -331,7 +353,11 @@ export class WhatsAppConnection {
           this.updateStatus('connecting');
           this.state.reconnectAttempts = 0;
           await this.clearSession();
-          await this.connect();
+          try {
+            await this.connect();
+          } catch (err: any) {
+            console.error('[WhatsApp] Reconnect after session expiration failed:', err.message);
+          }
         } else if (!this.hasConnectedBefore && this.maxQrRetries > 0 && this.state.qrAttempts >= this.maxQrRetries * 6) {
           // Never connected + QR retries exhausted → stop
           console.log('[WhatsApp] ⏹️  Not reconnecting — QR retry limit reached. Restart when ready to scan.');
@@ -346,7 +372,11 @@ export class WhatsAppConnection {
           console.log(`[WhatsApp] 🔄 Reconnecting in ${(delay / 1000).toFixed(0)}s (attempt ${this.state.reconnectAttempts}/${this.maxReconnectAttempts})...`);
           this.updateStatus('reconnecting');
           await new Promise(resolve => setTimeout(resolve, delay));
-          await this.connect();
+          try {
+            await this.connect();
+          } catch (err: any) {
+            console.error('[WhatsApp] 💥 Auto-reconnect failed (will retry on next cycle if applicable):', err.message);
+          }
         }
       } else if (connection === 'open') {
         this.hasConnectedBefore = true;

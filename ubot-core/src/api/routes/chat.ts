@@ -148,7 +148,10 @@ export async function handleChatRoutes(
 
       // Fire and forget
       ctx.agentOrchestrator.chat(
-        sessionId, message, 'web', undefined, true, attachments
+        sessionId, message, 'web', undefined, true, attachments, undefined,
+        (event) => {
+          ctx.asyncJobStore?.addEvent(jobId, event).catch(() => {});
+        }
       ).then((response) => {
         ctx.asyncJobStore?.update(jobId, { 
           status: 'completed', 
@@ -159,12 +162,23 @@ export async function handleChatRoutes(
         // Auto-name thread (same as sync path)
         try {
           const store = ctx.agentOrchestrator!.getConversationStore();
-          store.listSessions().then((sessions) => {
+          store.listSessions().then(async (sessions) => {
             const session = sessions.find((s: any) => s.id === sessionId);
-            if (session && /^(Thread \d+|New Thread|General)$/i.test(session.name)) {
-              let autoName = message.trim().replace(/\n.*/s, '');
-              if (autoName.length > 40) autoName = autoName.slice(0, 40).replace(/\s\S*$/, '') + '…';
-              if (autoName.length > 3) store.renameSession(sessionId, autoName);
+            if (session && (/^(Command Center|Thread \d+|New Thread|General)$/i.test(session.name) || session.name === session.id)) {
+              try {
+                let generatedName = await ctx.agentOrchestrator!.generate(
+                  'You are an expert copywriter. Generate a brief, 3 to 5 word title for the user message. Do not use quotes or punctuation.',
+                  message.trim().slice(0, 500)
+                );
+                generatedName = generatedName.replace(/["']/g, '').trim();
+                if (generatedName.length > 3 && generatedName.length < 50) {
+                  await store.renameSession(sessionId, generatedName);
+                }
+              } catch (e) {
+                let autoName = message.trim().replace(/\n.*/s, '');
+                if (autoName.length > 40) autoName = autoName.slice(0, 40).replace(/\s\S*$/, '') + '…';
+                if (autoName.length > 3) store.renameSession(sessionId, autoName).catch(()=>{});
+              }
             }
           }).catch(() => {});
         } catch { /* best-effort */ }
@@ -192,17 +206,61 @@ export async function handleChatRoutes(
         const store = ctx.agentOrchestrator.getConversationStore();
         const sessions = await store.listSessions();
         const session = sessions.find((s: any) => s.id === sessionId);
-        if (session && /^(Thread \d+|New Thread|General)$/i.test(session.name)) {
-          // Generate name from first message (first 40 chars, trimmed at word boundary)
-          let autoName = message.trim().replace(/\n.*/s, ''); // first line only
-          if (autoName.length > 40) {
-            autoName = autoName.slice(0, 40).replace(/\s\S*$/, '') + '…';
-          }
-          if (autoName.length > 3) {
-            await store.renameSession(sessionId, autoName);
+        if (session && (/^(Command Center|Thread \d+|New Thread|General)$/i.test(session.name) || session.name === session.id)) {
+          try {
+            let generatedName = await ctx.agentOrchestrator.generate(
+              'You are an expert copywriter. Generate a brief, 3 to 5 word title for the user message. Do not use quotes or punctuation.',
+              message.trim().slice(0, 500)
+            );
+            generatedName = generatedName.replace(/["']/g, '').trim();
+            if (generatedName.length > 3 && generatedName.length < 50) {
+              await store.renameSession(sessionId, generatedName);
+            }
+          } catch(e) {
+            // Generate name from first message (first 40 chars, trimmed at word boundary)
+            let autoName = message.trim().replace(/\n.*/s, ''); // first line only
+            if (autoName.length > 40) {
+              autoName = autoName.slice(0, 40).replace(/\s\S*$/, '') + '…';
+            }
+            if (autoName.length > 3) {
+              await store.renameSession(sessionId, autoName);
+            }
           }
         }
       } catch { /* auto-naming is best-effort */ }
+
+      // ── API-level empty content guard ──────────────────────
+      // Belt-and-suspenders: ensure we never send an empty content bubble
+      // to the frontend, even if the orchestrator somehow returns empty.
+      if (!response.content || (response.content as string).trim() === '') {
+        const toolCalls = response.toolCalls || [];
+        if (toolCalls.length > 0) {
+          const failures = toolCalls.filter((t: any) => !t.success);
+          const successes = toolCalls.filter((t: any) => t.success);
+          if (failures.length > 0 && successes.length === 0) {
+            const errSummary = failures.map((f: any) =>
+              `• \`${f.toolName}\` failed: ${f.error || 'Unknown error'}`
+            ).join('\n');
+            response.content = `⚠️ I ran into an issue completing your request:\n\n${errSummary}\n\nPlease try again.`;
+          } else if (successes.length > 0 && failures.length === 0) {
+            const summary = successes.map((r: any) =>
+              `• \`${r.toolName}\`: ${String(r.result || 'Completed').slice(0, 150)}`
+            ).join('\n');
+            response.content = `✅ Done!\n\n${summary}`;
+          } else if (successes.length > 0) {
+            const successNames = successes.map((r: any) => `\`${r.toolName}\``).join(', ');
+            const errSummary = failures.map((f: any) =>
+              `• \`${f.toolName}\`: ${f.error || 'Unknown error'}`
+            ).join('\n');
+            response.content = `⚠️ Partially completed. ${successNames} succeeded, but:\n\n${errSummary}`;
+          } else {
+            response.content = "I wasn't able to complete that. Please try rephrasing your request.";
+          }
+        } else {
+          response.content = "I wasn't able to generate a response. Please try again.";
+        }
+        console.warn('[Chat API] Empty content guard triggered — patched response before sending to client');
+      }
 
       json(res, response);
     } catch (e: any) {
@@ -299,7 +357,8 @@ export async function handleChatRoutes(
       json(res, { sessions: [] });
       return true;
     }
-    const sessions = await ctx.agentOrchestrator.getConversationStore().listSessions();
+    const allSessions = await ctx.agentOrchestrator.getConversationStore().listSessions();
+    const sessions = allSessions.filter((s: any) => !s.id.startsWith('subagent-'));
     json(res, { sessions });
     return true;
   }
@@ -480,7 +539,10 @@ export async function handleChatRoutes(
 
       if (providerType === 'ollama') {
         const ollamaHost = baseUrl.replace(/\/v1\/?$/, '');
-        const ollamaRes = await fetch(`${ollamaHost}/api/tags`);
+        let fetchHost = ollamaHost;
+        if (fetchHost.includes('://localhost:')) fetchHost = fetchHost.replace('://localhost:', '://127.0.0.1:');
+
+        const ollamaRes = await fetch(`${fetchHost}/api/tags`);
         if (ollamaRes.ok) {
           const data = await ollamaRes.json() as any;
           const allModels = (data.models || []) as any[];
@@ -520,15 +582,18 @@ export async function handleChatRoutes(
       } else {
         const normalizedUrl = baseUrl.replace(/\/+$/, '');
         const modelsUrl = `${normalizedUrl}/models`;
+        let fetchUrl = modelsUrl;
+        if (fetchUrl.includes('://localhost:')) fetchUrl = fetchUrl.replace('://localhost:', '://127.0.0.1:');
+
         const headers: Record<string, string> = { 'Content-Type': 'application/json' };
         if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
 
-        const modelsRes = await fetch(modelsUrl, { headers });
+        const modelsRes = await fetch(fetchUrl, { headers });
         if (modelsRes.ok) {
           const data = await modelsRes.json() as any;
           models = (data.data || []).map((m: any) => ({
             id: m.id,
-            name: m.id,
+            name: m.name || m.id, pricing: m.pricing, context_length: m.context_length,
           }));
         }
       }

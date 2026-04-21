@@ -91,6 +91,9 @@ export interface ApprovalStore {
   /** Get a specific approval by ID */
   getById(id: string): Promise<PendingApproval | null>;
 
+  /** Check if an approval is still pending (not resolved) */
+  isPending(id: string): Promise<boolean>;
+
   /** Resolve an approval with the owner's response */
   resolve(id: string, ownerResponse: string): Promise<PendingApproval | null>;
 
@@ -145,6 +148,11 @@ export function createApprovalStore(db: DatabaseConnection): ApprovalStore {
         
       if (error || !data) return null;
       return rowToApproval(data);
+    },
+
+    async isPending(id: string) {
+      const approval = await this.getById(id);
+      return approval !== null && approval.status === 'pending';
     },
 
     async resolve(id: string, ownerResponse: string) {

@@ -37,9 +37,14 @@ import { log } from '../logger/ring-buffer.js';
 import { handleIncomingMessage, type UnifiedMessage, type UnifiedDeps } from '../engine/handler.js';
 import { existsSync } from 'fs';
 import { join } from 'path';
-import { transcribeAudio, isTranscriptionAvailable } from '../capabilities/transcription/service.js';
+import { transcribeAudio } from '../capabilities/transcription/service.js';
 
 import { FEATURES, MODE } from '../lib/features.js';
+
+// Catch unhandled Promise rejections (e.g. from node-telegram-bot-api) to prevent Node crashes
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+});
 
 // Route handlers
 import { handleChatRoutes } from './routes/chat.js';
@@ -53,6 +58,8 @@ import { handleToolsRoutes } from './routes/tools.js';
 import { handleCliRoutes } from './routes/cli.js';
 import { handleWebchatRoutes, ensureWebchatToken } from './routes/webchat.js';
 import { handleModulesRoutes } from './routes/modules.js';
+import { handleAgentsRoutes } from './routes/agents.js';
+import { handleTasksRoutes } from './routes/tasks.js';
 import { getPromptExperiments } from '../engine/prompt-experiment.js';
 import { json, parseBody, error as apiError, type ApiContext } from './context.js';
 
@@ -111,7 +118,7 @@ let waError: string | null = null;
 const waMessages: Array<{ from: string; to: string; body: string; timestamp: string; isFromMe: boolean }> = [];
 const MAX_WA_MESSAGES = 100;
 
-
+import { crewRegistry } from '../engine/crew-registry.js';
 let scheduler: TaskSchedulerService | null = null;
 let agentOrchestrator: AgentOrchestrator | null = null;
 
@@ -256,6 +263,7 @@ function setupWhatsAppHandlers(conn: WhatsAppConnection): void {
     if (qr) waQrCode = qr;
     if (status === 'connected') {
       waQrCode = null;
+      waError = null;
       log.info('WhatsApp', 'Connected successfully');
       waProvider = new WhatsAppMessagingProvider(conn);
       messagingRegistry.register(waProvider);
@@ -330,18 +338,26 @@ function setupWhatsAppHandlers(conn: WhatsAppConnection): void {
             }
           }
 
-          // For audio: auto-transcribe using local Whisper model
-          if (media.mimeType.startsWith('audio/') && isTranscriptionAvailable()) {
+          // For audio: auto-transcribe via configured provider or local Whisper fallback
+          if (media.mimeType.startsWith('audio/')) {
             try {
               log.info('WhatsApp', `🎤 Transcribing audio (${media.mimeType})...`);
-              const transcription = await transcribeAudio(filePath, { language: 'en' });
+              const cfg = agentOrchestrator?.getConfig?.() as any;
+              // llmProviders is LLMProviderConfig[] — find the transcription-routed provider
+              const providerList: any[] = Array.isArray(cfg?.llmProviders) ? cfg.llmProviders : [];
+              const routing: Record<string, string> = cfg?.modelRouting || {};
+              const transcriptionProviderId = routing['transcription'] ? routing['transcription'].split('/')[0] : cfg?.defaultLlmProviderId;
+              const llmProvider = providerList.find((p: any) => p.id === transcriptionProviderId) || providerList.find((p: any) => p.isDefault) || providerList[0];
+              const transcription = await transcribeAudio(filePath, {
+                language: 'auto',
+                providerBaseUrl: llmProvider?.baseUrl,
+                providerApiKey: llmProvider?.apiKey,
+              });
               attachment.textContent = transcription.text;
-              // Replace the empty/placeholder body with the transcribed text
               msg.body = `[Voice message transcription]: ${transcription.text}`;
-              log.info('WhatsApp', `🎤 Transcription complete (${transcription.duration?.toFixed(1)}s): "${transcription.text.slice(0, 80)}"`);
+              log.info('WhatsApp', `🎤 Transcription: "${transcription.text.slice(0, 80)}"`);
             } catch (err: any) {
-              log.error('WhatsApp', `Transcription failed: ${err.message}`);
-              // Keep the original body ([Media message]) if transcription fails
+              log.warn('WhatsApp', `Transcription unavailable: ${err.message}`);
             }
           }
 
@@ -360,10 +376,13 @@ function setupWhatsAppHandlers(conn: WhatsAppConnection): void {
       body: msg.body || '[Media message]',
       timestamp: msg.timestamp instanceof Date ? msg.timestamp : new Date(),
       replyFn: async (text: string) => {
-        if (waConnection?.isConnected) {
-          log.info('WhatsApp', `Sending reply to rawJid=${replyJid} (resolved=${jid})`);
-          await waConnection.sendMessage(replyJid, { text });
+        log.info('WhatsApp', `Sending reply to rawJid=${replyJid} (resolved=${jid})`);
+        try {
+          await conn.sendMessage(replyJid, { text });
           waMessages.push({ from: 'me', to: jid, body: text, timestamp: new Date().toISOString(), isFromMe: true });
+        } catch (err: any) {
+          log.error('WhatsApp', `Failed to send reply to ${replyJid}: ${err.message}`);
+          throw err;
         }
       },
       extra: {
@@ -380,13 +399,17 @@ function setupWhatsAppHandlers(conn: WhatsAppConnection): void {
     const deps: UnifiedDeps = {
       orchestrator: agentOrchestrator,
       approvalStore,
+      followUpStore: followUpStoreInstance,
       eventBus,
       skillEngine,
       saveConfigValue,
       relayMessage: relayApprovalResponse,
     };
 
-    await handleIncomingMessage(unified, deps);
+    const result = await handleIncomingMessage(unified, deps);
+    if (result.response && result.response.trim()) {
+      await unified.replyFn(result.response);
+    }
   });
 }
 
@@ -509,16 +532,26 @@ function setupTelegramHandlers(conn: TelegramConnection): void {
             }
           }
 
-          // For audio: auto-transcribe using local Whisper model
-          if (media.mimeType.startsWith('audio/') && isTranscriptionAvailable()) {
+          // For audio: auto-transcribe via configured provider or local Whisper fallback
+          if (media.mimeType.startsWith('audio/')) {
             try {
               log.info('Telegram', `🎤 Transcribing audio (${media.mimeType})...`);
-              const transcription = await transcribeAudio(filePath, { language: 'en' });
+              const cfg = agentOrchestrator?.getConfig?.() as any;
+              // llmProviders is LLMProviderConfig[] — find the transcription-routed provider
+              const providerList: any[] = Array.isArray(cfg?.llmProviders) ? cfg.llmProviders : [];
+              const routing: Record<string, string> = cfg?.defaults || {};
+              const transcriptionProviderId = routing['transcription'] ? routing['transcription'].split('/')[0] : cfg?.defaultLlmProviderId;
+              const llmProvider = providerList.find((p: any) => p.id === transcriptionProviderId) || providerList.find((p: any) => p.isDefault) || providerList[0];
+              const transcription = await transcribeAudio(filePath, {
+                language: 'auto',
+                providerBaseUrl: llmProvider?.baseUrl,
+                providerApiKey: llmProvider?.apiKey,
+              });
               attachment.textContent = transcription.text;
               msg.body = `[Voice message transcription]: ${transcription.text}`;
-              log.info('Telegram', `🎤 Transcription complete (${transcription.duration?.toFixed(1)}s): "${transcription.text.slice(0, 80)}"`);
+              log.info('Telegram', `🎤 Transcription: "${transcription.text.slice(0, 80)}"`);
             } catch (err: any) {
-              log.error('Telegram', `Transcription failed: ${err.message}`);
+              log.warn('Telegram', `Transcription unavailable: ${err.message}`);
             }
           }
 
@@ -550,13 +583,17 @@ function setupTelegramHandlers(conn: TelegramConnection): void {
     const deps: UnifiedDeps = {
       orchestrator: agentOrchestrator,
       approvalStore,
+      followUpStore: followUpStoreInstance,
       eventBus,
       skillEngine,
       saveConfigValue,
       relayMessage: relayApprovalResponse,
     };
 
-    await handleIncomingMessage(unified, deps);
+    const result = await handleIncomingMessage(unified, deps);
+    if (result.response && result.response.trim()) {
+      await unified.replyFn(result.response);
+    }
   });
 
   conn.on('error', (err) => {
@@ -662,6 +699,7 @@ function setupWebchatHandlers(conn: WebchatConnection): void {
     const deps: UnifiedDeps = {
       orchestrator: agentOrchestrator,
       approvalStore,
+      followUpStore: followUpStoreInstance,
       eventBus,
       skillEngine,
       saveConfigValue,
@@ -873,6 +911,9 @@ export function initializeApi(
 ): { skillRepo: SkillRepository | null, skillEngine: SkillEngine | null } {
   migrateConfig();
   workspacePath = wsPath || null;
+  if (workspacePath) {
+    crewRegistry.initialize(workspacePath);
+  }
   if (workspace) workspaceProvider = workspace;
   if (db) {
 
@@ -1075,11 +1116,65 @@ export function initializeApi(
     followUpStoreInstance = followUpStore;
     if (agent) {
       import('../automation/followups/checker.js').then(({ startFollowUpChecker }) => {
+        // sendMessage: route messages to the correct channel based on the channel parameter
+        const sendMessage = async (channel: string, contactId: string, message: string): Promise<boolean> => {
+          // Telegram
+          if (channel === 'telegram' || contactId.startsWith('telegram:')) {
+            const chatId = contactId.startsWith('telegram:')
+              ? Number(contactId.replace('telegram:', ''))
+              : Number(contactId);
+            if (tgConnection && !isNaN(chatId)) {
+              try {
+                await tgConnection.sendMessage(chatId, message);
+                console.log(`[FollowUpChecker] ✅ Sent to Telegram ${chatId}`);
+                return true;
+              } catch (err: any) {
+                console.error(`[FollowUpChecker] Failed to send to Telegram ${chatId}:`, err.message);
+                return false;
+              }
+            }
+            return false;
+          }
+
+          // WhatsApp
+          if (waConnection && (channel === 'whatsapp' || waConnection.isConnected)) {
+            try {
+              const jid = contactId.includes('@')
+                ? contactId
+                : `${contactId.replace(/\D/g, '')}@s.whatsapp.net`;
+              await waConnection.sendMessage(jid, { text: message });
+              console.log(`[FollowUpChecker] ✅ Sent to WhatsApp ${jid}`);
+              return true;
+            } catch (err: any) {
+              console.error(`[FollowUpChecker] Failed to send to WhatsApp ${contactId}:`, err.message);
+              return false;
+            }
+          }
+
+          // Web: add to conversation store for UI pickup
+          if (agent) {
+            try {
+              const convStore = agent.getConversationStore();
+              convStore.getOrCreateSession(contactId, 'web', contactId);
+              convStore.addMessage(contactId, 'assistant', message, { source: 'scheduler' });
+              console.log(`[FollowUpChecker] ✅ Added message to web session ${contactId}`);
+              return true;
+            } catch (err: any) {
+              console.error(`[FollowUpChecker] Failed to add message to web session ${contactId}:`, err.message);
+              return false;
+            }
+          }
+
+          console.warn(`[FollowUpChecker] ⚠️ No channel available to send to ${contactId}`);
+          return false;
+        };
+
         startFollowUpChecker({
           followUpStore,
           chat: (sessionId: string, message: string, source: string, contactName?: string, isOwner?: boolean) => {
             return agent.chat(sessionId, message, source as any, contactName, isOwner);
           },
+          sendMessage,
         });
         console.log('[FollowUps] Follow-up checker started');
       }).catch(err => console.error('[FollowUps] Failed to start checker:', err.message));
@@ -1434,7 +1529,8 @@ async function handleChannelRoutes(
     const cfg = loadUbotConfig();
     const routing = cfg.defaults || {};
     // Only return model-purpose keys
-    const validPurposes = ['chat', 'router', 'extraction', 'generation'];
+    const { ALL_PURPOSES } = await import('../engine/types.js');
+    const validPurposes = ALL_PURPOSES as string[];
     const modelRouting: Record<string, string> = {};
     for (const [k, v] of Object.entries(routing)) {
       if (validPurposes.includes(k)) modelRouting[k] = v;
@@ -1970,6 +2066,8 @@ async function handleExperimentRoutes(req: http.IncomingMessage, res: http.Serve
   if (await handleVaultRoutes(req, res, url, method, ctx)) return true;
   if (await handleModulesRoutes(req, res, url, method, ctx)) return true;
   if (await handleExperimentRoutes(req, res, url, method)) return true;
+  if (await handleAgentsRoutes(req, res, url, method, ctx)) return true;
+  if (await handleTasksRoutes(req, res, url, method, ctx)) return true;
 
   return false;
 }

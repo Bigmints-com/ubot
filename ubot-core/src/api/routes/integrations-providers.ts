@@ -206,10 +206,12 @@ export async function handleIntegrationProviderRoutes(
         resolvedKey = section.providers?.[providerKey]?.apiKey as string || '';
       }
 
-      // Ollama uses different endpoint + capability filtering
       if (providerType === 'ollama') {
         const ollamaHost = baseUrl.replace(/\/v1\/?$/, '');
-        const resp = await fetch(`${ollamaHost}/api/tags`);
+        let fetchHost = ollamaHost;
+        if (fetchHost.includes('://localhost:')) fetchHost = fetchHost.replace('://localhost:', '://127.0.0.1:');
+        
+        const resp = await fetch(`${fetchHost}/api/tags`);
         if (resp.ok) {
           const data = await resp.json() as any;
           const allModels = (data.models || []) as any[];
@@ -252,10 +254,13 @@ export async function handleIntegrationProviderRoutes(
       }
 
       const modelsUrl = baseUrl.replace(/\/+$/, '') + '/models';
+      let fetchUrl = modelsUrl;
+      if (fetchUrl.includes('://localhost:')) fetchUrl = fetchUrl.replace('://localhost:', '://127.0.0.1:');
+
       const headers: Record<string, string> = {};
       if (resolvedKey) headers['Authorization'] = `Bearer ${resolvedKey}`;
 
-      const resp = await fetch(modelsUrl, { headers });
+      const resp = await fetch(fetchUrl, { headers });
       if (!resp.ok) {
         json(res, { models: [], error: `Failed: ${resp.status}` });
         return true;

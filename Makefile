@@ -19,8 +19,26 @@ INSTALL_MARKER = $(UBOT_HOME)/.installed
 # ─── Default ────────────────────────────────────────────────────────────────────
 all: build
 
+## check-deps: Verify critical system dependencies before installation
+check-deps:
+	@echo "🔍 Checking system dependencies..."
+	@if ! command -v node >/dev/null 2>&1; then \
+		echo "❌ Node.js is not installed! Ubot requires Node.js v22 or higher. Please install it."; \
+		exit 1; \
+	fi
+	@if ! command -v npm >/dev/null 2>&1; then \
+		echo "❌ NPM is not installed! Please install NPM."; \
+		exit 1; \
+	fi
+	@NODE_VER=$$(node -v | sed 's/v//' | cut -d. -f1); \
+	if [ "$$NODE_VER" -lt 22 ] 2>/dev/null; then \
+		echo "❌ Node.js v22 or higher is absolutely required (found $$(node -v)). Please upgrade."; \
+		exit 1; \
+	fi
+	@echo "   ✅ Environment validated."
+
 ## build: Build everything (backend + web UI)
-build: build-backend build-web
+build: check-deps build-backend build-web
 	@echo ""
 	@echo "✅ Build complete! Run 'make install' to install."
 
@@ -122,11 +140,20 @@ _do_install:
 		echo "   Synced default skills to $(UBOT_HOME)/workspace/skills/"; \
 	fi
 
-	@# ── Backup database before install ─────────────────────────────────
-	@if [ -f $(UBOT_HOME)/data/ubot.db ]; then \
-		cp $(UBOT_HOME)/data/ubot.db $(UBOT_HOME)/data/ubot.db.bak; \
-		echo "   Backed up database to data/ubot.db.bak"; \
+	@# Copy default agents (e.g. Nexus orchestrator - respects user deletions)
+	@mkdir -p $(UBOT_HOME)/workspace/agents
+	@if [ -d $(CORE_DIR)/agents ]; then \
+		for agent_file in $(CORE_DIR)/agents/*; do \
+			if [ -f "$$agent_file" ]; then \
+				agent_name=$$(basename "$$agent_file"); \
+				if [ ! -e "$(UBOT_HOME)/workspace/agents/$$agent_name" ]; then \
+					cp "$$agent_file" "$(UBOT_HOME)/workspace/agents/$$agent_name"; \
+				fi; \
+			fi; \
+		done; \
+		echo "   Synced default agents to $(UBOT_HOME)/workspace/agents/"; \
 	fi
+
 
 	@# ── Application code (replaced on every install/update) ────────────
 	@# These are safe to replace — they contain only compiled code, not user data.
@@ -169,26 +196,15 @@ _do_install:
 		python3 $(CLI_DIR)/merge-config.py $(UBOT_HOME)/config.json $(CLI_DIR)/default-config.json; \
 	fi
 
-	@# ── Access credentials (first install only) ─────────────────────────
+	@# ── Copy Migrations explicitly for Setup Wizard ───────────────
+	@rm -rf $(UBOT_HOME)/migrations
+	@cp -R $(CORE_DIR)/supabase/migrations $(UBOT_HOME)/migrations
+	@echo "   Prepared auto-migration scripts in $(UBOT_HOME)/migrations/"
+
+	@# ── Interactive Initialization Wizard (first install only) ──
 	@if [ "$(FIRST_INSTALL)" = "1" ]; then \
 		echo ""; \
-		echo "🔐 Set dashboard login credentials"; \
-		echo "   This protects your UBOT dashboard and API from unauthorized access."; \
-		echo ""; \
-		printf "   Username (default: admin): "; \
-		read ACCESS_USER; \
-		if [ -z "$$ACCESS_USER" ]; then ACCESS_USER="admin"; fi; \
-		printf "   Password (press Enter to auto-generate one): "; \
-		read ACCESS_PWD; \
-		if [ -z "$$ACCESS_PWD" ]; then \
-			ACCESS_PWD=$$(python3 -c "import secrets,string; print(''.join(secrets.choice(string.ascii_letters+string.digits) for _ in range(16)))"); \
-			echo "   ✨ Generated password: $$ACCESS_PWD"; \
-		fi; \
-		python3 -c "import json,sys; \
-f=open('$(UBOT_HOME)/config.json'); c=json.load(f); f.close(); \
-s=c.setdefault('server',{}); s['access_username']=sys.argv[1]; s['access_password']=sys.argv[2]; \
-f=open('$(UBOT_HOME)/config.json','w'); json.dump(c,f,indent=4); f.write('\n'); f.close()" "$$ACCESS_USER" "$$ACCESS_PWD"; \
-		echo "   🔒 Login: $$ACCESS_USER / $$ACCESS_PWD"; \
+		UBOT_HOME=$(UBOT_HOME) node $(UBOT_HOME)/lib/cli/wizard.js; \
 		echo ""; \
 	fi
 

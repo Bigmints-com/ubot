@@ -1,0 +1,61 @@
+Fix the follow-up checker so it actually sends messages when an agent produces a follow-up response.
+
+File to modify: /Users/pretheesh/Projects/ubot-workspace/ubot/ubot-core/src/automation/followups/checker.ts
+
+## Current Problem
+
+In `processOneFollowUp`, when the agent produces a follow-up message, the code just records an attempt and reschedules. It never actually sends the message. The `sendMessage` callback is passed in but barely used.
+
+## Required Changes
+
+### 1. Make sendMessage required and actually send the message
+
+Update the `FollowUpCheckerDeps` interface to make `sendMessage` required (not optional). Then update `processOneFollowUp` to actually send the message when the agent produces one.
+
+Replace the current "agent produces message" branch (around line 75-95) with this logic:
+
+```typescript
+// Agent produced a follow-up message — send it and complete
+const messageText = response.trim();
+const sent = await deps.sendMessage(followUp.channel, followUp.contactId, messageText);
+
+if (sent) {
+  await deps.followUpStore.complete(followUp.id, `Sent follow-up message: ${messageText.slice(0, 200)}`);
+  console.log(`[FollowUpChecker] Follow-up ${followUp.id} — message sent and completed`);
+} else {
+  // Send failed — reschedule with higher priority
+  const nextAt = new Date(Date.now() + 30 * 60 * 1000);
+  await deps.followUpStore.recordAttempt(followUp.id, nextAt);
+  console.log(`[FollowUpChecker] Follow-up ${followUp.id} — send failed, rescheduled`);
+}
+```
+
+### 2. Clean up the response before sending
+
+Before sending, strip any verbose reasoning. The agent might return a paragraph of text. Extract just the actual message portion:
+- Find the last paragraph that looks like a message (not [NO_ACTION_NEEDED] or [RESCHEDULE])
+- If the response contains `[NO_ACTION_NEEDED]`, strip everything up to and including that tag
+- If the response contains `[RESCHEDULE]`, strip everything up to and including that tag
+- If nothing remains after stripping, treat it as "no action needed"
+
+### 3. Add a fallback message
+
+If the agent's response is empty or just whitespace after stripping, don't send anything. Instead, respond with `[NO_ACTION_NEEDED]` and log why.
+
+### 4. Update the startFollowUpChecker call site
+
+In the main app where `startFollowUpChecker` is called, ensure `sendMessage` is properly wired. The function signature is:
+```typescript
+sendMessage?: (channel: string, contactId: string, message: string) => Promise<boolean>;
+```
+
+Make sure this is passed from the handler/orchestrator layer.
+
+## Implementation Notes
+
+- Keep the existing `[NO_ACTION_NEEDED]` and `[RESCHEDULE]` detection logic
+- Only change the "else" branch (when agent produces a message)
+- Add a helper function `extractMessageFromResponse(response: string): string` that strips metadata tags and returns just the message
+- Log every action: message sent, message failed, no action needed, rescheduled
+- Do NOT modify any other files
+- Return a summary of all changes made

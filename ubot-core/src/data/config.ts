@@ -126,7 +126,7 @@ export interface UbotConfig {
     access_password?: string;
   };
   database?: {
-    provider?: 'sqlite' | 'supabase';
+    provider?: 'supabase';
     path?: string;
     supabase_url?: string;
     supabase_service_key?: string;
@@ -151,6 +151,9 @@ export interface UbotConfig {
     telegram_username?: string;
   };
 
+  /** Owner display name used in approval notifications */
+  ownerName?: string;
+
   channels?: {
     whatsapp?: { enabled?: boolean; auto_reply?: boolean };
     telegram?: { enabled?: boolean; token?: string; auto_reply?: boolean };
@@ -174,6 +177,9 @@ export interface UbotConfig {
     system_prompt?: string;
   };
 
+  /** Delay (in hours) before auto-scheduling a follow-up after ask_owner. Default: 2 */
+  approvalFollowUpDelayHours?: number;
+
   /** Purpose-based routing: which capability.provider to use for each purpose */
   defaults?: Record<string, string>;
 
@@ -195,6 +201,9 @@ export interface UbotConfig {
   integrations?: any;
   /** @deprecated */
   mcp?: any;
+
+  // ─── Voice & Audio Capabilities
+  // The system is equipped with Text-to-Speech (TTS). If the user asks for a voice reply or audio message, you MUST use the send_audio tool to deliver your response as voice. Never claim you cannot speak or generate audio.
 
   // ─── Extension / Fork Fields ──────────────────────────
   // Forks can add arbitrary top-level keys to config.json.
@@ -285,8 +294,8 @@ export function resolveAuthConfig(config: UbotConfig): ResolvedAuth {
   const auth = config.server?.auth;
   let mode: AuthMode = auth?.mode ?? 'local';
 
-  // Force SSO mode when running as the SaaS platform
-  if (process.env.UBOT_MODE === 'cloud-saas') {
+  // Force SSO mode when running as the SaaS platform or shared cloud
+  if (process.env.UBOT_MODE === 'cloud-saas' || process.env.UBOT_MODE === 'cloud-shared') {
     mode = 'sso';
   }
 

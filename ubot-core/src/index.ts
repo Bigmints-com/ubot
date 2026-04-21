@@ -26,7 +26,7 @@ import crypto from 'crypto';
 
 // ─── UBOT_HOME resolution ──────────────────────────────────────────────────────
 const UBOT_HOME = process.env.UBOT_HOME || '';
-const IS_PRODUCTION = process.env.NODE_ENV === 'production';
+const IS_PRODUCTION = process.env.NODE_ENV === 'production' || !!UBOT_HOME;
 
 const ubotConfig = loadUbotConfig();
 
@@ -63,7 +63,8 @@ if (resolvedAuth.mode === 'local' && !resolvedAuth.password) {
   console.log(`[Auth] SSO mode — provider: ${resolvedAuth.provider ?? 'extension'}, auth_url: ${resolvedAuth.auth_url ?? 'n/a'}`);
 }
 
-const PORT = ubotConfig.server?.port ?? 11490;
+const envPort = process.env.PORT ? parseInt(process.env.PORT, 10) : undefined;
+const PORT = envPort || ubotConfig.server?.port || 11490;
 
 // In-memory application state
 interface AppState {
@@ -81,17 +82,6 @@ const appState: AppState = {
 };
 
 // Initialize database
-const dbPath = ubotConfig.database?.path
-  ? (path.isAbsolute(ubotConfig.database.path)
-    ? ubotConfig.database.path
-    : path.join(UBOT_HOME || process.cwd(), ubotConfig.database.path))
-  : (UBOT_HOME ? path.join(UBOT_HOME, 'data', 'local', 'ubot.db') : './data/local/ubot.db');
-// Ensure data directory exists
-const dataDir = path.dirname(dbPath);
-if (!fs.existsSync(dataDir)) {
-  fs.mkdirSync(dataDir, { recursive: true });
-}
-
 const db = createConnection({
   config: Object.assign({}, createDefaultConfig(), ubotConfig.database || {})
 });
@@ -656,3 +646,4 @@ if (process.env.NODE_ENV !== 'test' && !process.env.VITEST) {
 }
 
 export { createServer, getAppState, AppState, handleRequest, resetState };
+// trigger restart

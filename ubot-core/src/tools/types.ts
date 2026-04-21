@@ -43,6 +43,7 @@ export interface ToolContext {
   getCliService(): any | null;
   getFollowUpStore(): any | null;
   getSpawnedSessionStore(): any | null;
+  reportProgress?: (event: any) => void;
 }
 
 /**

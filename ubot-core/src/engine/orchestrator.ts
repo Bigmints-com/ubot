@@ -23,7 +23,7 @@ import { type Soul, SOUL_REWRITE_PROMPT, OWNER_MERGE_PROMPT, FACT_EXTRACTION_PRO
 import { formatToolsForAPI, createToolRegistry, getToolsForSource, getToolAliases, type ToolRegistry } from './tools.js';
 import { selectToolsForMessage } from './tool-selector.js';
 import { getAllToolsWithModules } from '../tools/registry.js';
-import { loadAgentDefinitions } from './agent-loader.js';
+import { crewRegistry } from './crew-registry.js';
 import type { SkillRepository } from '../agents/skills/skill-repository.js';
 import type { SkillEngine } from '../agents/skills/skill-engine.js';
 import { metricsCollector } from '../metrics/index.js';
@@ -40,6 +40,10 @@ import { createTaskPlan, getExecutionOrder, type TaskPlan, type TaskStep } from 
 import { saveTaskPlan, updateStepStatus, updatePlanStatus, getTaskPlan } from './plan-store.js';
 import { getPromptExperiments } from './prompt-experiment.js';
 import { getHooks } from '../hooks/extensions.js';
+import { messageBus, type MessageBus } from './message-bus.js';
+import { blackboard, type Blackboard } from './blackboard.js';
+import { VectorStore } from './vector-store.js';
+import { EmbeddingPipeline } from './embeddings.js';
 
 /**
  * Find recent outbound messages sent TO a specific contact by the owner.
@@ -114,7 +118,7 @@ async function findRecentOutboundMessages(
 
 export interface AgentOrchestrator {
   /** Process a message and return the agent's response */
-  chat(sessionId: string, message: string, source?: 'web' | 'whatsapp' | 'telegram' | 'webchat' | 'sub-agent', contactName?: string, isOwner?: boolean, attachments?: Attachment[], skillContext?: string): Promise<AgentResponse>;
+  chat(sessionId: string, message: string, source?: 'web' | 'whatsapp' | 'telegram' | 'webchat' | 'sub-agent', contactName?: string, isOwner?: boolean, attachments?: Attachment[], skillContext?: string, onProgress?: (event: any) => void): Promise<AgentResponse>;
   /** Direct LLM text generation (no tools) — for skill generation, etc. */
   generate(systemPrompt: string, userMessage: string): Promise<string>;
   /** Get the current config */
@@ -141,6 +145,12 @@ export interface AgentOrchestrator {
   resumeActivePlans(): Promise<void>;
   /** Inject skill engine after initialization (needed because agent is created before skillEngine) */
   setSkillEngine(engine: SkillEngine): void;
+  /** Get the Agent Message Bus for internal A2A communication */
+  getMessageBus(): MessageBus;
+  /** Get the Blackboard for shared agent memory */
+  getBlackboard(): Blackboard;
+  /** Get the Vector Store */
+  getVectorStore(): VectorStore | undefined;
 }
 
 export function createAgentOrchestrator(
@@ -180,12 +190,19 @@ export function createAgentOrchestrator(
   const toolRegistry = createToolRegistry();
   const continuationCount = new Map<string, number>();
   
+  // Initialize Vector Store if DB is attached
+  let vectorStore: VectorStore | undefined;
+  if (db) {
+    vectorStore = new VectorStore(db);
+    log.info('System', 'VectorStore initialized with Supabase pgvector backend');
+  }
+
   // Forward-declare orchestrator for tool closure capture
   const orchestrator = {} as AgentOrchestrator;
   
   // Register core orchestrator tools
   toolRegistry.register('list_agents', async () => {
-    const list = Array.from(agents.values());
+    const list = crewRegistry.listAgents();
     if (list.length === 0) return { toolName: 'list_agents', success: true, result: 'No specialized agents found in workspace/agents/', duration: 0 };
     const formatted = list.map(a => `- ${a.id}: ${a.name} (${a.description})`).join('\n');
     return { toolName: 'list_agents', success: true, result: `Available agents:\n${formatted}`, duration: 0 };
@@ -202,12 +219,12 @@ export function createAgentOrchestrator(
       return { toolName: 'switch_agent', success: true, result: 'Switched back to main Ubot persona.', duration: 0 };
     }
     
-    if (!agents.has(agentId)) {
+    if (!crewRegistry.hasAgent(agentId)) {
       return { toolName: 'switch_agent', success: false, error: `Agent "${agentId}" not found.`, duration: 0 };
     }
     
     sessionAgents.set(sessionId, agentId);
-    const agent = agents.get(agentId)!;
+    const agent = crewRegistry.getAgent(agentId)!;
     return { toolName: 'switch_agent', success: true, result: `Successfully switched to ${agent.name}. Instructions updated.`, duration: 0 };
   });
 
@@ -219,30 +236,152 @@ export function createAgentOrchestrator(
     if (!agentId) return { toolName: 'delegate_to_agent', success: false, error: 'agentId is required', duration: 0 };
     if (!task) return { toolName: 'delegate_to_agent', success: false, error: 'task is required', duration: 0 };
     
-    const agentDef = agents.get(agentId);
+    const agentDef = crewRegistry.getAgent(agentId);
     if (!agentDef) {
-      const available = Array.from(agents.keys()).join(', ');
+      const available = crewRegistry.listAgents().map(a => a.id).join(', ');
       return { toolName: 'delegate_to_agent', success: false, error: `Agent "${agentId}" not found. Available: ${available}`, duration: 0 };
     }
     
+    const sid = `subagent-${agentDef.name}-${Date.now()}`;
+    sessionAgents.set(sid, agentDef.id);
+
+    // Filter tools based on the subagent's autonomy tier
+    const filteredTools = filterToolsByTier(
+      agentDef.allowedTools || [],
+      agentDef.autonomyTier || 'T3',
+    );
+
     const subConfig = {
       name: agentDef.name,
       systemPrompt: agentDef.systemPrompt,
-      allowedTools: agentDef.allowedTools,
+      allowedTools: filteredTools,
       timeoutMs: timeoutSeconds * 1000,
     };
     
     const orchestratorInterface = {
-      chat: (sid: string, msg: string, spo?: string) => 
-        orchestrator.chat(sid, msg, 'sub-agent', context?.contactName, context?.isOwner, undefined, spo)
+      chat: (_ignoredSid: string, msg: string, spo?: string) => 
+        orchestrator.chat(sid, msg, 'sub-agent', context?.contactName, context?.isOwner, undefined, spo, context?.reportProgress)
     };
-    
+    if (db) {
+      try {
+        await db.get_client().from('ubot_spawned_sessions').insert({
+           id: sid,
+           agent_id: agentDef.id,
+           task: task.slice(0, 500),
+           status: 'running',
+           start_time: new Date().toISOString()
+        });
+      } catch (e: any) {
+        console.error('[Orchestrator] Failed to insert subagent session:', e.message);
+      }
+    }
+
     const result = await runSubagent(subConfig, task, orchestratorInterface);
+    
+    if (db) {
+      try {
+        await db.get_client().from('ubot_spawned_sessions').update({
+           status: result.status === 'completed' ? 'completed' : 'failed',
+           result: result.result || null,
+           error: result.error || null,
+           end_time: new Date().toISOString()
+        }).eq('id', sid);
+        
+        // Ensure no lingering history chunks clog the main DB memory array
+        await db.get_client().from('ubot_sessions').delete().eq('id', sid);
+      } catch (e: any) {
+        console.error('[Orchestrator] Failed to update/cleanup subagent session:', e.message);
+      }
+    }
     
     if (result.status === 'completed') {
       return { toolName: 'delegate_to_agent', success: true, result: `Agent '${agentDef.name}' completed: ${result.result}`, duration: 0 };
     } else {
       return { toolName: 'delegate_to_agent', success: false, error: `Agent '${agentDef.name}' failed: ${result.error}`, duration: 0 };
+    }
+  });
+
+  toolRegistry.register('broadcast_message', async (args, context) => {
+    const topic = String(args.topic || '');
+    const payload = args.payload;
+    const targetAgentId = args.targetAgentId ? String(args.targetAgentId) : undefined;
+    const sourceAgent = sessionAgents.get(context?.sessionId || '') || 'main';
+
+    if (!topic) return { toolName: 'broadcast_message', success: false, error: 'topic is required', duration: 0 };
+    if (payload === undefined) return { toolName: 'broadcast_message', success: false, error: 'payload is required', duration: 0 };
+
+    messageBus.publish(sourceAgent, topic, payload, targetAgentId);
+    
+    const targetMsg = targetAgentId ? `to ${targetAgentId}` : 'to all agents';
+    return { toolName: 'broadcast_message', success: true, result: `Successfully broadcast message on topic '${topic}' ${targetMsg}.`, duration: 0 };
+  });
+
+  toolRegistry.register('blackboard_write', async (args, context) => {
+    const key = String(args.key || '');
+    const value = args.value;
+    const ttlSeconds = args.ttlSeconds ? Number(args.ttlSeconds) : undefined;
+    const author = sessionAgents.get(context?.sessionId || '') || 'main';
+
+    if (!key) return { toolName: 'blackboard_write', success: false, error: 'key is required', duration: 0 };
+    if (value === undefined) return { toolName: 'blackboard_write', success: false, error: 'value is required', duration: 0 };
+
+    blackboard.write(key, value, author, ttlSeconds);
+    return { toolName: 'blackboard_write', success: true, result: `Successfully wrote '${key}' to blackboard.`, duration: 0 };
+  });
+
+  toolRegistry.register('blackboard_read', async (args) => {
+    const key = String(args.key || '');
+    if (!key) return { toolName: 'blackboard_read', success: false, error: 'key is required', duration: 0 };
+
+    const value = blackboard.read(key);
+    if (value === undefined) {
+      return { toolName: 'blackboard_read', success: false, error: `Key '${key}' not found or expired on blackboard.`, duration: 0 };
+    }
+    
+    let resultStr = typeof value === 'string' ? value : JSON.stringify(value, null, 2);
+    return { toolName: 'blackboard_read', success: true, result: resultStr, duration: 0 };
+  });
+
+  toolRegistry.register('store_insight', async (args, context) => {
+    if (!vectorStore) return { toolName: 'store_insight', success: false, error: 'VectorStore is not configured (requires Supabase)', duration: 0 };
+    
+    const insight = String(args.insight || '');
+    const sessionId = context?.sessionId || 'default';
+    const agentId = sessionAgents.get(sessionId) || 'main';
+
+    if (!insight) return { toolName: 'store_insight', success: false, error: 'insight is required', duration: 0 };
+
+    try {
+      const { client, model } = await getClientForPurpose('embedding');
+      const embedding = await EmbeddingPipeline.generateEmbedding(client, model, insight);
+      await vectorStore.storeMemory(sessionId, agentId, insight, embedding);
+      return { toolName: 'store_insight', success: true, result: `Insight successfully recorded to long-term memory.`, duration: 0 };
+    } catch (err: any) {
+      return { toolName: 'store_insight', success: false, error: `Failed to store insight: ${err.message}`, duration: 0 };
+    }
+  });
+
+  toolRegistry.register('recall_memory', async (args, context) => {
+    if (!vectorStore) return { toolName: 'recall_memory', success: false, error: 'VectorStore is not configured (requires Supabase)', duration: 0 };
+
+    const query = String(args.query || '');
+    const sessionId = context?.sessionId || 'default';
+
+    if (!query) return { toolName: 'recall_memory', success: false, error: 'query is required', duration: 0 };
+
+    try {
+      const { client, model } = await getClientForPurpose('embedding');
+      const embedding = await EmbeddingPipeline.generateEmbedding(client, model, query);
+      const matches = await vectorStore.findSimilar(embedding, 0.70, 5, sessionId);
+      
+      if (matches.length === 0) {
+        return { toolName: 'recall_memory', success: true, result: 'No relevant memories found.', duration: 0 };
+      }
+
+      const formatted = matches.map(m => `- [Agent: ${m.agentId}]: ${m.content} (similarity: ${m.similarity.toFixed(2)})`).join('\n');
+      return { toolName: 'recall_memory', success: true, result: `Found ${matches.length} matching memories:\n${formatted}`, duration: 0 };
+    } catch (err: any) {
+      return { toolName: 'recall_memory', success: false, error: `Search failed: ${err.message}`, duration: 0 };
     }
   });
 
@@ -266,6 +405,8 @@ export function createAgentOrchestrator(
         const stepsToRun = group.filter(s => s.status === 'pending' || s.status === 'running');
         if (stepsToRun.length === 0) continue;
         
+        let groupRequiresApproval = false;
+
         await Promise.all(stepsToRun.map(async (step) => {
           // Inject results from previous steps
           let prompt = step.prompt || step.description;
@@ -273,7 +414,18 @@ export function createAgentOrchestrator(
             prompt = prompt.replace(new RegExp(`\\{${id}.result\\}`, 'g'), res);
           }
           
-          const agentDef = agents.get(step.agentType);
+          const agentDef = crewRegistry.getAgent(step.agentType);
+          
+          // Phase 5: Governance Check
+          if (agentDef && ['T2', 'T3'].includes(agentDef.autonomyTier || 'T0')) {
+             if (step.status !== 'running') {
+               step.status = 'awaiting_approval';
+               updateStepStatus(plan.id, step.id, 'awaiting_approval', undefined, undefined, db as any);
+               groupRequiresApproval = true;
+               return; // Skip execution until approved
+             }
+          }
+
           const subConfig = agentDef ? {
             name: agentDef.name,
             systemPrompt: agentDef.systemPrompt,
@@ -284,15 +436,26 @@ export function createAgentOrchestrator(
             timeoutMs: 120000,
           };
           
+          const sid = `subplan-${step.id}-${Date.now()}`;
+          sessionAgents.set(sid, step.agentType);
+
           const orchestratorInterface = {
-            chat: (sid: string, msg: string, spo?: string) => 
-              orchestrator.chat(sid, msg, 'sub-agent', context?.contactName, context?.isOwner, undefined, spo)
+            chat: (_ignoredSid: string, msg: string, spo?: string) => 
+              orchestrator.chat(sid, msg, 'sub-agent', context?.contactName, context?.isOwner, undefined, spo, context?.reportProgress)
           };
           
           step.status = 'running';
           updateStepStatus(plan.id, step.id, 'running', undefined, undefined, db as any);
           
           const result = await runSubagent(subConfig, prompt, orchestratorInterface);
+          
+          if (db) {
+            try {
+              await db.get_client().from('ubot_sessions').delete().eq('id', sid);
+            } catch (e: any) {
+              console.error('[Orchestrator] Failed to cleanup plan subagent session:', e.message);
+            }
+          }
           
           if (result.status === 'completed') {
             step.status = 'completed';
@@ -306,6 +469,11 @@ export function createAgentOrchestrator(
             throw new Error(`Step ${step.id} failed: ${result.error}`);
           }
         }));
+
+        if (groupRequiresApproval) {
+          updatePlanStatus(plan.id, 'awaiting_approval', db as any);
+          throw new Error('Plan paused awaiting Owner approval (T2/T3 Agent Request).');
+        }
       }
       
       updatePlanStatus(plan.id, 'completed', db as any);
@@ -322,7 +490,10 @@ export function createAgentOrchestrator(
     const request = String(args.request || '');
     if (!request) return { toolName: 'execute_plan', success: false, error: 'request is required', duration: 0 };
     
-    const availableAgentTypes = [...Array.from(agents.keys()), 'general'];
+    const availableAgentTypes = [
+      ...crewRegistry.listAgents().map(a => `${a.id} [${a.autonomyTier || 'T0'}]: ${a.description}`),
+      'nexus [T1]: Chief Orchestrator for delegation or complex routing'
+    ];
     const db = context?.getDatabase?.();
     const sessionId = context?.sessionId || 'default';
     
@@ -382,22 +553,19 @@ export function createAgentOrchestrator(
     });
 
     // Multi-agent state
-    const agents = new Map<string, AgentDefinition>();
     const sessionAgents = new Map<string, string>(); // sessionId -> agentId
 
-    // Load specialized agents from workspace
-  if (workspacePath) {
-    const loadedAgents = loadAgentDefinitions(workspacePath);
-    for (const agent of loadedAgents) {
-      agents.set(agent.id, agent);
-      console.log(`[Orchestrator] Loaded specialized agent: ${agent.id} (${agent.name})`);
+    // Initialize CrewRegistry (loads specialized agents from workspace)
+    if (workspacePath) {
+      crewRegistry.initialize(workspacePath);
     }
-  }
 
   function createLLMClient(): OpenAI {
+    let baseUrl = currentConfig.llmBaseUrl || '';
+    if (baseUrl.includes('://localhost:')) baseUrl = baseUrl.replace('://localhost:', '://127.0.0.1:');
     return new OpenAI({
       apiKey: currentConfig.llmApiKey,
-      baseURL: currentConfig.llmBaseUrl,
+      baseURL: baseUrl,
     });
   }
 
@@ -408,7 +576,14 @@ export function createAgentOrchestrator(
    */
   async function getClientForPurpose(purpose: ModelPurpose): Promise<{ client: OpenAI; model: string; providerId: string }> {
     const routing = currentConfig.modelRouting || {};
-    const routedProviderId = routing[purpose];
+    let routedProviderId = routing[purpose];
+    let specifiedModel = '';
+
+    if (routedProviderId && routedProviderId.includes('/')) {
+      const parts = routedProviderId.split('/');
+      routedProviderId = parts[0];
+      specifiedModel = parts.slice(1).join('/');
+    }
 
     if (routedProviderId) {
       const provider = currentConfig.llmProviders.find(p => p.id === routedProviderId);
@@ -431,9 +606,14 @@ export function createAgentOrchestrator(
         if (baseUrl.includes('generativelanguage.googleapis.com') && !baseUrl.includes('/openai')) {
           baseUrl = baseUrl.replace(/\/?$/, '') + '/openai/';
         }
+        
+        // Auto-fix: IPv6 localhost resolution issues
+        if (baseUrl.includes('://localhost:')) {
+          baseUrl = baseUrl.replace('://localhost:', '://127.0.0.1:');
+        }
 
-        // Use per-purpose model from config, falling back to catalog defaults, then provider.model
-        const purposeModel = getModelForPurpose(routedProviderId, purpose, provider.models) || provider.model;
+        // Use strict override, then per-purpose config, falling back to catalog defaults, then provider.model
+        const purposeModel = specifiedModel || getModelForPurpose(routedProviderId, purpose, provider.models) || provider.model;
 
         return {
           client: new OpenAI({ apiKey, baseURL: baseUrl }),
@@ -452,9 +632,12 @@ export function createAgentOrchestrator(
     if (defaultProvider && (defaultProviderId === 'vertex' || defaultProvider.provider === 'vertex')) {
       const token = await getVertexAccessToken();
       if (token) {
-        let baseUrl = defaultProvider.baseUrl;
+        let baseUrl = defaultProvider.baseUrl || '';
         if (baseUrl.includes('generativelanguage.googleapis.com') && !baseUrl.includes('/openai')) {
           baseUrl = baseUrl.replace(/\/?$/, '') + '/openai/';
+        }
+        if (baseUrl.includes('://localhost:')) {
+          baseUrl = baseUrl.replace('://localhost:', '://127.0.0.1:');
         }
         return {
           client: new OpenAI({ apiKey: token, baseURL: baseUrl }),
@@ -475,8 +658,8 @@ export function createAgentOrchestrator(
     let basePrompt = currentConfig.systemPrompt;
     
     // Override with specialized agent prompt if applicable
-    if (agentId && agents.has(agentId)) {
-      const agent = agents.get(agentId)!;
+    if (agentId && crewRegistry.hasAgent(agentId)) {
+      const agent = crewRegistry.getAgent(agentId)!;
       if (agent.systemPrompt) {
         basePrompt = agent.systemPrompt;
       }
@@ -487,10 +670,70 @@ export function createAgentOrchestrator(
 
   type ChatMsg = OpenAI.Chat.Completions.ChatCompletionMessageParam;
 
+  /**
+   * Trim the messages array so the estimated token count fits within the
+   * model's context window. Oldest history messages are dropped first;
+   * the system prompt and the final user message are always preserved.
+   *
+   * Token estimate: chars / 4 (conservative — real BPE varies but this is
+   * safe for English/Arabic mixed content).
+   *
+   * Context limits by model prefix (tokens):
+   *   gemma*          4 096
+   *   llama3*:3b      8 192
+   *   qwen*:3b        8 192
+   *   phi4*           16 384
+   *   (default)       32 768  — safe fallback for unknown models
+   */
+  function trimMessagesToContextWindow(messages: ChatMsg[], model: string): ChatMsg[] {
+    // Reserve 20% for output tokens and tool call overhead
+    const CTX_LIMITS: Array<[RegExp, number]> = [
+      [/^gemma/i,         4_096],
+      [/llama3[.\d]*:3b/i, 8_192],
+      [/qwen[.\d]*:3b/i,  8_192],
+      [/phi4-mini/i,      16_384],
+    ];
+    const DEFAULT_CTX = 32_768;
+    let ctxLimit = DEFAULT_CTX;
+    for (const [pattern, limit] of CTX_LIMITS) {
+      if (pattern.test(model)) { ctxLimit = limit; break; }
+    }
+    const budget = Math.floor(ctxLimit * 0.80); // keep 20% for output
+
+    const estimateTokens = (msgs: ChatMsg[]) =>
+      msgs.reduce((sum, m) => sum + Math.ceil((typeof m.content === 'string' ? m.content : JSON.stringify(m.content ?? '')).length / 4), 0);
+
+    if (estimateTokens(messages) <= budget) return messages;
+
+    // Split: system (index 0) + middle history + final user message (last)
+    const system = messages[0];
+    const lastUser = messages[messages.length - 1];
+    let history = messages.slice(1, -1);
+
+    // Drop oldest pairs until we fit
+    while (history.length > 0 && estimateTokens([system, ...history, lastUser]) > budget) {
+      history = history.slice(Math.min(2, history.length)); // drop oldest turn pair
+    }
+
+    const trimmed = [system, ...history, lastUser];
+    const dropped = messages.length - trimmed.length;
+    if (dropped > 0) {
+      log.warn('Orchestrator', `Context trim: dropped ${dropped} messages to fit ${model} (${ctxLimit} ctx, budget ${budget} tokens)`);
+    }
+    return trimmed;
+  }
+
+
   async function buildMessages(sessionId: string, userMessage: string, isOwner: boolean = false, attachments?: Attachment[]): Promise<ChatMsg[]> {
     const rawHistory = await conversationStore.getHistory(sessionId, currentConfig.maxHistoryMessages);
     const history = filterStaleErrors(rawHistory);
-    const activeAgentId = sessionAgents.get(sessionId);
+    let activeAgentId = sessionAgents.get(sessionId);
+    
+    // Phase 4: Nexus defaults for Owner
+    if (isOwner && !activeAgentId && crewRegistry.hasAgent('nexus')) {
+      activeAgentId = 'nexus';
+      sessionAgents.set(sessionId, 'nexus');
+    }
     
     // Build system prompt with soul data (bot persona + owner + contact)
     let systemPrompt = buildSystemPrompt(activeAgentId);
@@ -550,7 +793,13 @@ Inform the user about this possibility if it's relevant to the current conversat
       const docTexts: string[] = [];
       for (const att of attachments) {
         if (att.textContent) {
-          docTexts.push(`[Content of ${att.filename}]:\n${att.textContent}`);
+          if (att.mimeType.startsWith('audio/')) {
+            docTexts.push(`[Audio message attached at: ${att.path}]\n[Auto-transcription]:\n${att.textContent}\n(Note: This was already transcribed for you. Only use transcribe_audio tool if you explicitly need to re-transcribe it.)`);
+          } else {
+            docTexts.push(`[Content of ${att.filename} at ${att.path}]:\n${att.textContent}`);
+          }
+        } else if (att.path) {
+          docTexts.push(`[File attached: ${att.filename}. Absolute path on disk: ${att.path}]`);
         }
       }
       
@@ -827,12 +1076,117 @@ Inform the user about this possibility if it's relevant to the current conversat
     }
   }
 
+  /**
+   * Filter tools by autonomy tier for delegation to subagents.
+   * 
+   * T1: Only safe tools. Blocks cli_triage, exec, and mcp_playwright_browser_ tools.
+   * T2: Allows everything except cli_triage and tools starting with exec.
+   * T3: Allows all tools unchanged.
+   * 
+   * @param allowedTools - The list of tools allowed for the agent
+   * @param tier - The autonomy tier (T1, T2, or T3)
+   * @returns Filtered array of tool names
+   */
+  function filterToolsByTier(allowedTools: string[], tier: string): string[] {
+    // T3: No restrictions
+    if (tier === 'T3') return allowedTools;
+
+    // T1: Only safe, non-destructive tools
+    if (tier === 'T1') {
+      return allowedTools.filter(t => {
+        // Block cli_triage, exec tools, and browser automation tools
+        if (t === 'cli_triage') return false;
+        if (t.startsWith('exec_')) return false;
+        if (t.startsWith('mcp_playwright_browser_')) return false;
+        return true;
+      });
+    }
+
+    // T2: Everything except cli_triage and exec tools
+    return allowedTools.filter(t => {
+      if (t === 'cli_triage') return false;
+      if (t.startsWith('exec_')) return false;
+      return true;
+    });
+  }
+
+  /**
+   * Runtime enforcement of agent autonomy tiers.
+   * 
+   * T1 (Read-only / Non-destructive): Safe tools only.
+   *   - Messaging, contacts, search, memory, personas, vault, sessions, todo
+   *   - Google tools (Gmail, Drive, Sheets, Docs, Calendar, Contacts, Places)
+   *   - Web search / fetch, file read, scheduler (read-only actions)
+   *   - Approvals (ask_owner, respond, list_pending)
+   *   - BLOCKED: cli_triage, cli_run, exec, browser automation (mcp_playwright_*),
+   *              skill creation/deletion, module management, delegate_to_agent
+   * 
+   * T2 (Operational): Everything except system-level modification tools.
+   *   - All T1 tools PLUS: browser automation, skill CRUD, file write/delete
+   *   - BLOCKED: cli_triage, cli_run, exec, promote_module, delete_module,
+   *              cli_test_module, cli_delete_module (self-modification tools)
+   * 
+   * T3 (Full): All tools unrestricted.
+   */
+  function enforceAutonomyTier(
+    tools: ToolDefinition[],
+    tier: 'T1' | 'T2' | 'T3',
+  ): ToolDefinition[] {
+    // T3: No restrictions
+    if (tier === 'T3') return tools;
+
+    // T1: Only safe, read-only tools
+    if (tier === 'T1') {
+      // Block all CLI/system tools
+      const BLOCKED_T1_PREFIXES = [
+        'cli_triage', 'cli_run', 'cli_',
+        'exec_',
+      ];
+      // Block all browser automation tools
+      const BLOCKED_T1_PREFIXES_BROWSER = [
+        'mcp_playwright_',
+      ];
+      // Block skill/module management (write operations)
+      const BLOCKED_T1_EXACT = new Set([
+        'create_skill', 'delete_skill', 'update_skill',
+        'promote_module', 'test_module', 'delete_module',
+        'cli_test_module', 'cli_promote_module', 'cli_delete_module',
+        'delegate_to_agent', 'execute_plan',
+      ]);
+
+      return tools.filter(t => {
+        // Block by exact name
+        if (BLOCKED_T1_EXACT.has(t.name)) return false;
+        // Block by prefix (cli_*, exec_*, mcp_playwright_*)
+        if (BLOCKED_T1_PREFIXES.some(p => t.name.startsWith(p))) return false;
+        if (BLOCKED_T1_PREFIXES_BROWSER.some(p => t.name.startsWith(p))) return false;
+        return true;
+      });
+    }
+
+    // T2: Everything except self-modification / system-level tools
+    // Block: cli_triage, cli_run, exec, module management
+    const BLOCKED_T2 = new Set([
+      'cli_triage',
+      'cli_run',
+      'cli_test_module',
+      'cli_promote_module',
+      'cli_delete_module',
+      'promote_module',
+      'delete_module',
+      'test_module',
+    ]);
+
+    return tools.filter(t => !BLOCKED_T2.has(t.name));
+  }
+
   async function callLLM(
     messages: ChatMsg[],
     isOwner: boolean = true,
     agentId?: string,
     preSelectedTools?: ToolDefinition[],
     purpose: ModelPurpose = 'chat',
+    source?: string,
   ): Promise<{
     content: string;
     toolCalls: Array<{ id: string; toolName: string; arguments: Record<string, unknown> }>;
@@ -842,24 +1196,80 @@ Inform the user about this possibility if it's relevant to the current conversat
   }> {
     const { client, model: routedModel, providerId } = await getClientForPurpose(purpose);
     
+    // Per-agent model override: if the agent defines a model, use it instead of the global route
+    let activeModel = routedModel;
+    
     // Use pre-selected tools if provided (from Phase 1 tool selection),
-    // otherwise fall back to the full tool set
+    // otherwise fall back to the full tool set.
+    //
+    // Fast Lane + Dynamic Merge:
+    // If the active agent has `allowedTools`, those are the "Fast Lane" — always guaranteed.
+    // We then MERGE those with the Phase 1 dynamically-selected tools so that orphaned
+    // tools (e.g. gmail, vault, apple) become accessible when the request needs them.
+    // This prevents the 90% of tools that aren't statically mapped to any agent from
+    // being permanently invisible.
     let filteredTools: ToolDefinition[];
-    if (preSelectedTools) {
+    const agent = agentId && crewRegistry.hasAgent(agentId) ? crewRegistry.getAgent(agentId)! : undefined;
+
+    if (agent && agent.allowedTools && agent.allowedTools.length > 0) {
+      const allTools = await getToolsForSource(isOwner);
+      const allToolsWithMods = await getAllToolsWithModules();
+      const toolModuleMap = new Map(allToolsWithMods.map((t: { module: string; tool: ToolDefinition }) => [t.tool.name, t.module]));
+      const fastLane = allTools.filter(t => agent.allowedTools!.includes(t.name));
+      if (preSelectedTools && preSelectedTools.length > 0) {
+        // Modules safe to dynamically inject into any agent.
+        // Excludes dangerous/build-only modules: cli, exec, patch — these must be
+        // explicitly granted via allowedTools and should never come from Phase 1 selection.
+        const SAFE_DYNAMIC_MODULES = new Set([
+          'google', 'apple', 'messaging', 'vault', 'sessions', 'personas',
+          'media', 'transcription', 'web-search', 'web-fetch', 'files',
+          'approvals', 'followups', 'scheduler', 'browser', 'mcp',
+        ]);
+        const fastLaneNames = new Set(fastLane.map(t => t.name));
+        const dynamicExtras = preSelectedTools.filter(t => {
+          if (fastLaneNames.has(t.name)) return false; // already in fast lane
+          const mod = toolModuleMap.get(t.name) || '';
+          return SAFE_DYNAMIC_MODULES.has(mod); // only safe modules
+        });
+        filteredTools = [...fastLane, ...dynamicExtras];
+        log.info('Agent', `Fast Lane: ${fastLane.length} fixed + ${dynamicExtras.length} dynamic = ${filteredTools.length} total`);
+      } else {
+        // No Phase 1 result (e.g. pure chat) — just the fast lane
+        filteredTools = fastLane;
+      }
+    } else if (preSelectedTools) {
       filteredTools = preSelectedTools;
     } else {
       filteredTools = await getToolsForSource(isOwner);
     }
 
-    if (agentId && agents.has(agentId)) {
-      const agent = agents.get(agentId)!;
-      if (agent.allowedTools && agent.allowedTools.length > 0) {
-        filteredTools = filteredTools.filter(t => agent.allowedTools!.includes(t.name));
+    // CRITICAL: Sub-agents must NEVER be allowed to spawn deeper sub-agents or re-plan,
+    // which prevents recursive infinity loops in the multi-agent execution hierarchy.
+    if (source === 'sub-agent') {
+      filteredTools = filteredTools.filter(t => !['delegate_to_agent', 'execute_plan', 'switch_agent'].includes(t.name));
+    }
+
+    // ── Autonomy Tier Enforcement ─────────────────────────────
+    // Runtime enforcement of agent autonomy tiers (T1/T2/T3).
+    // This prevents lower-tier agents from accessing dangerous tools
+    // regardless of what the LLM or Phase 1 tool selection wants.
+    if (agent && agent.autonomyTier) {
+      filteredTools = enforceAutonomyTier(filteredTools, agent.autonomyTier);
+      if (filteredTools.length < (agent.allowedTools?.length || 0)) {
+        log.info('Agent', `Autonomy tier ${agent.autonomyTier}: filtered to ${filteredTools.length} tools for agent ${agentId}`);
+      }
+    }
+
+    if (agent) {
+      // Model override — agent-specific model takes priority over global routing
+      if (agent.model) {
+        activeModel = agent.model;
+        log.info('Agent', `Model override for ${agentId}: ${activeModel} (was ${routedModel})`);
       }
     }
 
     const tools = filteredTools.length > 0 ? formatToolsForAPI(filteredTools) : undefined;
-    log.info('Agent', `Calling LLM: ${routedModel} [${purpose}] (via ${providerId})`);
+    log.info('Agent', `Calling LLM: ${activeModel} [${purpose}] (via ${providerId})`);
     log.info('Agent', `Tools available: ${filteredTools.length} (isOwner: ${isOwner}${preSelectedTools ? ', phase-2 selected' : ''})`);
 
     
@@ -869,29 +1279,27 @@ Inform the user about this possibility if it's relevant to the current conversat
     //   - Ollama (Qwen3, etc.): think: true → returns reasoning_content
     //   - OpenAI o-series: built-in, no extra config needed
     let thinkingConfig: Record<string, unknown> = {};
-    if (purpose === 'chat') {
-      const isGeminiProvider = ['gemini', 'vertex'].includes(providerId);
-      const isOllamaProvider = providerId === 'ollama';
+    const isGeminiProvider = ['gemini', 'vertex'].includes(providerId);
+    const isOllamaProvider = providerId === 'ollama';
 
-      if (isGeminiProvider) {
-        thinkingConfig = {
-          extra_body: {
-            google: {
-              thinking_config: {
-                include_thoughts: true,
-              },
+    if (isGeminiProvider) {
+      thinkingConfig = {
+        extra_body: {
+          google: {
+            thinking_config: {
+              include_thoughts: true,
             },
           },
-        };
-      } else if (isOllamaProvider) {
-        // Ollama exposes thinking via think: true in the request body
-        thinkingConfig = { think: true };
-      }
+        },
+      };
+    } else if (isOllamaProvider) {
+      // Ollama exposes thinking via think: true in the request body
+      thinkingConfig = { think: true };
     }
 
     try {
       const completion = await client.chat.completions.create({
-        model: routedModel,
+        model: activeModel,
         messages,
         temperature: currentConfig.temperature,
         max_tokens: currentConfig.maxTokens,
@@ -975,13 +1383,13 @@ Inform the user about this possibility if it's relevant to the current conversat
       try {
         const meter = getMetering();
         if (meter && usage) {
-          meter.record(routedModel, purpose, providerId, usage.promptTokens, usage.completionTokens);
+          meter.record(activeModel, purpose, providerId, usage.promptTokens, usage.completionTokens);
         }
       } catch { /* metering should never block LLM calls */ }
 
-      return { content: cleanContent, toolCalls, usage, model: routedModel, thinking };
+      return { content: cleanContent, toolCalls, usage, model: activeModel, thinking };
     } catch (err: any) {
-      log.error('Agent', `LLM call failed [${purpose}/${routedModel}]: ${err.message}`);
+      log.error('Agent', `LLM call failed [${purpose}/${activeModel}]: ${err.message}`);
       throw new Error(`LLM call failed: ${err.message}`);
     }
   }
@@ -995,6 +1403,7 @@ Inform the user about this possibility if it's relevant to the current conversat
       isOwner: boolean = false,
       attachments?: Attachment[],
       skillContext?: string,
+      onProgress?: (event: any) => void
     ): Promise<AgentResponse> {
       const startTime = Date.now();
       const toolResults: ToolExecutionResult[] = [];
@@ -1041,6 +1450,14 @@ Inform the user about this possibility if it's relevant to the current conversat
 
       // Build the messages array with history (pass isOwner for soul prompt framing)
       let messages = await buildMessages(sessionId, message, ownerFlag, attachments);
+
+      // Trim history to fit the active model's context window.
+      // Prevents "n_keep >= n_ctx" errors on small local models (gemma4:e4b = 4K ctx).
+      // Must run after buildMessages so we know the final system prompt size.
+      try {
+        const { model: chatModel } = await getClientForPurpose('chat');
+        messages = trimMessagesToContextWindow(messages, chatModel);
+      } catch { /* ignore — trimming is best-effort */ }
 
       // ── Prompt Experiment A/B Testing ───────────────────────
       const experiments = getPromptExperiments();
@@ -1094,7 +1511,7 @@ Inform the user about this possibility if it's relevant to the current conversat
       // Visitor sessions already have a small filtered set, so skip Phase 1.
       let selectedTools: ToolDefinition[] | undefined;
 
-      if (ownerFlag && !skillContext) {
+      if (ownerFlag && !skillContext && source !== 'sub-agent') {
         // Skill-driven messages need full tool access (skills are automations)
         try {
           // Use getClientForPurpose('router') so Vertex AI gets a fresh OAuth2 token.
@@ -1160,7 +1577,11 @@ Inform the user about this possibility if it's relevant to the current conversat
       }
       // ── Skill-First Routing ──────────────────────────────────
       // Check if any saved skills match this request.
-      // If so, inject a STRONG directive so the LLM uses run_skill instead of manual execution.
+      // If so, inject a STRONG directive avoiding manual execution for agents.
+      // CRITICAL: Nexus is pure orchestration. It gets a dictionary, not a directive.
+      const currentAgentId = sessionAgents.get(sessionId);
+      const isNexus = !currentAgentId || currentAgentId === 'nexus' || currentAgentId.toLowerCase() === 'nexus';
+
       if (ownerFlag && skillEngine && !skillContext) {
         try {
           const skills = skillEngine.getSkills();
@@ -1216,7 +1637,17 @@ Inform the user about this possibility if it's relevant to the current conversat
 
             const insertIdx = messages.length - 1;
 
-            if (bestMatch && bestMatch.score >= 3) {
+            if (isNexus) {
+              messages.splice(insertIdx, 0, {
+                role: 'system',
+                content: `## Available Skills Dictionary
+The following automation skills exist in the workspace:
+${skillSummary}
+
+As the Orchestrator, be aware these skills exist. DO NOT use them to answer basic queries (e.g. weather). You may use \`run_skill\` if the user explicitly asks to run one, or delegate related tasks to specialized agents who will use them.`,
+              } as ChatMsg);
+              log.info('Agent', `Skill-first: injected Dictionary for Nexus (${enabledSkills.length} skills max score ${bestMatch?.score || 0})`);
+            } else if (bestMatch && bestMatch.score >= 3) {
               // STRONG match — inject a mandatory directive
               const s = bestMatch.skill;
               messages.splice(insertIdx, 0, {
@@ -1262,7 +1693,13 @@ If a skill matches the user's request, call run_skill with the skill ID. Otherwi
         iteration++;
 
         const activeAgentId = sessionAgents.get(sessionId);
-        const llmResult = await callLLM(messages, ownerFlag, activeAgentId, selectedTools, 'chat');
+        const llmResult = await callLLM(messages, ownerFlag, activeAgentId, selectedTools, 'chat', source);
+
+        log.info('Orchestrator', `RAW LLM RESPONSE: ${JSON.stringify({
+          text: llmResult.content.substring(0, 500),
+          toolCalls: llmResult.toolCalls
+        })}`);
+
         lastUsage = llmResult.usage;
         lastModel = llmResult.model || currentConfig.llmModel;
         // Capture thinking from the first iteration (where real reasoning happens)
@@ -1281,46 +1718,13 @@ If a skill matches the user's request, call run_skill with the skill ID. Otherwi
           const lowerContent = llmResult.content.toLowerCase();
           const signalsInability = cantPhrases.some(p => lowerContent.includes(p));
 
-          if (signalsInability && iteration === 1 && toolRegistry.has('cli_triage')) {
-            // Auto-triage: check if we actually DO have tools for this
-            log.info('Agent', `Fallback triage triggered — LLM said it can't, checking if tools exist`);
-            const triageResult = await toolRegistry.execute({
-              toolName: 'cli_triage',
-              arguments: { request: message },
-              rawText: '',
-            });
-            toolResults.push(triageResult);
-            metricsCollector.recordTool('cli_triage', triageResult.success, triageResult.duration, sessionId);
-
-            if (triageResult.success && triageResult.result) {
-              // Re-inject triage result and let LLM reconsider
-              messages.push({
-                role: 'assistant',
-                content: llmResult.content || null,
-                tool_calls: [{
-                  id: 'auto_triage',
-                  type: 'function' as const,
-                  function: { name: 'cli_triage', arguments: JSON.stringify({ request: message }) },
-                }],
-              } as ChatMsg);
-              messages.push({
-                role: 'tool',
-                tool_call_id: 'auto_triage',
-                content: triageResult.result,
-              } as ChatMsg);
-              log.info('Agent', `Fallback triage result: ${triageResult.result.slice(0, 200)}`);
-              // Audit log the triage
-              logCapability({
-                action: 'triage',
-                request: message,
-                triageVerdict: triageResult.result.match(/Verdict:\s*(\w+)/i)?.[1] || 'unknown',
-                triageReason: triageResult.result.slice(0, 500),
-                sessionId,
-                source,
-              });
-              // Continue the loop — LLM will see triage result and act on it
-              continue;
-            }
+          if (signalsInability && iteration === 1) {
+            // LLM signalled it can't do something.
+            // Log it for debugging but do NOT auto-invoke cli_triage —
+            // that tool is for the Coder agent only and costs 9000+ tokens.
+            // The Nexus system prompt explicitly instructs the agent to use
+            // delegate_to_agent or available tools instead of giving up.
+            log.info('Agent', `LLM signalled inability — letting agent handle via delegation or available tools`);
           }
 
           // Truly the final response
@@ -1370,8 +1774,18 @@ If a skill matches the user's request, call run_skill with the skill ID. Otherwi
             getDatabase: () => db,
             getAgent: () => orchestrator,
             skillRepo,
-            skillEngine
+            skillEngine,
+            reportProgress: onProgress
           };
+
+          if (onProgress) {
+            onProgress({
+              agent: sessionAgents.get(sessionId) || 'Nexus',
+              action: `Using \`${resolvedToolName}\``,
+              tool: resolvedToolName,
+              args: toolCall.arguments,
+            });
+          }
 
           const beforeResult = await pipeline.runBeforeTool(middlewareCtx);
           let result: ToolExecutionResult;
@@ -1517,7 +1931,7 @@ REQUIREMENTS:
           const extraMax = Math.min(3, currentConfig.maxToolIterations - iteration);
           for (let extra = 0; extra < extraMax; extra++) {
             iteration++;
-            const retryResult = await callLLM(messages, ownerFlag, sessionAgents.get(sessionId), selectedTools, 'chat');
+            const retryResult = await callLLM(messages, ownerFlag, sessionAgents.get(sessionId), selectedTools, 'chat', source);
             lastUsage = retryResult.usage;
             lastModel = retryResult.model || currentConfig.llmModel;
 
@@ -1542,11 +1956,20 @@ REQUIREMENTS:
               const als = getToolAliases();
               if (als.has(tc.toolName)) resolvedName = als.get(tc.toolName)!;
 
+              if (onProgress) {
+                onProgress({
+                  agent: sessionAgents.get(sessionId) || 'Nexus',
+                  action: `Recovering with \`${resolvedName}\``,
+                  tool: resolvedName,
+                  args: tc.arguments,
+                });
+              }
+
               const result = await toolRegistry.execute({
                 toolName: resolvedName,
                 arguments: tc.arguments,
                 rawText: '',
-              }, { sessionId, isOwner: ownerFlag, contactName, source, getDatabase: () => db, getAgent: () => orchestrator, skillRepo, skillEngine });
+              }, { sessionId, isOwner: ownerFlag, contactName, source, getDatabase: () => db, getAgent: () => orchestrator, skillRepo, skillEngine, reportProgress: onProgress });
 
               toolResults.push(result);
               metricsCollector.recordTool(tc.toolName, result.success, result.duration, sessionId);
@@ -1572,6 +1995,9 @@ REQUIREMENTS:
       finalContent = finalContent.replace(/\n?\[Used tools?:.*?\]/gi, '').trimEnd();
 
       // Store the assistant response
+      const activeAgentId = sessionAgents.get(sessionId) || 'nexus';
+      const activeAgent = crewRegistry.hasAgent(activeAgentId) ? crewRegistry.getAgent(activeAgentId) : undefined;
+      
       const assistantMetadata: ChatMessageMetadata = {
         source: 'web',
         toolCall: toolResults.length > 0 ? {
@@ -1581,7 +2007,46 @@ REQUIREMENTS:
         usage: lastUsage,
         model: lastModel,
         thinking: thinkingContent,
+        agentId: activeAgentId,
+        agentName: activeAgent?.name || 'Nexus',
       };
+      // ── Empty Content Guard ────────────────────────────────
+      // If the LLM produced no text content (e.g. tool-only response that ran out
+      // of iterations, or a tool failed and the model returned nothing), synthesize
+      // a meaningful fallback from the tool results rather than emitting a blank bubble.
+      if (!finalContent || finalContent.trim() === '') {
+        if (toolResults.length > 0) {
+          const failures = toolResults.filter(r => !r.success);
+          const successes = toolResults.filter(r => r.success);
+
+          if (failures.length > 0 && successes.length === 0) {
+            // All tools failed — surface the errors clearly
+            const errSummary = failures.map(f =>
+              `• \`${f.toolName}\` failed: ${f.error || 'Unknown error'}`
+            ).join('\n');
+            finalContent = `⚠️ I ran into an issue completing your request:\n\n${errSummary}\n\nPlease check the details above and try again.`;
+          } else if (successes.length > 0 && failures.length === 0) {
+            // All tools succeeded but no text was generated — give a brief summary
+            const summary = successes.map(r =>
+              `• \`${r.toolName}\`: ${(r.result || 'Completed').toString().slice(0, 150)}`
+            ).join('\n');
+            finalContent = `✅ Done! Here's what I completed:\n\n${summary}`;
+          } else {
+            // Mixed — some succeeded, some failed
+            const successNames = successes.map(r => `\`${r.toolName}\``).join(', ');
+            const errSummary = failures.map(f =>
+              `• \`${f.toolName}\`: ${f.error || 'Unknown error'}`
+            ).join('\n');
+            finalContent = `⚠️ Partially completed. ${successNames} succeeded, but:\n\n${errSummary}`;
+          }
+          log.warn('Agent', `Empty content guard triggered — synthesized fallback from ${toolResults.length} tool results`);
+        } else {
+          // No tools, no content — generic fallback
+          finalContent = "I'm sorry, I wasn't able to generate a response. Please try rephrasing your request.";
+          log.warn('Agent', 'Empty content guard triggered — no tools, no content');
+        }
+      }
+
       conversationStore.addMessage(sessionId, 'assistant', finalContent, assistantMetadata);
 
       // Track outgoing message
@@ -1703,13 +2168,21 @@ REQUIREMENTS:
     },
 
     listAgents(): AgentDefinition[] {
-      return Array.from(agents.values());
+      return crewRegistry.listAgents();
     },
 
     getAgentMarkdown(agentId: string): string | null {
       if (!workspacePath) return null;
-      const filePath = path.join(workspacePath, 'agents', `${agentId}.agent.md`);
-      if (!fs.existsSync(filePath)) return null;
+      const yamlPath = path.join(workspacePath, 'agents', `${agentId}.agent.yaml`);
+      const ymlPath = path.join(workspacePath, 'agents', `${agentId}.agent.yml`);
+      const mdPath = path.join(workspacePath, 'agents', `${agentId}.agent.md`);
+      
+      let filePath = '';
+      if (fs.existsSync(yamlPath)) filePath = yamlPath;
+      else if (fs.existsSync(ymlPath)) filePath = ymlPath;
+      else if (fs.existsSync(mdPath)) filePath = mdPath;
+      else return null;
+
       try {
         return fs.readFileSync(filePath, 'utf8');
       } catch (err: any) {
@@ -1723,16 +2196,13 @@ REQUIREMENTS:
       const agentsDir = path.join(workspacePath, 'agents');
       if (!fs.existsSync(agentsDir)) fs.mkdirSync(agentsDir, { recursive: true });
       
-      const filePath = path.join(agentsDir, `${agentId}.agent.md`);
+      const isYaml = content.trim().startsWith('id:') || content.trim().startsWith('name:');
+      const ext = isYaml ? '.agent.yaml' : '.agent.md';
+      const filePath = path.join(agentsDir, `${agentId}${ext}`);
+      
       try {
         fs.writeFileSync(filePath, content, 'utf8');
-        // Reload the agent definition using the already imported function
-        const loadedAgents = loadAgentDefinitions(workspacePath);
-        const updatedAgent = loadedAgents.find(a => a.id === agentId);
-        if (updatedAgent) {
-          agents.set(agentId, updatedAgent);
-          console.log(`[Orchestrator] 🔄 Reloaded specialized agent: ${agentId}`);
-        }
+        crewRegistry.reloadAgents();
       } catch (err: any) {
         console.error(`[Orchestrator] Error writing agent file ${filePath}:`, err.message);
       }
@@ -1781,6 +2251,18 @@ REQUIREMENTS:
       skillEngine = engine;
       log.info('Agent', `SkillEngine injected (${engine.getSkills().length} skills available)`);
     },
+
+    getMessageBus(): MessageBus {
+      return messageBus;
+    },
+
+    getBlackboard(): Blackboard {
+      return blackboard;
+    },
+
+    getVectorStore(): VectorStore | undefined {
+      return vectorStore;
+    }
   });
 
   return orchestrator;

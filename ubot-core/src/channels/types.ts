@@ -62,6 +62,14 @@ export interface MessageFilter {
 export interface SendOptions {
   replyToId?: string;
   mentions?: string[];
+  mediaPath?: string;      // Local file path to the media
+  mediaUrl?: string;       // Remote URL of the media
+  mediaBase64?: string;    // Base64 encoded media string
+  mediaType?: 'image' | 'video' | 'audio' | 'document';
+  mimetype?: string;       // Specific mime type (e.g. 'audio/ogg; codecs=opus')
+  caption?: string;        // Caption for media
+  fileName?: string;       // File name for documents
+  ptt?: boolean;           // Push-To-Talk (true for voice notes)
 }
 
 /** Events emitted by messaging providers */
