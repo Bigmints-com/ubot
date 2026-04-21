@@ -120,6 +120,7 @@ const MESSAGING_TOOLS: ToolDefinition[] = [
     parameters: [
       { name: 'to', type: 'string', description: 'The WhatsApp JID of the bot to respond to (the rawJid from the incoming message)', required: true },
       { name: 'response', type: 'string', description: 'The exact text/option to send back to the bot (e.g. "A" for booking, or the button label)', required: true },
+      { name: 'delay_seconds', type: 'number', description: 'Optional delay before responding to simulate human typing/reading time (e.g. 5 or 10)', required: false },
     ],
   },
 ];
@@ -375,6 +376,12 @@ const messagingToolModule: ToolModule = {
           const digits = to.replace(/\D/g, '');
           to = `${digits}@s.whatsapp.net`;
         }
+        const delaySeconds = args.delay_seconds ? Number(args.delay_seconds) : 0;
+        if (delaySeconds > 0) {
+          console.log(`[wa_respond_to_bot] Waiting ${delaySeconds}s before responding...`);
+          await new Promise(r => setTimeout(r, delaySeconds * 1000));
+        }
+
         // Send as plain text — WhatsApp bots accept text replies for menu selections
         console.log(`[wa_respond_to_bot] Sending "${response}" to ${to}`);
         await waConn.sendMessage(to, { text: response });

@@ -1,0 +1,105 @@
+queue:
+  - name: "Extend AgentDefinition schema"
+    prompt: "I need you to extend the AgentDefinition interface in /Users/pretheesh/Projects/ubot-workspace/ubot/ubot-core/src/engine/types.ts (around line 294) to add these fields:
+
+1. `fallbackAgent?: string;` — ID of an agent to delegate to if this one fails
+2. `errorPolicy?: 'retry_once' | 'escalate' | 'fail_silently';` — How to handle failures
+3. `maxIterations?: number;` — Per-agent iteration budget (default 15)
+4. `inheritsFrom?: string;` — ID of another agent whose allowedTools/capabilities to inherit
+
+Also update the agent-loader.ts to handle the new `inheritsFrom` field by merging allowedTools from the parent agent.
+
+Important: Only modify the types.ts and agent-loader.ts files. Do NOT change any other files. Return a summary of what you changed."
+    workdir: /Users/pretheesh/Projects/ubot-workspace/ubot/ubot-core
+    model: qwen/qwen3.6-35b-a3b
+    approval_mode: yolo
+
+  - name: "Add autonomyTier enforcement"
+    prompt: "I need you to add runtime enforcement of autonomyTier in the orchestrator at /Users/pretheesh/Projects/ubot-workspace/ubot/ubot-core/src/engine/orchestrator.ts.
+
+The autonomy tier system (T1/T2/T3) exists in AgentDefinition but is NOT enforced at runtime. Add a function `filterToolsByTier(allowedTools: string[], tier: 'T1'|'T2'|'T3'): string[]` that:
+
+- T1: Only allows safe tools (no cli_triage, no exec, no browser automation)
+- T2: Allows everything except cli_triage and destructive CLI commands
+- T3: Allows all tools
+
+Then integrate this into the subagent runner so that when `delegate_to_agent` spawns a subagent, it filters the available tools based on the agent's autonomyTier.
+
+Look at the existing tool definitions to understand which tools are dangerous. The key dangerous tools are: cli_triage, exec, cli_run with shell commands that could modify system files.
+
+Only modify orchestrator.ts. Return a summary of what you changed."
+    workdir: /Users/pretheesh/Projects/ubot-workspace/ubot/ubot-core
+    model: qwen/qwen3.6-35b-a3b
+    approval_mode: yolo
+
+  - name: "Add inheritsFrom to agent loader"
+    prompt: "Update the agent-loader.ts at /Users/pretheesh/Projects/ubot-workspace/ubot/ubot-core/src/engine/agent-loader.ts to handle the new `inheritsFrom` field.
+
+When loading an agent definition, if `inheritsFrom` is specified:
+1. Look up the parent agent from the already-loaded agents list
+2. Merge the parent's `allowedTools` into the child's (child can add more but not remove)
+3. Merge the parent's `capabilities` array
+4. If child has no `autonomyTier`, inherit from parent
+
+Also update the `saveAgentYaml` function to write the `inheritsFrom` field to YAML.
+
+Only modify agent-loader.ts. Return a summary of what you changed."
+    workdir: /Users/pretheesh/Projects/ubot-workspace/ubot/ubot-core
+    model: qwen/qwen3.6-35b-a3b
+    approval_mode: yolo
+
+  - name: "Create publisher agent"
+    prompt: "Create a new file at /Users/pretheesh/Projects/ubot-workspace/ubot/ubot-core/agents/publisher.agent.yaml
+
+This agent should be a general-purpose publisher that can:
+- Publish articles to Substack, Medium, Dev.to
+- Post to LinkedIn (professional updates)
+- Post to X/Twitter
+- Format content appropriately for each platform
+- Take screenshots as proof of publishing
+
+It should:
+- Have autonomyTier: T3 (needs browser automation)
+- Inherit from browser-operator (use inheritsFrom: browser-operator)
+- Have capabilities: [browser, web-search, filesystem]
+- Include skills: substack-manager, linkedin-manager (from social-media-manager)
+- Have a system prompt that instructs it to publish content to the specified platform
+
+The system prompt should be detailed and include:
+- How to navigate to each platform
+- How to format content for each platform
+- How to take proof screenshots
+- Error handling if publishing fails
+
+Return the full YAML content."
+    workdir: /Users/pretheesh/Projects/ubot-workspace/ubot/ubot-core
+    model: qwen/qwen3.6-35b-a3b
+    approval_mode: yolo
+
+  - name: "Add typed blackboard keys"
+    prompt: "Update the Blackboard class in /Users/pretheesh/Projects/ubot-workspace/ubot/ubot-core/src/engine/blackboard.ts to add typed key support.
+
+Add these new methods:
+
+1. `writeTyped(key: string, schema: string, value: any, author: string, ttlSeconds?: number)` — Writes with a schema description
+2. `readTyped(key: string): { value: any; schema: string; author: string; timestamp: Date } | undefined` — Reads with metadata
+3. `listKeys(): { key: string; schema?: string; author: string; timestamp: Date }[]` — Lists all keys with their schemas
+4. `describeKey(key: string): { schema?: string; author: string; lastUpdated: Date } | null` — Gets schema info for a key
+
+Also add a new internal data structure to track schemas. The existing `write` and `read` methods should continue to work (backward compatible).
+
+Add a BlackboardKey interface:
+```typescript
+interface BlackboardKey {
+  key: string;
+  schema?: string;
+  author: string;
+  timestamp: Date;
+  expiresAt?: Date;
+}
+```
+
+Only modify blackboard.ts. Return a summary of what you changed."
+    workdir: /Users/pretheesh/Projects/ubot-workspace/ubot/ubot-core
+    model: qwen/qwen3.6-35b-a3b
+    approval_mode: yolo

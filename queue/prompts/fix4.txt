@@ -1,0 +1,98 @@
+Add a promise-tracker middleware to the handler pipeline in /Users/pretheesh/Projects/ubot-workspace/ubot/ubot-core/src/engine/handler.ts.
+
+## Problem
+The LLM sometimes ignores the system prompt and says things like "I'll get back to you" without actually scheduling a follow-up. This middleware acts as a safety net.
+
+## Implementation
+
+Add a function called `detectVaguePromises(text: string): boolean` that scans response text for these banned phrases (case-insensitive):
+- "get back to you"
+- "follow up" (but NOT in the context of "schedule follow-up" or "follow-up tool")
+- "let you know"
+- "update you"
+- "check and let you know"
+- "circle back"
+- "come back to you"
+
+Then add a function called `checkForScheduledFollowup(toolCalls: any[]): boolean` that checks if any tool call in this turn was `schedule_followup`.
+
+In the `handleIncomingMessage` function, AFTER the orchestrator returns its response but BEFORE sending it back to the user, add this check:
+
+```typescript
+// Promise tracker: if LLM made a vague promise but didn't schedule a follow-up, auto-schedule one
+const hasPromise = detectVaguePromises(response.content || '');
+const hasScheduledFollowup = checkForScheduledFollowup(response.toolCalls || []);
+
+if (hasPromise && !hasScheduledFollowup) {
+  // Auto-schedule a follow-up
+  const followUpStore = ctx.getFollowUpStore?.();
+  if (followUpStore) {
+    const now = new Date();
+    const followUpAt = new Date(now.getTime() + 60 * 60 * 1000); // 1 hour from now
+
+    // Get conversation history for context
+    const convStore = ctx.orchestrator.getConversationStore?.();
+    let context = 'Conversation context not available';
+    if (convStore) {
+      const history = await convStore.getHistory(sessionId, 10);
+      context = history.slice(-5).map(m => `${m.role}: ${m.content?.slice(0, 200)}`).join('\n');
+    }
+
+    await followUpStore.create({
+      sessionId,
+      contactId: msg.senderId,
+      channel: msg.channel,
+      reason: 'LLM made a vague promise to follow up — auto-scheduled',
+      context: context.slice(0, 1000),
+      priority: 'normal',
+      followUpAt,
+      maxAttempts: 2,
+    });
+
+    console.log(`[PromiseTracker] Detected vague promise in response, auto-scheduled follow-up for ${msg.senderId} in 1 hour`);
+
+    // Optionally append a note to the response so the user knows something is being tracked
+    // response.content += '\n\n(Note: I have scheduled a follow-up to address this.)';
+  }
+}
+```
+
+## Where to add this in handler.ts
+
+Find the section around line 310-330 where the orchestrator response is received:
+```typescript
+const response = await orchestrator.chat(
+  sessionId,
+  userPrompt,
+  source,
+  contactName,
+  isOwner,
+  undefined,
+  systemPromptOverride,
+);
+```
+
+Add the promise tracker check IMMEDIATELY AFTER this block, before the skill/ approval handling.
+
+## Additional: Add the banned phrases list as a constant
+
+Add this constant at the top of handler.ts (after the imports):
+```typescript
+const VAGUE_PROMISE_PHRASES = [
+  'get back to you',
+  'follow up',
+  'let you know',
+  'update you',
+  'check and let you know',
+  'circle back',
+  'come back to you',
+];
+```
+
+## Implementation Notes
+- Only modify handler.ts
+- The `detectVaguePromises` function should use simple `includes()` checks — no regex needed
+- The `checkForScheduledFollowup` function should iterate over `toolCalls` and check if any tool name is `schedule_followup`
+- Log a warning every time a vague promise is detected
+- Do NOT modify any other files
+- Return a summary of all changes made

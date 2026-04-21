@@ -62,8 +62,42 @@ const approvalsToolModule: ToolModule = {
         }
       }
 
-      const approval = store.create({ question, context, requesterJid, sessionId: requesterJid });
+      const approval = await store.create({ question, context, requesterJid, sessionId: requesterJid });
       console.log(`[Approvals] Created approval ${approval.id}: "${question.slice(0, 80)}" (requester: ${requesterJid})`);
+
+      // Auto-schedule follow-up in case the owner takes a long time to respond.
+      // This ensures the contact isn't left hanging indefinitely.
+      const followUpStore = ctx.getFollowUpStore?.();
+      let followUpId: string | null = null;
+      let delayHours = 2;
+      if (followUpStore && requesterJid) {
+        // Determine channel from requesterJid format
+        let channel = 'whatsapp';
+        if (requesterJid.startsWith('telegram:')) channel = 'telegram';
+        else if (requesterJid.startsWith('webchat:')) channel = 'web';
+
+        // Read delay from config (default: 2 hours)
+        const agent = ctx.getAgent();
+        const config = agent?.getConfig?.() || {};
+        delayHours = Number(config.approvalFollowUpDelayHours) || 2;
+        const followUpAt = new Date(Date.now() + delayHours * 60 * 60 * 1000);
+        const reason = `Waiting for owner response on: ${question.slice(0, 100)}`;
+        const context = `Approval ID: ${approval.id}. The owner has been notified but hasn't responded yet. Follow up with the contact.`;
+
+        const followUp = await followUpStore.create({
+          sessionId: requesterJid,
+          contactId: requesterJid,
+          channel,
+          reason,
+          context,
+          priority: 'high',
+          followUpAt,
+          maxAttempts: 3,
+          approvalId: approval.id,
+        });
+        followUpId = followUp.id;
+        console.log(`[Approvals] Auto-scheduled follow-up ${followUp.id} for approval ${approval.id} in ${delayHours}h`);
+      }
 
       // Inject into Command Center
       if (agent) {
@@ -99,10 +133,16 @@ const approvalsToolModule: ToolModule = {
         }
 
         const ownerName = config.ownerName || 'owner';
-        return { toolName: 'ask_owner', success: true, result: `Approval request created (ID: ${approval.id}). The owner "${ownerName}" has been notified. Tell the requester you'll check with ${ownerName} and get back to them.`, duration: 0 };
+        const followUpInfo = followUpId
+          ? ` Follow-up scheduled in ${delayHours}h (ID: ${followUpId}).`
+          : '';
+        return { toolName: 'ask_owner', success: true, result: `Approval request created (ID: ${approval.id}). The owner "${ownerName}" has been notified.${followUpInfo} Tell the requester you'll check with ${ownerName} and get back to them.`, duration: 0 };
       }
 
-      return { toolName: 'ask_owner', success: true, result: `Approval request created (ID: ${approval.id}).`, duration: 0 };
+      const followUpInfo = followUpId
+        ? ` Follow-up scheduled in ${delayHours}h (ID: ${followUpId}).`
+        : '';
+      return { toolName: 'ask_owner', success: true, result: `Approval request created (ID: ${approval.id}).${followUpInfo}`, duration: 0 };
     });
 
     registry.register('respond_to_approval', async (args) => {

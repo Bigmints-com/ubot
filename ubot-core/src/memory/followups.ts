@@ -31,6 +31,8 @@ export interface FollowUp {
   attempts: number;
   /** Max attempts before auto-expiring */
   maxAttempts: number;
+  /** Optional: ID of the approval this follow-up was created for (set by ask_owner) */
+  approvalId?: string;
 }
 
 export interface FollowUpCreate {
@@ -42,6 +44,8 @@ export interface FollowUpCreate {
   priority?: FollowUpPriority;
   followUpAt: Date;
   maxAttempts?: number;
+  /** Optional: ID of the approval this follow-up was created for (set by ask_owner) */
+  approvalId?: string;
 }
 
 export interface FollowUpFilter {
@@ -89,6 +93,7 @@ function rowToFollowUp(row: any): FollowUp {
     result: row.result,
     attempts: row.attempts,
     maxAttempts: row.max_attempts,
+    approvalId: row.approval_id || undefined,
   };
 }
 
@@ -114,7 +119,8 @@ export function createFollowUpStore(db: DatabaseConnection): FollowUpStore {
         follow_up_at: input.followUpAt.toISOString(),
         created_at: now,
         attempts: 0,
-        max_attempts: maxAttempts
+        max_attempts: maxAttempts,
+        approval_id: input.approvalId || null,
       });
 
       return {
@@ -132,6 +138,7 @@ export function createFollowUpStore(db: DatabaseConnection): FollowUpStore {
         result: null,
         attempts: 0,
         maxAttempts,
+        approvalId: input.approvalId,
       };
     },
 

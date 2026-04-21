@@ -28,7 +28,7 @@ export const CORE_ORCHESTRATOR_TOOLS: ToolDefinition[] = [
     name: 'delegate_to_agent',
     description: 'Delegate a specific task to a specialized agent specialist.',
     parameters: [
-      { name: 'agentId', type: 'string', description: 'The ID of the specialized agent (researcher, writer, browser-operator, social-media-manager, coder).', required: true },
+      { name: 'agentId', type: 'string', description: 'The ID of the specialized agent (researcher, writer, browser-operator, social-media-manager, minions-coder). For coding tasks, prefer minions-coder.', required: true },
       { name: 'task', type: 'string', description: 'The detailed task description for the agent.', required: true },
       { name: 'timeoutSeconds', type: 'number', description: 'Optional timeout for the task in seconds (default 120).', required: false },
     ],

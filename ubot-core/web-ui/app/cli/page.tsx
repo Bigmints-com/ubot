@@ -80,6 +80,8 @@ const PROVIDERS = [
   { id: "gemini", name: "Gemini CLI", description: "Google's AI coding assistant", command: "gemini", authHint: "Run `gemini` in your terminal to authenticate via Google OAuth" },
   { id: "claude", name: "Claude CLI", description: "Anthropic's coding assistant", command: "claude", authHint: "Run `claude` in your terminal to log in" },
   { id: "codex", name: "Codex CLI", description: "OpenAI's coding assistant", command: "codex", authHint: "Set OPENAI_API_KEY in your environment" },
+  { id: "pi", name: "PI CLI", description: "PI queue runner for coding workflows", command: "pi", authHint: "No authentication required for PI CLI" },
+  { id: "minions", name: "Minions CLI", description: "Minions queue executor for coding workflows", command: "minions", authHint: "No authentication required for Minions CLI" },
 ];
 
 export default function CliPage() {

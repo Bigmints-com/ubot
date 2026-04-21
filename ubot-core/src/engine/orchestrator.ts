@@ -245,10 +245,16 @@ export function createAgentOrchestrator(
     const sid = `subagent-${agentDef.name}-${Date.now()}`;
     sessionAgents.set(sid, agentDef.id);
 
+    // Filter tools based on the subagent's autonomy tier
+    const filteredTools = filterToolsByTier(
+      agentDef.allowedTools || [],
+      agentDef.autonomyTier || 'T3',
+    );
+
     const subConfig = {
       name: agentDef.name,
       systemPrompt: agentDef.systemPrompt,
-      allowedTools: agentDef.allowedTools,
+      allowedTools: filteredTools,
       timeoutMs: timeoutSeconds * 1000,
     };
     
@@ -1070,6 +1076,110 @@ Inform the user about this possibility if it's relevant to the current conversat
     }
   }
 
+  /**
+   * Filter tools by autonomy tier for delegation to subagents.
+   * 
+   * T1: Only safe tools. Blocks cli_triage, exec, and mcp_playwright_browser_ tools.
+   * T2: Allows everything except cli_triage and tools starting with exec.
+   * T3: Allows all tools unchanged.
+   * 
+   * @param allowedTools - The list of tools allowed for the agent
+   * @param tier - The autonomy tier (T1, T2, or T3)
+   * @returns Filtered array of tool names
+   */
+  function filterToolsByTier(allowedTools: string[], tier: string): string[] {
+    // T3: No restrictions
+    if (tier === 'T3') return allowedTools;
+
+    // T1: Only safe, non-destructive tools
+    if (tier === 'T1') {
+      return allowedTools.filter(t => {
+        // Block cli_triage, exec tools, and browser automation tools
+        if (t === 'cli_triage') return false;
+        if (t.startsWith('exec_')) return false;
+        if (t.startsWith('mcp_playwright_browser_')) return false;
+        return true;
+      });
+    }
+
+    // T2: Everything except cli_triage and exec tools
+    return allowedTools.filter(t => {
+      if (t === 'cli_triage') return false;
+      if (t.startsWith('exec_')) return false;
+      return true;
+    });
+  }
+
+  /**
+   * Runtime enforcement of agent autonomy tiers.
+   * 
+   * T1 (Read-only / Non-destructive): Safe tools only.
+   *   - Messaging, contacts, search, memory, personas, vault, sessions, todo
+   *   - Google tools (Gmail, Drive, Sheets, Docs, Calendar, Contacts, Places)
+   *   - Web search / fetch, file read, scheduler (read-only actions)
+   *   - Approvals (ask_owner, respond, list_pending)
+   *   - BLOCKED: cli_triage, cli_run, exec, browser automation (mcp_playwright_*),
+   *              skill creation/deletion, module management, delegate_to_agent
+   * 
+   * T2 (Operational): Everything except system-level modification tools.
+   *   - All T1 tools PLUS: browser automation, skill CRUD, file write/delete
+   *   - BLOCKED: cli_triage, cli_run, exec, promote_module, delete_module,
+   *              cli_test_module, cli_delete_module (self-modification tools)
+   * 
+   * T3 (Full): All tools unrestricted.
+   */
+  function enforceAutonomyTier(
+    tools: ToolDefinition[],
+    tier: 'T1' | 'T2' | 'T3',
+  ): ToolDefinition[] {
+    // T3: No restrictions
+    if (tier === 'T3') return tools;
+
+    // T1: Only safe, read-only tools
+    if (tier === 'T1') {
+      // Block all CLI/system tools
+      const BLOCKED_T1_PREFIXES = [
+        'cli_triage', 'cli_run', 'cli_',
+        'exec_',
+      ];
+      // Block all browser automation tools
+      const BLOCKED_T1_PREFIXES_BROWSER = [
+        'mcp_playwright_',
+      ];
+      // Block skill/module management (write operations)
+      const BLOCKED_T1_EXACT = new Set([
+        'create_skill', 'delete_skill', 'update_skill',
+        'promote_module', 'test_module', 'delete_module',
+        'cli_test_module', 'cli_promote_module', 'cli_delete_module',
+        'delegate_to_agent', 'execute_plan',
+      ]);
+
+      return tools.filter(t => {
+        // Block by exact name
+        if (BLOCKED_T1_EXACT.has(t.name)) return false;
+        // Block by prefix (cli_*, exec_*, mcp_playwright_*)
+        if (BLOCKED_T1_PREFIXES.some(p => t.name.startsWith(p))) return false;
+        if (BLOCKED_T1_PREFIXES_BROWSER.some(p => t.name.startsWith(p))) return false;
+        return true;
+      });
+    }
+
+    // T2: Everything except self-modification / system-level tools
+    // Block: cli_triage, cli_run, exec, module management
+    const BLOCKED_T2 = new Set([
+      'cli_triage',
+      'cli_run',
+      'cli_test_module',
+      'cli_promote_module',
+      'cli_delete_module',
+      'promote_module',
+      'delete_module',
+      'test_module',
+    ]);
+
+    return tools.filter(t => !BLOCKED_T2.has(t.name));
+  }
+
   async function callLLM(
     messages: ChatMsg[],
     isOwner: boolean = true,
@@ -1139,6 +1249,17 @@ Inform the user about this possibility if it's relevant to the current conversat
       filteredTools = filteredTools.filter(t => !['delegate_to_agent', 'execute_plan', 'switch_agent'].includes(t.name));
     }
 
+    // ── Autonomy Tier Enforcement ─────────────────────────────
+    // Runtime enforcement of agent autonomy tiers (T1/T2/T3).
+    // This prevents lower-tier agents from accessing dangerous tools
+    // regardless of what the LLM or Phase 1 tool selection wants.
+    if (agent && agent.autonomyTier) {
+      filteredTools = enforceAutonomyTier(filteredTools, agent.autonomyTier);
+      if (filteredTools.length < (agent.allowedTools?.length || 0)) {
+        log.info('Agent', `Autonomy tier ${agent.autonomyTier}: filtered to ${filteredTools.length} tools for agent ${agentId}`);
+      }
+    }
+
     if (agent) {
       // Model override — agent-specific model takes priority over global routing
       if (agent.model) {
@@ -1158,24 +1279,22 @@ Inform the user about this possibility if it's relevant to the current conversat
     //   - Ollama (Qwen3, etc.): think: true → returns reasoning_content
     //   - OpenAI o-series: built-in, no extra config needed
     let thinkingConfig: Record<string, unknown> = {};
-    if (purpose === 'chat') {
-      const isGeminiProvider = ['gemini', 'vertex'].includes(providerId);
-      const isOllamaProvider = providerId === 'ollama';
+    const isGeminiProvider = ['gemini', 'vertex'].includes(providerId);
+    const isOllamaProvider = providerId === 'ollama';
 
-      if (isGeminiProvider) {
-        thinkingConfig = {
-          extra_body: {
-            google: {
-              thinking_config: {
-                include_thoughts: true,
-              },
+    if (isGeminiProvider) {
+      thinkingConfig = {
+        extra_body: {
+          google: {
+            thinking_config: {
+              include_thoughts: true,
             },
           },
-        };
-      } else if (isOllamaProvider) {
-        // Ollama exposes thinking via think: true in the request body
-        thinkingConfig = { think: true };
-      }
+        },
+      };
+    } else if (isOllamaProvider) {
+      // Ollama exposes thinking via think: true in the request body
+      thinkingConfig = { think: true };
     }
 
     try {

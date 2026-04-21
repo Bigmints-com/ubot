@@ -85,7 +85,49 @@ export function loadAgentDefinitions(workspacePath: string): AgentDefinition[] {
     console.error(`[AgentLoader] Error loading agents: ${err.message}`);
   }
   
+  // Resolve inheritance: merge allowedTools and capabilities from parent agents
+  resolveInheritance(agents);
+  
   return agents;
+}
+
+/**
+ * Resolve inheritsFrom references by merging allowedTools and capabilities
+ * from the parent agent. Child values are appended to (not overwritten by) parent values.
+ */
+function resolveInheritance(agents: AgentDefinition[]): void {
+  const agentMap = new Map(agents.map(a => [a.id, a]));
+  const resolved = new Set<string>();
+
+  for (const agent of agents) {
+    if (!agent.inheritsFrom) continue;
+    if (resolved.has(agent.id)) continue; // Already processed
+
+    const parent = agentMap.get(agent.inheritsFrom);
+    if (!parent) {
+      console.warn(`[AgentLoader] Agent "${agent.id}" references unknown parent "${agent.inheritsFrom}" — skipping inheritance`);
+      continue;
+    }
+
+    // Merge allowedTools: parent tools first, then agent-specific tools (deduplicated)
+    const parentTools = parent.allowedTools || [];
+    const childTools = agent.allowedTools || [];
+    const mergedTools = [...new Set([...parentTools, ...childTools])];
+    if (mergedTools.length > 0) {
+      agent.allowedTools = mergedTools;
+    }
+
+    // Merge capabilities: parent capabilities first, then agent-specific (deduplicated)
+    const parentCaps = parent.capabilities || [];
+    const childCaps = agent.capabilities || [];
+    const mergedCaps = [...new Set([...parentCaps, ...childCaps])];
+    if (mergedCaps.length > 0) {
+      agent.capabilities = mergedCaps;
+    }
+
+    resolved.add(agent.id);
+    console.log(`[AgentLoader] Agent "${agent.id}" inherited from "${agent.inheritsFrom}" (${mergedTools.length} tools, ${mergedCaps.length} capabilities)`);
+  }
 }
 
 function parseAgentYaml(id: string, content: string): AgentDefinition | null {
@@ -104,6 +146,10 @@ function parseAgentYaml(id: string, content: string): AgentDefinition | null {
       skills: parsed.skills,
       persona: parsed.persona,
       workflows: parsed.workflows,
+      fallbackAgent: parsed.fallbackAgent,
+      errorPolicy: parsed.errorPolicy,
+      maxIterations: parsed.maxIterations,
+      inheritsFrom: parsed.inheritsFrom,
     };
   } catch (err: any) {
     console.error(`[AgentLoader] Failed to parse YAML for agent ${id}: ${err.message}`);
@@ -184,6 +230,10 @@ export function saveAgentYaml(workspacePath: string, agent: AgentDefinition): vo
   if (agent.skills) yamlObj.skills = agent.skills;
   if (agent.persona) yamlObj.persona = agent.persona;
   if (agent.workflows) yamlObj.workflows = agent.workflows;
+  if (agent.fallbackAgent) yamlObj.fallbackAgent = agent.fallbackAgent;
+  if (agent.errorPolicy) yamlObj.errorPolicy = agent.errorPolicy;
+  if (agent.maxIterations) yamlObj.maxIterations = agent.maxIterations;
+  if (agent.inheritsFrom) yamlObj.inheritsFrom = agent.inheritsFrom;
 
   const content = yaml.stringify(yamlObj);
   fs.writeFileSync(filePath, content, 'utf8');

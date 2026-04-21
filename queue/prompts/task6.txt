@@ -1,0 +1,100 @@
+Fix the follow-up and proactive outreach system. Currently the LLM promises to get back to people and never does because the follow-up mechanism is broken. Here's what needs to be fixed:
+
+## Problem Analysis
+
+The follow-up checker (`src/automation/followups/checker.ts`) runs every 15 minutes and spawns an agent session when a follow-up is due. But the agent inside the follow-up session:
+1. Gets a prompt that says "send a message via send_message tool"
+2. But the agent session may not have messaging tools available
+3. The checker then just records an attempt and reschedules — it NEVER actually sends the message itself
+4. So even if the agent tries to send, the checker doesn't deliver it
+
+The `schedule_followup` tool exists but is rarely used because the system prompt tells the LLM to "CHECK NOW using tools" rather than scheduling follow-ups.
+
+## Required Fixes
+
+### Fix 1: Make the follow-up checker actually send messages
+
+Update `src/automation/followups/checker.ts` — the `processOneFollowUp` function must:
+
+1. When the agent produces a response that looks like a follow-up message (not [NO_ACTION_NEEDED] or [RESCHEDULE]), the checker MUST actually send that message to the contact using the channel-specific send method.
+2. The `sendMessage` callback that's passed to the checker is currently optional — make it required and actually use it.
+3. If the agent returns a message, the checker should:
+   - Send it via the correct channel (whatsapp/telegram/web) to the contactId
+   - Then call `complete_followup` with the result
+   - NOT just record an attempt and reschedule
+
+### Fix 2: Fix the follow-up agent session to have messaging tools
+
+The follow-up agent session needs access to messaging tools. Currently `deps.chat()` is called with source='web' and contactName='follow-up-agent', but the agent may not have the right tools loaded.
+
+Update the `processOneFollowUp` function to:
+- Ensure the agent session has access to `send_message` and `search_messages` tools
+- Pass the correct channel context so the agent knows which channel to use
+- The agent should be able to call `send_message(channel, contactId, body)` directly
+
+### Fix 3: Strengthen the system prompt to prevent vague promises
+
+Update the system prompt in `src/engine/types.ts` (DEFAULT_AGENT_CONFIG.systemPrompt). Add this section AFTER the "Conversation Continuity — Follow-ups" section:
+
+```
+## CRITICAL: NO VAGUE PROMISES
+You MUST NOT make vague or empty promises like "I'll get back to you", "Let me check and let you know", "I'll follow up later", "I'll get back to you on that", etc.
+
+If you need to do something that can't be completed in this turn:
+1. USE `schedule_followup` to schedule a concrete follow-up with a specific time
+2. OR use `schedule_message` to send a reminder to yourself
+3. OR use `create_reminder` for yourself to check back later
+4. NEVER just say "I'll get back to you" without actually scheduling something
+
+If you used `ask_owner` and are waiting for a response, you MUST call `schedule_followup` immediately after `ask_owner` to ensure you follow up.
+
+Example of BAD behavior:
+- User: "Can you check if John is available?"
+- You: "Let me check and get back to you."  ← WRONG — no follow-up scheduled
+
+Example of CORRECT behavior:
+- User: "Can you check if John is available?"
+- You: [calls calendar tool] → [sees John is busy] → "John is busy until 3pm today."
+- OR if you can't check now: [calls schedule_followup with reason="Checking John's availability", time="in 30 minutes"]
+```
+
+### Fix 4: Auto-schedule follow-up after ask_owner
+
+Update the `ask_owner` tool implementation in the approvals module (`src/automation/approvals/`) to automatically schedule a follow-up when `ask_owner` is called. This ensures that if the owner takes a long time to respond, the system will automatically follow up.
+
+The `ask_owner` tool should:
+1. Create the approval request (existing behavior)
+2. ALSO call `schedule_followup` with:
+   - reason: "Waiting for owner response on: [brief summary]"
+   - time: "in 2 hours" (default, configurable)
+   - priority: "high"
+3. Return both the approval ID and the follow-up ID in the result
+
+### Fix 5: Add a "promise tracker" — automatically detect and schedule follow-ups
+
+Add a new middleware or post-processing step in the handler (`src/engine/handler.ts`) that:
+1. After the LLM responds, scans the response text for vague promise phrases like:
+   - "I'll get back to you"
+   - "Let me check"
+   - "I'll follow up"
+   - "I'll let you know"
+   - "I'll update you"
+2. If any are found AND no `schedule_followup` tool was called in this turn, automatically create a follow-up with:
+   - reason: "Follow up on previous conversation"
+   - context: The last few messages from the conversation
+   - time: "in 1 hour"
+   - priority: "normal"
+3. Log a warning: "[PromiseTracker] Detected vague promise in response, auto-scheduled follow-up"
+
+This is a safety net — the system prompt should prevent vague promises, but this catches any that slip through.
+
+## Implementation Notes
+
+- Only modify these files:
+  1. `src/automation/followups/checker.ts` — Fix the message sending flow
+  2. `src/engine/types.ts` — Strengthen the system prompt
+  3. `src/automation/approvals/service.ts` — Auto-schedule follow-up after ask_owner
+  4. `src/engine/handler.ts` — Add promise tracker middleware
+- Keep backward compatibility — don't break existing follow-up behavior
+- The checker's `sendMessage` callback should be properly wired up in the main app initialization
+- Return a summary of all changes made

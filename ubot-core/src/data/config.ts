@@ -151,6 +151,9 @@ export interface UbotConfig {
     telegram_username?: string;
   };
 
+  /** Owner display name used in approval notifications */
+  ownerName?: string;
+
   channels?: {
     whatsapp?: { enabled?: boolean; auto_reply?: boolean };
     telegram?: { enabled?: boolean; token?: string; auto_reply?: boolean };
@@ -173,6 +176,9 @@ export interface UbotConfig {
     max_tool_iterations?: number;
     system_prompt?: string;
   };
+
+  /** Delay (in hours) before auto-scheduling a follow-up after ask_owner. Default: 2 */
+  approvalFollowUpDelayHours?: number;
 
   /** Purpose-based routing: which capability.provider to use for each purpose */
   defaults?: Record<string, string>;

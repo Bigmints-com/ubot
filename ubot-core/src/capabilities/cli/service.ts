@@ -1,20 +1,24 @@
 /**
  * CLI Capability Service
  *
- * Manages CLI coding sessions using external CLI tools (Gemini CLI, Claude CLI, Codex CLI).
+ * Manages CLI coding sessions using external CLI tools (Gemini CLI, Claude CLI, Codex CLI, or pi/minions).
  * Spawns child processes, streams output, and manages session lifecycle.
  * Lazily initializes — only starts when first used.
  */
 
-import { spawn, execSync, type ChildProcess } from 'child_process';
-import { randomUUID } from 'crypto';
-import { mkdirSync, existsSync } from 'fs';
-import path from 'path';
-import { log } from '../../logger/ring-buffer.js';
+import { spawn, execSync, type ChildProcess } from "child_process";
+import { randomUUID } from "crypto";
+import { mkdirSync, existsSync } from "fs";
+import path from "path";
+import { log } from "../../logger/ring-buffer.js";
 
 const UBOT_ROOT = process.env.UBOT_HOME || process.cwd();
-import type { CliSession, CliServiceConfig } from './types.js';
-import { resolveCliCommand, resolveCliPackage, resolveCliAuthArgs } from './types.js';
+import type { CliSession, CliServiceConfig } from "./types.js";
+import {
+  resolveCliCommand,
+  resolveCliPackage,
+  resolveCliAuthArgs,
+} from "./types.js";
 
 const MAX_OUTPUT_LINES = 5000;
 const MAX_SESSIONS = 50;
@@ -47,7 +51,7 @@ export class CliService {
   isProviderAvailable(provider?: string): boolean {
     const binary = resolveCliCommand(provider || this.config.provider);
     try {
-      execSync(`which ${binary}`, { stdio: 'ignore' });
+      execSync(`which ${binary}`, { stdio: "ignore" });
       return true;
     } catch {
       return false;
@@ -60,25 +64,31 @@ export class CliService {
    *   - Gemini: OAuth creds in ~/.gemini/oauth_creds.json
    *   - Claude: Session data in ~/.claude/
    *   - Codex:  OPENAI_API_KEY env variable
+   *   - pi/minions: No auth required (open source CLI)
    */
   isProviderAuthenticated(provider?: string): boolean {
     const p = provider || this.config.provider;
-    const home = process.env.HOME || process.env.USERPROFILE || '';
+    const home = process.env.HOME || process.env.USERPROFILE || "";
 
     switch (p) {
-      case 'gemini': {
+      case "gemini": {
         // Gemini CLI stores OAuth credentials after browser-based login
-        const credsPath = path.join(home, '.gemini', 'oauth_creds.json');
+        const credsPath = path.join(home, ".gemini", "oauth_creds.json");
         return existsSync(credsPath);
       }
-      case 'claude': {
+      case "claude": {
         // Claude CLI stores session data in ~/.claude/
-        const claudeDir = path.join(home, '.claude');
+        const claudeDir = path.join(home, ".claude");
         return existsSync(claudeDir);
       }
-      case 'codex': {
+      case "codex": {
         // Codex CLI uses OpenAI API key from environment
         return !!process.env.OPENAI_API_KEY;
+      }
+      case "pi":
+      case "minions": {
+        // pi/minions CLI is open source and doesn't require authentication
+        return true;
       }
       default:
         return false;
@@ -88,7 +98,12 @@ export class CliService {
   /**
    * Get full provider status for the UI.
    */
-  getProviderInfo(): { provider: string; binary: string; available: boolean; authenticated: boolean } {
+  getProviderInfo(): {
+    provider: string;
+    binary: string;
+    available: boolean;
+    authenticated: boolean;
+  } {
     const provider = this.config.provider;
     const binary = resolveCliCommand(provider);
     return {
@@ -103,34 +118,39 @@ export class CliService {
    * Install a CLI provider via npm.
    * Returns the output and success status.
    */
-  async installProvider(provider?: string): Promise<{ success: boolean; output: string }> {
+  async installProvider(
+    provider?: string,
+  ): Promise<{ success: boolean; output: string }> {
     const p = provider || this.config.provider;
     const pkg = resolveCliPackage(p);
 
-    log.info('CLI', `Installing ${p} CLI: npm install -g ${pkg}`);
+    log.info("CLI", `Installing ${p} CLI: npm install -g ${pkg}`);
 
     return new Promise((resolve) => {
       const output: string[] = [];
-      const child = spawn('npm', ['install', '-g', pkg], {
-        stdio: ['ignore', 'pipe', 'pipe'],
+      const child = spawn("npm", ["install", "-g", pkg], {
+        stdio: ["ignore", "pipe", "pipe"],
         shell: true,
       });
 
-      child.stdout?.on('data', (data: Buffer) => {
+      child.stdout?.on("data", (data: Buffer) => {
         output.push(data.toString());
       });
-      child.stderr?.on('data', (data: Buffer) => {
+      child.stderr?.on("data", (data: Buffer) => {
         output.push(data.toString());
       });
 
-      child.on('close', (code) => {
+      child.on("close", (code) => {
         const success = code === 0;
-        log.info('CLI', `Install ${p} ${success ? 'succeeded' : `failed (code ${code})`}`);
-        resolve({ success, output: output.join('') });
+        log.info(
+          "CLI",
+          `Install ${p} ${success ? "succeeded" : `failed (code ${code})`}`,
+        );
+        resolve({ success, output: output.join("") });
       });
 
-      child.on('error', (err) => {
-        log.error('CLI', `Install ${p} error: ${err.message}`);
+      child.on("error", (err) => {
+        log.error("CLI", `Install ${p} error: ${err.message}`);
         resolve({ success: false, output: err.message });
       });
     });
@@ -141,54 +161,71 @@ export class CliService {
    * For Gemini/Claude this runs the login command.
    * For Codex, auth is API-key based (not interactive).
    */
-  async authenticateProvider(provider?: string): Promise<{ success: boolean; output: string }> {
+  async authenticateProvider(
+    provider?: string,
+  ): Promise<{ success: boolean; output: string }> {
     const p = provider || this.config.provider;
     const authCmd = resolveCliAuthArgs(p);
 
-    if (p === 'codex') {
+    if (p === "codex") {
       return {
         success: false,
-        output: 'Codex uses an API key. Set the OPENAI_API_KEY environment variable and restart UBOT.',
+        output:
+          "Codex uses an API key. Set the OPENAI_API_KEY environment variable and restart UBOT.",
       };
     }
 
     if (!this.isProviderAvailable(p)) {
-      return { success: false, output: `${p} CLI is not installed. Install it first.` };
+      return {
+        success: false,
+        output: `${p} CLI is not installed. Install it first.`,
+      };
     }
 
-    log.info('CLI', `Authenticating ${p}: ${authCmd.cmd} ${authCmd.args.join(' ')}`);
+    log.info(
+      "CLI",
+      `Authenticating ${p}: ${authCmd.cmd} ${authCmd.args.join(" ")}`,
+    );
 
     return new Promise((resolve) => {
       const output: string[] = [];
       const child = spawn(authCmd.cmd, authCmd.args, {
-        stdio: ['ignore', 'pipe', 'pipe'],
+        stdio: ["ignore", "pipe", "pipe"],
         shell: true,
-        env: { ...process.env, TERM: 'dumb' },
+        env: { ...process.env, TERM: "dumb" },
       });
 
-      child.stdout?.on('data', (data: Buffer) => {
+      child.stdout?.on("data", (data: Buffer) => {
         output.push(data.toString());
       });
-      child.stderr?.on('data', (data: Buffer) => {
+      child.stderr?.on("data", (data: Buffer) => {
         output.push(data.toString());
       });
 
       // Timeout after 30s — auth commands may open a browser
       const timeout = setTimeout(() => {
         child.kill();
-        resolve({ success: false, output: output.join('') + '\nAuth timed out — the CLI may have opened your browser. Run the auth command manually if needed.' });
+        resolve({
+          success: false,
+          output:
+            output.join("") +
+            "\nAuth timed out — the CLI may have opened your browser. Run the auth command manually if needed.",
+        });
       }, 30000);
 
-      child.on('close', (code) => {
+      child.on("close", (code) => {
         clearTimeout(timeout);
         const success = code === 0;
-        log.info('CLI', `Auth ${p} ${success ? 'succeeded' : `exited (code ${code})`}`);
-        resolve({ success, output: output.join('') });
+        log.info(
+          "CLI",
+          `Auth ${p} ${success ? "succeeded" : `exited (code ${code})`}`,
+        );
+        resolve({ success, output: output.join("") });
       });
 
-      child.on('error', (err) => {
+      child.on("error", (err) => {
         clearTimeout(timeout);
-        log.error('CLI', `Auth ${p} error: ${err.message}`);
+        log.error("CLI", `Auth ${p} error: ${err.message}`);
         resolve({ success: false, output: err.message });
       });
     });
@@ -197,19 +234,22 @@ export class CliService {
   /**
    * Start a new CLI session with the given prompt.
    */
-  async startSession(prompt: string, projectName?: string): Promise<CliSession> {
+  async startSession(
+    prompt: string,
+    projectName?: string,
+  ): Promise<CliSession> {
     const provider = this.config.provider;
     const binary = resolveCliCommand(provider);
 
     if (!this.isProviderAvailable()) {
       throw new Error(
-        `CLI provider "${provider}" is not installed. Please install "${binary}" and make sure it's on your PATH.`
+        `CLI provider "${provider}" is not installed. Please install "${binary}" and make sure it's on your PATH.`,
       );
     }
 
     // Create project directory
     const safeName = (projectName || `session-${Date.now()}`)
-      .replace(/[^a-zA-Z0-9_-]/g, '-')
+      .replace(/[^a-zA-Z0-9_-]/g, "-")
       .substring(0, 64);
     const workDir = path.join(this.baseWorkDir, safeName);
     if (!existsSync(workDir)) {
@@ -220,7 +260,7 @@ export class CliService {
       id: randomUUID(),
       prompt,
       provider,
-      status: 'running',
+      status: "running",
       workDir,
       projectName: safeName,
       startedAt: new Date(),
@@ -230,80 +270,186 @@ export class CliService {
     // Build command args based on provider
     const args = this.buildArgs(provider, prompt);
 
-    log.info('CLI', `Starting ${provider} session ${session.id}: "${prompt.substring(0, 80)}..."`);
+    log.info(
+      "CLI",
+      `Starting ${provider} session ${session.id}: "${prompt.substring(0, 80)}..."`,
+    );
 
-    // Spawn the process
-    const child = spawn(binary, args, {
-      cwd: workDir,
-      env: { ...process.env, TERM: 'xterm-256color' },
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
+    // For pi/minions, spawn as a shell command to support queue execution
+    if (provider === "pi" || provider === "minions") {
+      const child = spawn("sh", ["-c", `${binary} ${args.join(" ")}`], {
+        cwd: workDir,
+        env: { ...process.env, TERM: "xterm-256color" },
+        stdio: ["pipe", "pipe", "pipe"],
+      });
+      this.processes.set(session.id, child);
+      this.sessions.set(session.id, session);
 
-    this.processes.set(session.id, child);
-    this.sessions.set(session.id, session);
-
-    // Collect stdout
-    child.stdout?.on('data', (data: Buffer) => {
-      const lines = data.toString().split('\n');
-      for (const line of lines) {
-        if (line.length > 0) {
-          session.outputLines.push(line);
-          // Cap output buffer
-          if (session.outputLines.length > MAX_OUTPUT_LINES) {
-            session.outputLines.shift();
+      // Collect stdout
+      child.stdout?.on("data", (data: Buffer) => {
+        const lines = data.toString().split("\n");
+        for (const line of lines) {
+          if (line.length > 0) {
+            session.outputLines.push(line);
+            // Cap output buffer
+            if (session.outputLines.length > MAX_OUTPUT_LINES) {
+              session.outputLines.shift();
+            }
           }
         }
-      }
-    });
+      });
 
-    // Collect stderr
-    child.stderr?.on('data', (data: Buffer) => {
-      const lines = data.toString().split('\n');
-      for (const line of lines) {
-        if (line.length > 0) {
-          session.outputLines.push(`[stderr] ${line}`);
-          if (session.outputLines.length > MAX_OUTPUT_LINES) {
-            session.outputLines.shift();
+      // Collect stderr
+      child.stderr?.on("data", (data: Buffer) => {
+        const lines = data.toString().split("\n");
+        for (const line of lines) {
+          if (line.length > 0) {
+            session.outputLines.push(`[stderr] ${line}`);
+            if (session.outputLines.length > MAX_OUTPUT_LINES) {
+              session.outputLines.shift();
+            }
           }
         }
-      }
-    });
+      });
 
-    // Handle process exit
-    child.on('close', (code) => {
-      session.exitCode = code ?? -1;
-      session.endedAt = new Date();
-      session.status = code === 0 ? 'completed' : (session.status === 'stopped' ? 'stopped' : 'failed');
-      this.processes.delete(session.id);
-      log.info('CLI', `Session ${session.id} ended with code ${code}`);
-      // Fire completion callback
-      if (this.onCompleteCallback) {
-        try { this.onCompleteCallback(session); } catch (err: any) {
-          log.error('CLI', `onComplete callback error: ${err.message}`);
+      // Handle process exit
+      child.on("close", (code) => {
+        session.exitCode = code ?? -1;
+        session.endedAt = new Date();
+        session.status =
+          code === 0
+            ? "completed"
+            : session.status === "stopped"
+              ? "stopped"
+              : "failed";
+        this.processes.delete(session.id);
+        log.info("CLI", `Session ${session.id} ended with code ${code}`);
+        // Fire completion callback
+        if (this.onCompleteCallback) {
+          try {
+            this.onCompleteCallback(session);
+          } catch (err: any) {
+            log.error("CLI", `onComplete callback error: ${err.message}`);
+          }
         }
-      }
-    });
+      });
 
-    child.on('error', (err) => {
-      session.status = 'failed';
-      session.endedAt = new Date();
-      session.outputLines.push(`[error] ${err.message}`);
-      this.processes.delete(session.id);
-      log.error('CLI', `Session ${session.id} error: ${err.message}`);
-      if (this.onCompleteCallback) {
-        try { this.onCompleteCallback(session); } catch {} 
-      }
-    });
-
-    // Set timeout
-    if (this.config.timeout > 0) {
-      setTimeout(() => {
-        if (session.status === 'running') {
-          log.warn('CLI', `Session ${session.id} timed out after ${this.config.timeout}ms`);
-          this.stopSession(session.id);
-          session.outputLines.push(`[system] Session timed out after ${Math.round(this.config.timeout / 1000)}s`);
+      child.on("error", (err) => {
+        session.status = "failed";
+        session.endedAt = new Date();
+        session.outputLines.push(`[error] ${err.message}`);
+        this.processes.delete(session.id);
+        log.error("CLI", `Session ${session.id} error: ${err.message}`);
+        if (this.onCompleteCallback) {
+          try {
+            this.onCompleteCallback(session);
+          } catch {}
         }
-      }, this.config.timeout);
+      });
+
+      // Set timeout
+      if (this.config.timeout > 0) {
+        setTimeout(() => {
+          if (session.status === "running") {
+            log.warn(
+              "CLI",
+              `Session ${session.id} timed out after ${this.config.timeout}ms`,
+            );
+            this.stopSession(session.id);
+            session.outputLines.push(
+              `[system] Session timed out after ${Math.round(this.config.timeout / 1000)}s`,
+            );
+          }
+        }, this.config.timeout);
+      }
+    } else {
+      // For other providers (gemini, claude, codex), spawn directly
+      const child = spawn(binary, args, {
+        cwd: workDir,
+        env: { ...process.env, TERM: "xterm-256color" },
+        stdio: ["pipe", "pipe", "pipe"],
+      });
+
+      this.processes.set(session.id, child);
+      this.sessions.set(session.id, session);
+
+      // Collect stdout
+      child.stdout?.on("data", (data: Buffer) => {
+        const lines = data.toString().split("\n");
+        for (const line of lines) {
+          if (line.length > 0) {
+            session.outputLines.push(line);
+            // Cap output buffer
+            if (session.outputLines.length > MAX_OUTPUT_LINES) {
+              session.outputLines.shift();
+            }
+          }
+        }
+      });
+
+      // Collect stderr
+      child.stderr?.on("data", (data: Buffer) => {
+        const lines = data.toString().split("\n");
+        for (const line of lines) {
+          if (line.length > 0) {
+            session.outputLines.push(`[stderr] ${line}`);
+            if (session.outputLines.length > MAX_OUTPUT_LINES) {
+              session.outputLines.shift();
+            }
+          }
+        }
+      });
+
+      // Handle process exit
+      child.on("close", (code) => {
+        session.exitCode = code ?? -1;
+        session.endedAt = new Date();
+        session.status =
+          code === 0
+            ? "completed"
+            : session.status === "stopped"
+              ? "stopped"
+              : "failed";
+        this.processes.delete(session.id);
+        log.info("CLI", `Session ${session.id} ended with code ${code}`);
+        // Fire completion callback
+        if (this.onCompleteCallback) {
+          try {
+            this.onCompleteCallback(session);
+          } catch (err: any) {
+            log.error("CLI", `onComplete callback error: ${err.message}`);
+          }
+        }
+      });
+
+      child.on("error", (err) => {
+        session.status = "failed";
+        session.endedAt = new Date();
+        session.outputLines.push(`[error] ${err.message}`);
+        this.processes.delete(session.id);
+        log.error("CLI", `Session ${session.id} error: ${err.message}`);
+        if (this.onCompleteCallback) {
+          try {
+            this.onCompleteCallback(session);
+          } catch {}
+        }
+      });
+
+      // Set timeout
+      if (this.config.timeout > 0) {
+        setTimeout(() => {
+          if (session.status === "running") {
+            log.warn(
+              "CLI",
+              `Session ${session.id} timed out after ${this.config.timeout}ms`,
+            );
+            this.stopSession(session.id);
+            session.outputLines.push(
+              `[system] Session timed out after ${Math.round(this.config.timeout / 1000)}s`,
+            );
+          }
+        }, this.config.timeout);
+      }
     }
 
     // Prune old sessions if we have too many
@@ -317,14 +463,19 @@ export class CliService {
    */
   private buildArgs(provider: string, prompt: string): string[] {
     switch (provider) {
-      case 'gemini':
+      case "gemini":
         // Gemini CLI: gemini --yolo "prompt" (positional, -p is deprecated)
-        return ['--yolo', prompt];
-      case 'claude':
+        return ["--yolo", prompt];
+      case "claude":
         // Claude CLI: claude -p "prompt" --dangerously-skip-permissions
-        return ['-p', prompt, '--dangerously-skip-permissions'];
-      case 'codex':
+        return ["-p", prompt, "--dangerously-skip-permissions"];
+      case "codex":
         // Codex CLI: codex "prompt"
+        return [prompt];
+      case "pi":
+      case "minions":
+        // pi/minions CLI: pi --queue <file> [options]
+        // For now, return prompt as-is (caller should format as full command)
         return [prompt];
       default:
         return [prompt];
@@ -352,8 +503,9 @@ export class CliService {
    * List all sessions, most recent first.
    */
   listSessions(): CliSession[] {
-    return Array.from(this.sessions.values())
-      .sort((a, b) => b.startedAt.getTime() - a.startedAt.getTime());
+    return Array.from(this.sessions.values()).sort(
+      (a, b) => b.startedAt.getTime() - a.startedAt.getTime(),
+    );
   }
 
   /**
@@ -366,12 +518,12 @@ export class CliService {
     if (!session) return false;
 
     if (child) {
-      session.status = 'stopped';
-      child.kill('SIGTERM');
+      session.status = "stopped";
+      child.kill("SIGTERM");
       // Force kill after 5s
       setTimeout(() => {
         if (this.processes.has(sessionId)) {
-          child.kill('SIGKILL');
+          child.kill("SIGKILL");
           this.processes.delete(sessionId);
         }
       }, 5000);
@@ -397,7 +549,7 @@ export class CliService {
 
     const sorted = this.listSessions();
     const toRemove = sorted
-      .filter(s => s.status !== 'running')
+      .filter((s) => s.status !== "running")
       .slice(MAX_SESSIONS - 10); // Keep last N-10
 
     for (const session of toRemove) {
@@ -444,14 +596,28 @@ let sharedInstance: CliService | null = null;
  */
 export function getCliService(config?: CliServiceConfig): CliService {
   if (!sharedInstance) {
-    sharedInstance = new CliService(config || {
-      provider: 'gemini',
-      workDir: path.join(UBOT_ROOT, 'workspace', 'cli-projects'),
-      timeout: 300000,
-    });
+    sharedInstance = new CliService(
+      config || {
+        provider: "gemini",
+        workDir: path.join(UBOT_ROOT, "workspace", "cli-projects"),
+        timeout: 300000,
+      },
+    );
   } else if (config) {
     // Always update config so provider changes take effect
     sharedInstance.updateConfig(config);
   }
   return sharedInstance;
+}
+
+/**
+ * Get or create a pi/minions-specific CLI service instance.
+ * This is a convenience wrapper for the pi/minions provider.
+ */
+export function getPiService(): CliService {
+  return getCliService({
+    provider: "pi",
+    workDir: path.join(UBOT_ROOT, "workspace", "pi-projects"),
+    timeout: 600000, // 10 minutes for pi/minions operations
+  });
 }

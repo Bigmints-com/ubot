@@ -1,0 +1,14 @@
+Add runtime enforcement of autonomyTier in the orchestrator at /Users/pretheesh/Projects/ubot-workspace/ubot/ubot-core/src/engine/orchestrator.ts.
+
+The autonomy tier system (T1/T2/T3) exists in AgentDefinition but is NOT enforced at runtime.
+
+Add a function called filterToolsByTier that takes allowedTools array and a tier string (T1, T2, or T3) and returns a filtered array. The filtering rules are:
+- T1: Only allows safe tools. Block cli_triage, exec, and any tool starting with mcp_playwright_browser_
+- T2: Allows everything except cli_triage and any tool starting with exec
+- T3: Allows all tools unchanged
+
+Then integrate this into the delegate_to_agent tool registration (around line 226 in orchestrator.ts) so that when delegating to a subagent, it filters the available tools based on the agent's autonomyTier.
+
+The dangerous tools to block are: cli_triage, exec, and mcp_playwright_browser_* tools.
+
+Only modify orchestrator.ts. Return a summary of what you changed.

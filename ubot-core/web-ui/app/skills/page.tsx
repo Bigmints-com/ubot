@@ -196,13 +196,6 @@ export default function SkillsPage() {
                             {e}
                           </Badge>
                         ))}
-                        {skill.trigger.condition && (
-                          <Badge variant="outline" className="text-xs max-w-[180px] truncate" title={skill.trigger.condition}>
-                            if: {skill.trigger.condition}
-                          </Badge>
-                        )}
-                        {skill.trigger.filters?.dmsOnly && <Badge variant="outline" className="text-xs">DMs only</Badge>}
-                        {skill.trigger.filters?.groupsOnly && <Badge variant="outline" className="text-xs">Groups only</Badge>}
                       </div>
                     </TableCell>
                     <TableCell>

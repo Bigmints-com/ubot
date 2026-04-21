@@ -7,13 +7,16 @@
  */
 
 import type { FollowUpStore, FollowUp } from '../../memory/followups.js';
+import type { ApprovalStore } from '../approvals/service.js';
 
 interface FollowUpCheckerDeps {
   followUpStore: FollowUpStore;
+  /** Approval store — used to check approval status for approval-related follow-ups */
+  approvalStore?: ApprovalStore;
   /** The orchestrator's chat function */
   chat: (sessionId: string, message: string, source: string, contactName?: string, isOwner?: boolean) => Promise<any>;
-  /** Send a message via a specific channel */
-  sendMessage?: (channel: string, contactId: string, message: string) => Promise<boolean>;
+  /** Send a message to a contact via the appropriate channel. Returns true on success. */
+  sendMessage: (channel: string, contactId: string, message: string) => Promise<boolean>;
 }
 
 let checkInterval: ReturnType<typeof setInterval> | null = null;
@@ -83,6 +86,12 @@ async function processOneFollowUp(followUp: FollowUp, deps: FollowUpCheckerDeps)
     return;
   }
 
+  // Handle approval-related follow-ups with a dedicated flow
+  if (followUp.approvalId && deps.approvalStore) {
+    await processApprovalFollowUp(followUp, deps);
+    return;
+  }
+
   // Build the agent prompt with full context
   const prompt = buildFollowUpPrompt(followUp);
   const sessionId = `followup-${followUp.id}-${Date.now()}`;
@@ -103,18 +112,27 @@ async function processOneFollowUp(followUp: FollowUp, deps: FollowUpCheckerDeps)
       await deps.followUpStore.recordAttempt(followUp.id, nextAt);
       console.log(`[FollowUpChecker] Follow-up ${followUp.id} rescheduled to ${nextAt.toISOString()}`);
     } else {
-      // Agent produced a follow-up message — record attempt
-      // The agent should have used send_message tool to actually send the message
-      // We just track the attempt
-      const hasMoreAttempts = await deps.followUpStore.recordAttempt(followUp.id);
-      if (!hasMoreAttempts) {
-        console.log(`[FollowUpChecker] Follow-up ${followUp.id} expired after ${followUp.maxAttempts} attempts`);
+      // Agent produced a follow-up message — extract and send it
+      const messageText = extractMessageFromResponse(response);
+
+      if (!messageText || messageText.trim().length === 0) {
+        // Empty after stripping — respond with [NO_ACTION_NEEDED] and log why
+        await deps.followUpStore.complete(followUp.id, `Agent response was empty after stripping metadata (raw: ${response.slice(0, 200)})`);
+        console.log(`[FollowUpChecker] Follow-up ${followUp.id} — no actionable message after stripping, treating as [NO_ACTION_NEEDED]`);
+        return;
+      }
+
+      // Send the message via the appropriate channel
+      const sent = await deps.sendMessage(followUp.channel, followUp.contactId, messageText);
+
+      if (sent) {
+        await deps.followUpStore.complete(followUp.id, `Sent follow-up message: ${messageText.slice(0, 200)}`);
+        console.log(`[FollowUpChecker] Follow-up ${followUp.id} — message sent and completed`);
       } else {
-        // Reschedule for next check based on priority
-        const delayMs = getRetryDelay(followUp);
-        const nextAt = new Date(Date.now() + delayMs);
+        // Send failed — reschedule with higher priority
+        const nextAt = new Date(Date.now() + 30 * 60 * 1000);
         await deps.followUpStore.recordAttempt(followUp.id, nextAt);
-        console.log(`[FollowUpChecker] Follow-up ${followUp.id} attempt recorded, next check at ${nextAt.toISOString()}`);
+        console.log(`[FollowUpChecker] Follow-up ${followUp.id} — send failed, rescheduled`);
       }
     }
   } catch (err: any) {
@@ -126,10 +144,144 @@ async function processOneFollowUp(followUp: FollowUp, deps: FollowUpCheckerDeps)
 }
 
 /**
+ * Process an approval-related follow-up with a dedicated flow.
+ * Checks if the owner has responded to the approval and either:
+ * - Sends the owner's response to the requester (if resolved)
+ * - Sends a reminder to the owner (if still pending)
+ */
+async function processApprovalFollowUp(followUp: FollowUp, deps: FollowUpCheckerDeps): Promise<void> {
+  const approvalId = followUp.approvalId!;
+  console.log(`[FollowUpChecker] Approval follow-up ${followUp.id} — checking approval ${approvalId}`);
+
+  const approvalStore = deps.approvalStore;
+  if (!approvalStore) {
+    await deps.followUpStore.recordAttempt(followUp.id, new Date(Date.now() + 30 * 60 * 1000));
+    console.warn(`[FollowUpChecker] Approval store unavailable for follow-up ${followUp.id}; rescheduled`);
+    return;
+  }
+
+  const approval = await approvalStore.getById(approvalId);
+  if (!approval) {
+    // Approval was deleted — cancel the follow-up
+    await deps.followUpStore.cancel(followUp.id, `Approval ${approvalId} no longer exists`);
+    console.log(`[FollowUpChecker] Approval follow-up ${followUp.id} — approval not found, cancelled`);
+    return;
+  }
+
+  if (approval.status === 'resolved' && approval.ownerResponse) {
+    // Owner already responded — relay the response to the requester
+    console.log(`[FollowUpChecker] Approval ${approvalId} already resolved — relaying to ${followUp.contactId}`);
+
+    // Use the agent to compose a natural relay message
+    const sessionId = `followup-${followUp.id}-${Date.now()}`;
+    const prompt = `You are relaying the owner's response to a visitor who asked a question that required approval.
+
+## Context
+- **Original question:** "${approval.question}"
+- **Owner's response:** "${approval.ownerResponse}"
+- **Requester:** ${followUp.contactId} (via ${followUp.channel})
+
+## Instructions
+Compose a natural, friendly reply to send to the requester. Incorporate the owner's response. Do NOT mention "approval", "system", or internal processes.
+
+Respond with ONLY the message text — no metadata tags, no reasoning.`;
+
+    try {
+      const result = await deps.chat(sessionId, prompt, 'web', 'follow-up-agent', true);
+      const messageText = (result.content || approval.ownerResponse).trim();
+
+      if (messageText && messageText.length > 0) {
+        const sent = await deps.sendMessage(followUp.channel, followUp.contactId, messageText);
+        if (sent) {
+          await deps.followUpStore.complete(followUp.id, `Owner response relayed: ${approval.ownerResponse.slice(0, 200)}`);
+          console.log(`[FollowUpChecker] Approval follow-up ${followUp.id} — owner response relayed and completed`);
+        } else {
+          await deps.followUpStore.recordAttempt(followUp.id);
+          console.log(`[FollowUpChecker] Approval follow-up ${followUp.id} — send failed, rescheduled`);
+        }
+      } else {
+        await deps.followUpStore.complete(followUp.id, `Owner response relayed: ${approval.ownerResponse.slice(0, 200)}`);
+        console.log(`[FollowUpChecker] Approval follow-up ${followUp.id} — completed (empty response, using raw)`);
+      }
+    } catch (err: any) {
+      console.error(`[FollowUpChecker] Approval follow-up ${followUp.id} — agent error: ${err.message}`);
+      // Fallback: send raw owner response
+      const sent = await deps.sendMessage(followUp.channel, followUp.contactId, approval.ownerResponse);
+      if (sent) {
+        await deps.followUpStore.complete(followUp.id, `Owner response relayed (fallback): ${approval.ownerResponse.slice(0, 200)}`);
+      } else {
+        await deps.followUpStore.recordAttempt(followUp.id);
+      }
+    }
+    return;
+  }
+
+  // Approval still pending — send reminder to owner
+  console.log(`[FollowUpChecker] Approval ${approvalId} still pending — sending reminder to owner`);
+
+  const reminder = `Reminder: You have a pending approval request. Please respond.\n\n*Question:* ${approval.question}\n*Context:* ${approval.context || 'No additional context'}`;
+
+  // Determine where to send the reminder (owner's channel)
+  const config = (deps as any).getConfig?.();
+  const ownerPhone = config?.ownerPhone?.replace(/\D/g, '') || '';
+  const ownerTelegramId = config?.ownerTelegramId || '';
+
+  // Try WhatsApp first
+  if (ownerPhone) {
+    try {
+      const wa = (deps as any).getWhatsApp?.();
+      if (wa?.isConnected) {
+        const ownerJid = `${ownerPhone}@s.whatsapp.net`;
+        const sent = await deps.sendMessage('whatsapp', ownerJid, reminder);
+        if (sent) {
+          await deps.followUpStore.recordAttempt(followUp.id);
+          console.log(`[FollowUpChecker] Approval follow-up ${followUp.id} — reminder sent to owner via WhatsApp`);
+          return;
+        }
+      }
+    } catch (err: any) {
+      console.error(`[FollowUpChecker] Failed to send WhatsApp reminder: ${err.message}`);
+    }
+  }
+
+  // Fallback to Telegram
+  if (ownerTelegramId) {
+    try {
+      const tg = (deps as any).getTelegram?.();
+      if (tg) {
+        const chatId = Number(ownerTelegramId);
+        if (!isNaN(chatId)) {
+          const sent = await deps.sendMessage('telegram', String(chatId), reminder);
+          if (sent) {
+            await deps.followUpStore.recordAttempt(followUp.id);
+            console.log(`[FollowUpChecker] Approval follow-up ${followUp.id} — reminder sent to owner via Telegram`);
+            return;
+          }
+        }
+      }
+    } catch (err: any) {
+      console.error(`[FollowUpChecker] Failed to send Telegram reminder: ${err.message}`);
+    }
+  }
+
+  // If no owner channel available, reschedule
+  await deps.followUpStore.recordAttempt(followUp.id);
+  console.log(`[FollowUpChecker] Approval follow-up ${followUp.id} — no owner channel available, rescheduled`);
+}
+
+/**
  * Build a prompt for the follow-up agent session.
  */
 function buildFollowUpPrompt(followUp: FollowUp): string {
-  return `You are following up on a conversation that needs closure.
+  // Include approval context if this is an approval-related follow-up
+  const approvalContext = followUp.approvalId
+    ? `\n\n## Approval Context (for reference only — this follow-up is handled by the checker)
+- **Approval ID:** ${followUp.approvalId}
+- **Status:** This follow-up was auto-scheduled because the owner hasn't responded yet.
+  The checker will handle the approval status check. Use this information for context only.`
+    : '';
+
+  return `You are following up on a conversation that needs closure.${approvalContext}
 
 ## ⚠️ CRITICAL: NO NEW FOLLOW-UPS
 You are inside a follow-up session. You MUST NOT call schedule_followup or create any new follow-ups.
@@ -162,6 +314,50 @@ ${followUp.context}
 - If checking on a pending request: "Hi! Just following up on your earlier question about..."
 - If delivering information: "Great news! I have an update regarding..."
 - Keep it brief and actionable`;
+}
+
+/**
+ * Extract the actual follow-up message from the agent's response.
+ * Strips metadata tags, tool call markers, and verbose reasoning.
+ * Returns just the message portion, or empty string if nothing actionable.
+ */
+function extractMessageFromResponse(response: string): string {
+  if (!response || response.trim().length === 0) return '';
+
+  let text = response;
+
+  // Strip tool call markers: [complete_followup(...)]
+  text = text.replace(/\[complete_followup\([^)]*\)\]/gi, '').trim();
+
+  // Strip [NO_ACTION_NEEDED] — remove everything up to and including that tag
+  const noActionMatch = text.match(/\[no_action_needed\]/i);
+  if (noActionMatch) {
+    text = text.slice(noActionMatch.index! + noActionMatch[0].length).trim();
+  }
+
+  // Strip [RESCHEDULE] — remove everything up to and including that tag
+  const rescheduleMatch = text.match(/\[reschedule\]/i);
+  if (rescheduleMatch) {
+    text = text.slice(rescheduleMatch.index! + rescheduleMatch[0].length).trim();
+  }
+
+  // Strip other meta-tags: [done], [complete], etc.
+  text = text.replace(/\[(no_action_needed|reschedule|done|complete)\]/gi, '').trim();
+
+  // Remove surrounding markdown code blocks if the agent wrapped the message
+  text = text.replace(/^```(?:text|markdown)?\s*\n?/i, '').replace(/\n?```\s*$/i, '').trim();
+
+  // Extract the last paragraph that looks like a message
+  // Split by double newlines and take the last non-empty paragraph
+  const paragraphs = text.split(/\n\s*\n/).map(p => p.trim()).filter(p => p.length > 0);
+  if (paragraphs.length > 0) {
+    text = paragraphs[paragraphs.length - 1];
+  }
+
+  // Clean up whitespace
+  text = text.replace(/^\s+|\s+$/g, '').replace(/\n{3,}/g, '\n\n').trim();
+
+  return text;
 }
 
 /**

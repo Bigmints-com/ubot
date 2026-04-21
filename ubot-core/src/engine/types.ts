@@ -3,7 +3,7 @@
  * Core types for the Ubot AI agent system
  */
 
-export type ChatRole = 'system' | 'user' | 'assistant' | 'tool';
+export type ChatRole = "system" | "user" | "assistant" | "tool";
 
 export interface ChatMessage {
   id: string;
@@ -16,7 +16,13 @@ export interface ChatMessage {
 
 export interface ChatMessageMetadata {
   /** Source of the message: web UI, WhatsApp JID, sub-agent, or scheduler */
-  source?: 'web' | 'whatsapp' | 'telegram' | 'webchat' | 'sub-agent' | 'scheduler';
+  source?:
+    | "web"
+    | "whatsapp"
+    | "telegram"
+    | "webchat"
+    | "sub-agent"
+    | "scheduler";
   /** WhatsApp JID if source is whatsapp */
   whatsappJid?: string;
   /** Contact name if known */
@@ -26,7 +32,11 @@ export interface ChatMessageMetadata {
   /** Tool result if this message is a tool response */
   toolResult?: ToolExecutionResult;
   /** Token usage for assistant messages */
-  usage?: { promptTokens: number; completionTokens: number; totalTokens: number };
+  usage?: {
+    promptTokens: number;
+    completionTokens: number;
+    totalTokens: number;
+  };
   /** LLM model used */
   model?: string;
   /** File attachments (images, documents) */
@@ -42,7 +52,7 @@ export interface ChatMessageMetadata {
 export interface ConversationSession {
   id: string;
   /** 'web-console' for UI, WhatsApp JID for WhatsApp chats */
-  type: 'web' | 'whatsapp' | 'telegram' | 'webchat' | 'sub-agent' | 'scheduler';
+  type: "web" | "whatsapp" | "telegram" | "webchat" | "sub-agent" | "scheduler";
   /** Display name for the session */
   name: string;
   createdAt: Date;
@@ -59,7 +69,7 @@ export interface ToolDefinition {
 
 export interface ToolParameter {
   name: string;
-  type: 'string' | 'number' | 'boolean' | 'array' | 'object';
+  type: "string" | "number" | "boolean" | "array" | "object";
   description: string;
   required: boolean;
   items?: any; // For arrays
@@ -105,7 +115,14 @@ export interface LLMProviderConfig {
   /** Display name, e.g. "Gemini Flash" */
   name: string;
   /** Provider type */
-  provider: 'openai' | 'gemini' | 'openrouter' | 'vertex' | 'ollama' | 'lmstudio' | 'custom';
+  provider:
+    | "openai"
+    | "gemini"
+    | "openrouter"
+    | "vertex"
+    | "ollama"
+    | "lmstudio"
+    | "custom";
   /** API base URL */
   baseUrl: string;
   /** API key (empty for Ollama) */
@@ -125,19 +142,25 @@ export interface LLMProviderConfig {
  * powerful models for user-facing chat).
  */
 export type ModelPurpose =
-  | 'chat'              // Primary user-facing conversation — needs best quality
-  | 'router'            // Tool module classification — needs speed, not quality
-  | 'extraction'        // Soul data extraction (persona, facts, summary) — structured output
-  | 'generation'        // Skill generation, onboarding analysis — creative tasks
-  | 'image_generation'  // Image creation (DALL-E, Imagen, etc.)
-  | 'transcription'     // Audio → text (Whisper, Gemini, etc.)
-  | 'tts'               // Text → speech
-  | 'embedding';        // Text → vector (text-embedding-004, text-embedding-3-small)
+  | "chat" // Primary user-facing conversation — needs best quality
+  | "router" // Tool module classification — needs speed, not quality
+  | "extraction" // Soul data extraction (persona, facts, summary) — structured output
+  | "generation" // Skill generation, onboarding analysis — creative tasks
+  | "image_generation" // Image creation (DALL-E, Imagen, etc.)
+  | "transcription" // Audio → text (Whisper, Gemini, etc.)
+  | "tts" // Text → speech
+  | "embedding"; // Text → vector (text-embedding-004, text-embedding-3-small)
 
 /** All valid purpose keys */
 export const ALL_PURPOSES: ModelPurpose[] = [
-  'chat', 'router', 'extraction', 'generation',
-  'image_generation', 'transcription', 'tts', 'embedding'
+  "chat",
+  "router",
+  "extraction",
+  "generation",
+  "image_generation",
+  "transcription",
+  "tts",
+  "embedding",
 ];
 
 /**
@@ -151,69 +174,76 @@ export const ALL_PURPOSES: ModelPurpose[] = [
  * Used ONLY to initialize defaults when a provider is first added.
  * Actual models are stored on each provider's `models` field in config.json.
  */
-export const DEFAULT_PROVIDER_MODELS: Record<string, Partial<Record<ModelPurpose, string>>> = {
+export const DEFAULT_PROVIDER_MODELS: Record<
+  string,
+  Partial<Record<ModelPurpose, string>>
+> = {
   gemini: {
-    chat:             'gemini-2.5-flash',
-    router:           'gemini-2.5-flash-lite',
-    extraction:       'gemini-2.5-flash-lite',
-    generation:       'gemini-2.5-pro',
-    image_generation: 'imagen-3.0-generate-001',  // Imagen 3 via Gemini API
-    transcription:    'gemini-2.5-flash',
-    tts:              'gemini-2.5-flash',
-    embedding:        'text-embedding-004',
+    chat: "gemini-2.5-flash",
+    router: "gemini-2.5-flash-lite",
+    extraction: "gemini-2.5-flash-lite",
+    generation: "gemini-2.5-pro",
+    image_generation: "imagen-3.0-generate-001", // Imagen 3 via Gemini API
+    transcription: "gemini-2.5-flash",
+    tts: "gemini-2.5-flash",
+    embedding: "text-embedding-004",
   },
   vertex: {
-    chat:             'google/gemini-2.5-flash',
-    router:           'google/gemini-2.5-flash-lite',
-    extraction:       'google/gemini-2.5-flash-lite',
-    generation:       'google/gemini-2.5-pro',
-    image_generation: 'google/imagen-3.0-generate-001',
-    transcription:    'google/gemini-2.5-flash',
-    tts:              'google/gemini-2.5-flash',
-    embedding:        'text-embedding-004',
+    chat: "google/gemini-2.5-flash",
+    router: "google/gemini-2.5-flash-lite",
+    extraction: "google/gemini-2.5-flash-lite",
+    generation: "google/gemini-2.5-pro",
+    image_generation: "google/imagen-3.0-generate-001",
+    transcription: "google/gemini-2.5-flash",
+    tts: "google/gemini-2.5-flash",
+    embedding: "text-embedding-004",
   },
   openai: {
-    chat:             'gpt-4.1',             // Latest flagship (Mar 2026)
-    router:           'gpt-4.1-mini',        // Fastest + cheapest OpenAI
-    extraction:       'gpt-4.1-mini',
-    generation:       'gpt-4.1',
-    image_generation: 'dall-e-3',            // Still best DALL-E on API
-    transcription:    'whisper-1',           // No newer API equivalent yet
-    tts:              'tts-1-hd',            // Better quality than tts-1
-    embedding:        'text-embedding-3-small',
+    chat: "gpt-4.1", // Latest flagship (Mar 2026)
+    router: "gpt-4.1-mini", // Fastest + cheapest OpenAI
+    extraction: "gpt-4.1-mini",
+    generation: "gpt-4.1",
+    image_generation: "dall-e-3", // Still best DALL-E on API
+    transcription: "whisper-1", // No newer API equivalent yet
+    tts: "tts-1-hd", // Better quality than tts-1
+    embedding: "text-embedding-3-small",
   },
   openrouter: {
-    chat:             'qwen/qwen3.6-plus:free',                  // Free, 1M context, tool-calling
-    router:           'qwen/qwen3.6-plus:free',                  // Free, fast routing with tools
-    extraction:       'qwen/qwen3.6-plus:free',                  // Free, structured output
-    generation:       'meta-llama/llama-3.3-70b-instruct:free',  // Free, creative tasks
-    image_generation: 'openai/dall-e-3',                         // No free alternative
-    transcription:    'openai/whisper-1',                        // No free alternative
-    tts:              'openai/tts-1-hd',                         // No free alternative
-    embedding:        'jinaai/jina-embeddings-v2-base-en',       // Good open source embedding via openrouter
+    chat: "qwen/qwen3.6-plus:free", // Free, 1M context, tool-calling
+    router: "qwen/qwen3.6-plus:free", // Free, fast routing with tools
+    extraction: "qwen/qwen3.6-plus:free", // Free, structured output
+    generation: "meta-llama/llama-3.3-70b-instruct:free", // Free, creative tasks
+    image_generation: "openai/dall-e-3", // No free alternative
+    transcription: "openai/whisper-1", // No free alternative
+    tts: "openai/tts-1-hd", // No free alternative
+    embedding: "jinaai/jina-embeddings-v2-base-en", // Good open source embedding via openrouter
   },
   ollama: {
-    chat:             'qwen3.5:9b',      // Best local model (Dec 2024, 7B equiv quality)
-    router:           'qwen3.5:9b',   // Lightest for fast routing
-    extraction:       'qwen3.5:9b',
-    generation:       'qwen3.5:9b',
-    transcription:    'qwen3.5:9b',
-    tts:              'qwen3.5:9b',
-    embedding:        'nomic-embed-text', // Standard local embedding model
+    chat: "qwen3.5:9b", // Best local model (Dec 2024, 7B equiv quality)
+    router: "qwen3.5:9b", // Lightest for fast routing
+    extraction: "qwen3.5:9b",
+    generation: "qwen3.5:9b",
+    transcription: "qwen3.5:9b",
+    tts: "qwen3.5:9b",
+    embedding: "nomic-embed-text", // Standard local embedding model
   },
   lmstudio: {
-    chat:             'local-model',
-    router:           'local-model',
-    extraction:       'local-model',
-    generation:       'local-model',
-    transcription:    'local-model',
-    tts:              'local-model',
-    embedding:        'local-model',
+    chat: "local-model",
+    router: "local-model",
+    extraction: "local-model",
+    generation: "local-model",
+    transcription: "local-model",
+    tts: "local-model",
+    embedding: "local-model",
   },
 };
 
 /** Get the model for a provider+purpose, reading from provider config first, then defaults */
-export function getModelForPurpose(providerId: string, purpose: ModelPurpose, providerModels?: Partial<Record<ModelPurpose, string>>): string | undefined {
+export function getModelForPurpose(
+  providerId: string,
+  purpose: ModelPurpose,
+  providerModels?: Partial<Record<ModelPurpose, string>>,
+): string | undefined {
   // 1. Provider's own config (user-editable, stored in config.json)
   if (providerModels?.[purpose]) return providerModels[purpose];
   // 2. Default catalog
@@ -269,7 +299,7 @@ export interface AgentConfig {
   /** Secret key that identifies the owner in webchat (via ?key= URL param) */
   ownerWebchatKey: string;
   /** Group reply policy: false = never, 'mentions_only' = only when @mentioned, true = always */
-  autoReplyGroups: boolean | 'mentions_only';
+  autoReplyGroups: boolean | "mentions_only";
   /** Bot name for mention detection in groups (e.g. 'ubot') */
   botName: string;
 }
@@ -280,7 +310,11 @@ export interface AgentResponse {
   /** Any tool calls that were made */
   toolCalls: ToolExecutionResult[];
   /** Token usage */
-  usage?: { promptTokens: number; completionTokens: number; totalTokens: number };
+  usage?: {
+    promptTokens: number;
+    completionTokens: number;
+    totalTokens: number;
+  };
   /** Model used */
   model: string;
   /** Processing duration in ms */
@@ -299,7 +333,7 @@ export interface AgentDefinition {
   allowedTools?: string[]; // Empty means all tools
   model?: string;
   temperature?: number;
-  autonomyTier?: 'T1' | 'T2' | 'T3';
+  autonomyTier?: "T1" | "T2" | "T3";
   capabilities?: string[];
   skills?: string[];
   persona?: {
@@ -307,17 +341,25 @@ export interface AgentDefinition {
     tone?: string;
   };
   workflows?: string[];
+  /** ID of an agent to delegate to if this one fails */
+  fallbackAgent?: string;
+  /** How to handle failures: retry once, escalate, or fail silently */
+  errorPolicy?: "retry_once" | "escalate" | "fail_silently";
+  /** Per-agent iteration budget (default 15) */
+  maxIterations?: number;
+  /** ID of another agent whose allowedTools/capabilities to inherit */
+  inheritsFrom?: string;
 }
 
-const DEFAULT_LLM_PROVIDER_ID = 'default-gemini';
+const DEFAULT_LLM_PROVIDER_ID = "default-gemini";
 
 const DEFAULT_LLM_PROVIDER: LLMProviderConfig = {
   id: DEFAULT_LLM_PROVIDER_ID,
-  name: 'Gemini Flash',
-  provider: 'gemini',
-  baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai/',
-  apiKey: '',
-  model: 'gemini-2.0-flash',
+  name: "Gemini Flash",
+  provider: "gemini",
+  baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai/",
+  apiKey: "",
+  model: "gemini-2.0-flash",
   isDefault: true,
 };
 
@@ -327,9 +369,9 @@ export const DEFAULT_AGENT_CONFIG: AgentConfig = {
   llmApiKey: DEFAULT_LLM_PROVIDER.apiKey,
   llmProviders: [DEFAULT_LLM_PROVIDER],
   defaultLlmProviderId: DEFAULT_LLM_PROVIDER_ID,
-  modelRouting: {},  // Empty = all purposes use the default provider
-  ownerName: '',
-  ownerPhone: '',
+  modelRouting: {}, // Empty = all purposes use the default provider
+  ownerName: "",
+  ownerPhone: "",
   systemPrompt: `You are Ubot, a personal AI assistant. You help users automate tasks through WhatsApp and other messaging platforms.
 
 ## YOUR CAPABILITIES — READ THIS CAREFULLY
@@ -397,7 +439,8 @@ NEVER delegate tasks that a single tool call can handle. Use your tools directly
 Only escalate to multi-agent when the task is genuinely complex:
 - Use 'execute_plan' ONLY for tasks requiring 3+ distinct capabilities (e.g. "research X, write about it, publish it")
 - Use 'delegate_to_agent' ONLY for tasks clearly owned by a specialist that you cannot do yourself
-- Available agents: researcher, writer, browser-operator, publisher, coder
+- Available agents: researcher, writer, browser-operator, publisher, minions-coder
+- For ANY coding implementation/refactor/debug/test activity, delegate to 'minions-coder' (CLI-based execution). Do not delegate coding tasks to generic coder personas.
 
 ## Action Completion — MANDATORY
 These rules are NON-NEGOTIABLE. Every action must produce a visible outcome:
@@ -476,18 +519,49 @@ You have follow-up tools for conversations that CANNOT be completed in a single 
 ### Rules:
 - **Prefer resolution over follow-ups.** Try to resolve everything in the current turn FIRST.
 - **Maximum 1 follow-up per conversation.** Never schedule multiple follow-ups for the same visitor interaction.
-- When a follow-up fires, be natural — don't say "this is an automated follow-up".`,
+- When a follow-up fires, be natural — don't say "this is an automated follow-up".
+
+## CRITICAL: NO VAGUE PROMISES — READ THIS CAREFULLY
+
+You are STRICTLY FORBIDDEN from making vague or empty promises. The following phrases are BANNED:
+- "I'll get back to you"
+- "Let me check and let you know"
+- "I'll follow up later"
+- "I'll get back to you on that"
+- "I'll update you"
+- "I'll check and get back to you"
+- "Let me look into that and get back to you"
+- "I'll come back to you"
+- "I'll circle back"
+- "I'll let you know"
+
+If you cannot complete a task in this turn, you MUST use one of these tools instead of making a promise:
+1. \`schedule_followup\` — if you promised to get back to someone (REQUIRED when you said "I'll get back to you")
+2. \`schedule_message\` — if you need to send yourself a reminder
+3. \`create_reminder\` — if you need to check back later on something
+
+EXAMPLE OF BAD BEHAVIOR:
+- User: "Can you check if John is available?"
+- You: "Let me check and get back to you."
+- Result: No follow-up is scheduled. You never actually check. The user is left waiting forever.
+
+EXAMPLE OF CORRECT BEHAVIOR:
+- User: "Can you check if John is available?"
+- You: [Immediately calls calendar tool to check] → "John is busy until 3pm today."
+- OR if you truly can't check now: [Calls schedule_followup with reason="Checking John's availability", time="in 30 minutes"]
+
+RULE: If you use the words "get back to you" or "follow up" in your response, you MUST have already called \`schedule_followup\` in this same turn. This is non-negotiable.`,
   maxHistoryMessages: 50,
   maxToolIterations: 25,
   temperature: 0.7,
   maxTokens: 4096,
-  ownerTelegramId: '',
-  ownerTelegramUsername: '',
+  ownerTelegramId: "",
+  ownerTelegramUsername: "",
   autoReplyWhatsApp: false,
   autoReplyTelegram: false,
   autoReplyContacts: [],
   autoReplyWebchat: true,
-  ownerWebchatKey: '',
+  ownerWebchatKey: "",
   autoReplyGroups: false,
-  botName: 'ubot',
+  botName: "ubot",
 };

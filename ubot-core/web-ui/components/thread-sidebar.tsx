@@ -79,6 +79,8 @@ export function ThreadSidebar({
   const [channelFilter, setChannelFilter] = useState<ChannelFilter>("all");
   const [processingIds, setProcessingIds] = useState<string[]>([]);
   const renameInputRef = useRef<HTMLInputElement>(null);
+  const [initDone, setInitDone] = useState(false);
+  const [readTimestamps, setReadTimestamps] = useState<Record<string, number>>({});
 
   const loadThreads = async () => {
     try {
@@ -92,6 +94,46 @@ export function ThreadSidebar({
   useEffect(() => {
     loadThreads();
   }, [activeThreadId]);
+
+  // Load and initialize read timestamps
+  useEffect(() => {
+    if (initDone || threads.length === 0) return;
+    try {
+      const stored = localStorage.getItem('ubot_thread_read_timestamps');
+      if (stored) {
+        setReadTimestamps(JSON.parse(stored));
+      } else {
+        // Initial setup - consider all currently loaded threads as read to avoid spamming dots on first load
+        const initialMap: Record<string, number> = {};
+        threads.forEach(t => {
+          initialMap[t.id] = new Date(t.updatedAt).getTime();
+        });
+        setReadTimestamps(initialMap);
+        localStorage.setItem('ubot_thread_read_timestamps', JSON.stringify(initialMap));
+      }
+    } catch {}
+    setInitDone(true);
+  }, [threads, initDone]);
+
+  // Update read timestamp when a thread becomes active
+  useEffect(() => {
+    if (!activeThreadId || threads.length === 0 || !initDone) return;
+    const activeThread = threads.find(t => t.id === activeThreadId);
+    if (!activeThread) return;
+    
+    const activeTime = new Date(activeThread.updatedAt).getTime();
+    setReadTimestamps(prev => {
+      const prevTime = prev[activeThreadId] || 0;
+      if (activeTime > prevTime) {
+        const next = { ...prev, [activeThreadId]: activeTime };
+        try {
+          localStorage.setItem('ubot_thread_read_timestamps', JSON.stringify(next));
+        } catch {}
+        return next;
+      }
+      return prev;
+    });
+  }, [activeThreadId, threads, initDone]);
 
   // Poll for processing status to show typing indicators
   useEffect(() => {
@@ -267,6 +309,10 @@ export function ThreadSidebar({
             const ChannelIcon = channelConf?.icon || MessageSquare;
             const channelColor = channelConf?.color || "text-muted-foreground";
 
+            const threadTime = new Date(thread.updatedAt).getTime();
+            const lastRead = readTimestamps[thread.id] || 0;
+            const isUnread = thread.id !== activeThreadId && threadTime > lastRead;
+
             return (
               <div
                 key={thread.id}
@@ -302,10 +348,11 @@ export function ThreadSidebar({
                     </form>
                   ) : (
                     <>
-                      <p className="text-xs font-medium truncate flex items-center gap-1.5">
+                      <p className={cn("text-xs truncate flex items-center gap-1.5", isUnread ? "font-semibold text-foreground" : "font-medium")}>
+                        {isUnread && <span className="size-1.5 rounded-full bg-blue-500 shrink-0" />}
                         {thread.name}
                         {processingIds.includes(thread.id) && (
-                          <span className="relative flex size-2">
+                          <span className="relative flex size-2 shrink-0">
                             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
                             <span className="relative inline-flex rounded-full size-2 bg-emerald-500" />
                           </span>

@@ -1,0 +1,23 @@
+Create a new file at /Users/pretheesh/Projects/ubot-workspace/ubot/ubot-core/agents/publisher.agent.yaml
+
+This agent should be a general-purpose publisher that can:
+- Publish articles to Substack, Medium, Dev.to
+- Post to LinkedIn (professional updates)
+- Post to X/Twitter
+- Format content appropriately for each platform
+- Take screenshots as proof of publishing
+
+It should:
+- Have autonomyTier: T3 (needs browser automation)
+- Inherit from browser-operator (use inheritsFrom: browser-operator)
+- Have capabilities: [browser, web-search, filesystem]
+- Include skills: substack-manager, linkedin-manager
+- Have a system prompt that instructs it to publish content to the specified platform
+
+The system prompt should be detailed and include:
+- How to navigate to each platform
+- How to format content for each platform
+- How to take proof screenshots
+- Error handling if publishing fails
+
+Return the full YAML content for the publisher.agent.yaml file.

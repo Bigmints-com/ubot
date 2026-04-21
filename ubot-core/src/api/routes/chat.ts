@@ -162,12 +162,23 @@ export async function handleChatRoutes(
         // Auto-name thread (same as sync path)
         try {
           const store = ctx.agentOrchestrator!.getConversationStore();
-          store.listSessions().then((sessions) => {
+          store.listSessions().then(async (sessions) => {
             const session = sessions.find((s: any) => s.id === sessionId);
-            if (session && /^(Thread \d+|New Thread|General)$/i.test(session.name)) {
-              let autoName = message.trim().replace(/\n.*/s, '');
-              if (autoName.length > 40) autoName = autoName.slice(0, 40).replace(/\s\S*$/, '') + '…';
-              if (autoName.length > 3) store.renameSession(sessionId, autoName);
+            if (session && (/^(Command Center|Thread \d+|New Thread|General)$/i.test(session.name) || session.name === session.id)) {
+              try {
+                let generatedName = await ctx.agentOrchestrator!.generate(
+                  'You are an expert copywriter. Generate a brief, 3 to 5 word title for the user message. Do not use quotes or punctuation.',
+                  message.trim().slice(0, 500)
+                );
+                generatedName = generatedName.replace(/["']/g, '').trim();
+                if (generatedName.length > 3 && generatedName.length < 50) {
+                  await store.renameSession(sessionId, generatedName);
+                }
+              } catch (e) {
+                let autoName = message.trim().replace(/\n.*/s, '');
+                if (autoName.length > 40) autoName = autoName.slice(0, 40).replace(/\s\S*$/, '') + '…';
+                if (autoName.length > 3) store.renameSession(sessionId, autoName).catch(()=>{});
+              }
             }
           }).catch(() => {});
         } catch { /* best-effort */ }
@@ -195,14 +206,25 @@ export async function handleChatRoutes(
         const store = ctx.agentOrchestrator.getConversationStore();
         const sessions = await store.listSessions();
         const session = sessions.find((s: any) => s.id === sessionId);
-        if (session && /^(Thread \d+|New Thread|General)$/i.test(session.name)) {
-          // Generate name from first message (first 40 chars, trimmed at word boundary)
-          let autoName = message.trim().replace(/\n.*/s, ''); // first line only
-          if (autoName.length > 40) {
-            autoName = autoName.slice(0, 40).replace(/\s\S*$/, '') + '…';
-          }
-          if (autoName.length > 3) {
-            await store.renameSession(sessionId, autoName);
+        if (session && (/^(Command Center|Thread \d+|New Thread|General)$/i.test(session.name) || session.name === session.id)) {
+          try {
+            let generatedName = await ctx.agentOrchestrator.generate(
+              'You are an expert copywriter. Generate a brief, 3 to 5 word title for the user message. Do not use quotes or punctuation.',
+              message.trim().slice(0, 500)
+            );
+            generatedName = generatedName.replace(/["']/g, '').trim();
+            if (generatedName.length > 3 && generatedName.length < 50) {
+              await store.renameSession(sessionId, generatedName);
+            }
+          } catch(e) {
+            // Generate name from first message (first 40 chars, trimmed at word boundary)
+            let autoName = message.trim().replace(/\n.*/s, ''); // first line only
+            if (autoName.length > 40) {
+              autoName = autoName.slice(0, 40).replace(/\s\S*$/, '') + '…';
+            }
+            if (autoName.length > 3) {
+              await store.renameSession(sessionId, autoName);
+            }
           }
         }
       } catch { /* auto-naming is best-effort */ }
@@ -571,7 +593,7 @@ export async function handleChatRoutes(
           const data = await modelsRes.json() as any;
           models = (data.data || []).map((m: any) => ({
             id: m.id,
-            name: m.id,
+            name: m.name || m.id, pricing: m.pricing, context_length: m.context_length,
           }));
         }
       }

@@ -59,6 +59,8 @@ interface ModelItem {
   id: string;
   name: string;
   calls?: number; // from metering
+  pricing?: { prompt: string | number; completion: string | number };
+  context_length?: number;
 }
 
 interface ProviderGroup {
@@ -90,7 +92,6 @@ export function ModelSelector({
   const [groups, setGroups] = useState<ProviderGroup[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
-  const [usage, setUsage] = useState<UsageMap>({});
   const searchRef = useRef<HTMLInputElement>(null);
 
   // ── Load models ──────────────────────────────────────────
@@ -170,12 +171,11 @@ export function ModelSelector({
         });
 
       // Resolve usage data and annotate models with call counts
-      const usageData = await usagePromise as any;
+      const usageData = await usagePromise as { byModel?: Record<string, { calls: number }> };
       const byModel: Record<string, { calls: number }> = usageData?.byModel || {};
       const usageMap: UsageMap = Object.fromEntries(
         Object.entries(byModel).map(([model, data]) => [model, data.calls])
       );
-      setUsage(usageMap);
 
       // Annotate models with call counts
       const annotated = resolved.map((g) => ({
@@ -263,7 +263,7 @@ export function ModelSelector({
         </Button>
       </DialogTrigger>
 
-      <DialogContent className="sm:max-w-lg p-0 gap-0 overflow-hidden">
+      <DialogContent className="sm:max-w-3xl p-0 gap-0 overflow-hidden">
         <DialogHeader className="px-4 pt-4 pb-3 border-b">
           <DialogTitle className="text-base font-semibold flex items-center gap-2">
             <Sparkles className="size-4 text-muted-foreground" />
@@ -355,6 +355,18 @@ export function ModelSelector({
                     )}
                   </div>
 
+                  {/* Table Header (only if models have pricing) */}
+                  {group.models.some(m => m.pricing) && (
+                    <div className="flex items-center gap-3 px-4 py-1 text-[10px] uppercase font-semibold text-muted-foreground bg-muted/20 border-b">
+                      <span className="w-5" />
+                      <span className="flex-1">Model</span>
+                      <span className="w-[60px] text-right">Context</span>
+                      <span className="w-[70px] text-right">Input/1M</span>
+                      <span className="w-[70px] text-right">Output/1M</span>
+                      <span className="w-4" />
+                    </div>
+                  )}
+
                   {/* Models — sorted by usage desc */}
                   {[...group.models]
                     .sort((a, b) => (b.calls ?? 0) - (a.calls ?? 0))
@@ -372,10 +384,28 @@ export function ModelSelector({
                         >
                           <span className="w-5" />
                           <span className="flex-1 font-mono text-xs truncate">{m.name}</span>
-                          {(m.calls ?? 0) > 0 && (
-                            <span className="text-[10px] text-muted-foreground tabular-nums shrink-0">{m.calls} calls</span>
+                          
+                          {m.pricing ? (
+                            <>
+                              <span className="w-[60px] text-right text-[10px] text-muted-foreground tabular-nums">
+                                {m.context_length ? `${Math.round(m.context_length / 1000)}K` : '-'}
+                              </span>
+                              <span className="w-[70px] text-right text-[10px] text-muted-foreground tabular-nums">
+                                {Number(m.pricing.prompt) === 0 ? 'Free' : `$${(Number(m.pricing.prompt)*1000000).toFixed(2)}`}
+                              </span>
+                              <span className="w-[70px] text-right text-[10px] text-muted-foreground tabular-nums">
+                                {Number(m.pricing.completion) === 0 ? 'Free' : `$${(Number(m.pricing.completion)*1000000).toFixed(2)}`}
+                              </span>
+                            </>
+                          ) : (
+                            (m.calls ?? 0) > 0 && (
+                              <span className="text-[10px] text-muted-foreground tabular-nums shrink-0">{m.calls} calls</span>
+                            )
                           )}
-                          {isSelected && <Check className="size-3.5 text-primary shrink-0" />}
+                          
+                          <span className="w-4 flex justify-end">
+                            {isSelected && <Check className="size-3.5 text-primary shrink-0" />}
+                          </span>
                         </button>
                       );
                     })}

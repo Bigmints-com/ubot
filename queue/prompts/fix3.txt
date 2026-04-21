@@ -1,0 +1,51 @@
+Update the ask_owner tool implementation to automatically schedule a follow-up when ask_owner is called.
+
+## Files to modify
+1. /Users/pretheesh/Projects/ubot-workspace/ubot/ubot-core/src/automation/approvals/service.ts
+2. /Users/pretheesh/Projects/ubot-workspace/ubot/ubot-core/src/automation/approvals/tools.ts (if tools are defined there)
+
+## Current Problem
+When the LLM calls `ask_owner`, the approval is created and stored, but there is no automatic follow-up scheduled. If the owner doesn't respond for hours or days, the conversation hangs forever with no reminder to check back.
+
+## Required Changes
+
+### Change 1: Add auto-schedule-follow-up to the approval creation flow
+
+In the approvals service (service.ts), find the method that creates/approves an approval request. After creating the approval, automatically schedule a follow-up that will:
+- Trigger in 2 hours by default
+- Have reason: "Waiting for owner response on: [brief summary of the approval request]"
+- Have priority: "high"
+- Have max_attempts: 3
+
+The follow-up should be scheduled with the same sessionId and contactId that were used for the approval.
+
+### Change 2: Update the ask_owner tool registration
+
+In the ask_owner tool registration (likely in tools.ts or service.ts), after calling the approval creation method, ALSO call schedule_followup. The result returned should include both:
+- The approval ID
+- The follow-up ID
+
+Example result format:
+```
+Approval requested (ID: abc123). Follow-up scheduled for in 2 hours (ID: def456).
+```
+
+### Change 3: Add a config option for the default follow-up delay
+
+Add a config option like `approvalFollowUpDelayHours` (default: 2) that controls how long to wait before scheduling the auto-follow-up. This can be read from the config object.
+
+### Change 4: Update the checker to handle approval-related follow-ups
+
+In the follow-up checker (checker.ts), when processing a follow-up that was auto-scheduled after an ask_owner:
+- Check if the owner has already responded to the approval (check approval status)
+- If the owner responded, complete the follow-up with the owner's response
+- If the owner has NOT responded, send a reminder to the owner: "Reminder: You have a pending approval request. Please respond."
+
+## Implementation Notes
+- The follow-up store and approval store may be separate — use both
+- The ask_owner tool is likely registered in the approvals tools or in the main orchestrator
+- Make sure the follow-up scheduler is accessible from the approvals module
+- If the follow-up scheduler is not directly accessible, use the approval's event system or a callback
+- Keep backward compatibility — existing approval behavior should still work
+- Do NOT modify any files outside the approvals/ and followups/ directories
+- Return a summary of all changes made
