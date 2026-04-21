@@ -399,13 +399,17 @@ function setupWhatsAppHandlers(conn: WhatsAppConnection): void {
     const deps: UnifiedDeps = {
       orchestrator: agentOrchestrator,
       approvalStore,
+      followUpStore: followUpStoreInstance,
       eventBus,
       skillEngine,
       saveConfigValue,
       relayMessage: relayApprovalResponse,
     };
 
-    await handleIncomingMessage(unified, deps);
+    const result = await handleIncomingMessage(unified, deps);
+    if (result.response && result.response.trim()) {
+      await unified.replyFn(result.response);
+    }
   });
 }
 
@@ -579,13 +583,17 @@ function setupTelegramHandlers(conn: TelegramConnection): void {
     const deps: UnifiedDeps = {
       orchestrator: agentOrchestrator,
       approvalStore,
+      followUpStore: followUpStoreInstance,
       eventBus,
       skillEngine,
       saveConfigValue,
       relayMessage: relayApprovalResponse,
     };
 
-    await handleIncomingMessage(unified, deps);
+    const result = await handleIncomingMessage(unified, deps);
+    if (result.response && result.response.trim()) {
+      await unified.replyFn(result.response);
+    }
   });
 
   conn.on('error', (err) => {
@@ -691,6 +699,7 @@ function setupWebchatHandlers(conn: WebchatConnection): void {
     const deps: UnifiedDeps = {
       orchestrator: agentOrchestrator,
       approvalStore,
+      followUpStore: followUpStoreInstance,
       eventBus,
       skillEngine,
       saveConfigValue,
@@ -1107,11 +1116,65 @@ export function initializeApi(
     followUpStoreInstance = followUpStore;
     if (agent) {
       import('../automation/followups/checker.js').then(({ startFollowUpChecker }) => {
+        // sendMessage: route messages to the correct channel based on the channel parameter
+        const sendMessage = async (channel: string, contactId: string, message: string): Promise<boolean> => {
+          // Telegram
+          if (channel === 'telegram' || contactId.startsWith('telegram:')) {
+            const chatId = contactId.startsWith('telegram:')
+              ? Number(contactId.replace('telegram:', ''))
+              : Number(contactId);
+            if (tgConnection && !isNaN(chatId)) {
+              try {
+                await tgConnection.sendMessage(chatId, message);
+                console.log(`[FollowUpChecker] ✅ Sent to Telegram ${chatId}`);
+                return true;
+              } catch (err: any) {
+                console.error(`[FollowUpChecker] Failed to send to Telegram ${chatId}:`, err.message);
+                return false;
+              }
+            }
+            return false;
+          }
+
+          // WhatsApp
+          if (waConnection && (channel === 'whatsapp' || waConnection.isConnected)) {
+            try {
+              const jid = contactId.includes('@')
+                ? contactId
+                : `${contactId.replace(/\D/g, '')}@s.whatsapp.net`;
+              await waConnection.sendMessage(jid, { text: message });
+              console.log(`[FollowUpChecker] ✅ Sent to WhatsApp ${jid}`);
+              return true;
+            } catch (err: any) {
+              console.error(`[FollowUpChecker] Failed to send to WhatsApp ${contactId}:`, err.message);
+              return false;
+            }
+          }
+
+          // Web: add to conversation store for UI pickup
+          if (agent) {
+            try {
+              const convStore = agent.getConversationStore();
+              convStore.getOrCreateSession(contactId, 'web', contactId);
+              convStore.addMessage(contactId, 'assistant', message, { source: 'scheduler' });
+              console.log(`[FollowUpChecker] ✅ Added message to web session ${contactId}`);
+              return true;
+            } catch (err: any) {
+              console.error(`[FollowUpChecker] Failed to add message to web session ${contactId}:`, err.message);
+              return false;
+            }
+          }
+
+          console.warn(`[FollowUpChecker] ⚠️ No channel available to send to ${contactId}`);
+          return false;
+        };
+
         startFollowUpChecker({
           followUpStore,
           chat: (sessionId: string, message: string, source: string, contactName?: string, isOwner?: boolean) => {
             return agent.chat(sessionId, message, source as any, contactName, isOwner);
           },
+          sendMessage,
         });
         console.log('[FollowUps] Follow-up checker started');
       }).catch(err => console.error('[FollowUps] Failed to start checker:', err.message));

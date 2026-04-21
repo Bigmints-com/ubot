@@ -22,8 +22,10 @@ const ALWAYS_INCLUDE_MODULES = new Set([
   'web-fetch',      // always need URL fetching as fallback
   'web-search',     // always need web search capability — use this FIRST for lookups
   'skills',         // run_skill — MUST be available so LLM uses pre-built workflows
-  // 'orchestrator' intentionally omitted — only injected for complex multi-step tasks
-  // 'browser' intentionally omitted — only injected when browsing/automation is needed
+  'messaging',      // send_message — owner frequently sends messages across channels
+  'google',         // gmail, calendar, drive — owner's core productivity suite
+  'scheduler',      // reminders, scheduled tasks — common owner requests
+  'orchestrator',   // delegate_to_agent — owner needs specialized agent delegation
 ]);
 
 /** Static one-liner descriptions per module — used in the compact catalog */
@@ -48,7 +50,7 @@ const MODULE_DESCRIPTIONS: Record<string, string> = {
   scheduler:     'Schedule messages, reminders, and agent tasks',
   browser:       'Browser automation, screenshots, form filling',
   mcp:           'External MCP server tools',
-  orchestrator:  'Multi-agent coordination ONLY: delegate to specialized agents (researcher, writer, coder, publisher) or decompose requests requiring 3+ distinct capabilities. Do NOT use for simple lookups, weather, facts, or single-tool tasks.',
+  orchestrator:  'Multi-agent coordination ONLY: delegate to specialized agents (researcher, writer, minions-coder, publisher) or decompose requests requiring 3+ distinct capabilities. For coding activities, route to minions-coder (CLI execution). Do NOT use for simple lookups, weather, facts, or single-tool tasks.',
 };
 
 /**
@@ -73,22 +75,27 @@ function buildModuleCatalog(
   ].join('\n');
 }
 
-const SELECTOR_SYSTEM_PROMPT = `You are a tool routing classifier. Given a user message, determine which tool modules are needed.
+const SELECTOR_SYSTEM_PROMPT = `You are a tool routing classifier. Given a user message, determine which ADDITIONAL tool modules are needed beyond the always-included ones.
 
 Rules:
-- Return ONLY a JSON array of module names, e.g. ["messaging", "google"] or []
-- Return [] for conversational messages (greetings, questions, chat, opinions)
-- Only include modules that are actually needed
-- If unsure, include the module
-- If the user mentions websites, URLs, browsing, or checking a site, include "browser"
-- If the user mentions a custom tool/integration, also include "browser" as fallback
+- Return ONLY a JSON array of module names, e.g. ["cli", "files"] or []
+- The following modules are ALWAYS available and do NOT need to be listed: approvals, personas, followups, web-fetch, web-search, skills, messaging, google, scheduler, orchestrator
+- Return [] only for pure small talk (greetings like "hi", "thanks", "ok", short affirmations)
+- For ANY action request, task, or question about real-world info: include relevant modules
+- If unsure whether a module is needed, INCLUDE it — over-inclusion is safer than under-inclusion
+- If the user mentions websites, URLs, browsing, or checking a site: include "browser"
+- If the user mentions files, documents, reading/writing content locally: include "files"
+- If the user mentions running code, scripts, terminal commands: include "cli"
+- If the user mentions Apple apps (Calendar, Notes, Contacts, Reminders on Mac): include "apple"
+- If the user mentions audio, voice, transcription: include "transcription"
 
-CRITICAL — orchestrator rules (multi-agent delegation):
-- NEVER include "orchestrator" for simple lookups (weather, facts, prices, news, calculations)
-- NEVER include "orchestrator" if a single web search or API call can answer the question
-- ONLY include "orchestrator" when the task REQUIRES multiple specialized agents working in sequence
-- Examples that NEED orchestrator: "research X, write an article, then publish it", "build a feature, test it, deploy it"
-- Examples that do NOT need orchestrator: "what is the weather in Dubai", "search for X", "send a message", "check my email"`;
+Examples:
+- "hi" → []
+- "check my email" → [] (google always included)
+- "search for latest news on AI" → [] (web-search always included)
+- "open this website and fill the form" → ["browser"]
+- "read this PDF file" → ["files", "media"]
+- "run this python script" → ["cli"]`;
 
 export interface ToolSelectionResult {
   tools: ToolDefinition[];
