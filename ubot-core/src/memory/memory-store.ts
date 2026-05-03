@@ -1,7 +1,8 @@
 import { v4 as uuidv4 } from "uuid";
-import type { DatabaseConnection } from "../../data/database/types.js";
+import type { DatabaseConnection } from "../data/database/types.js";
 import type { MemoryCategory, MemoryEntry, SoulDocument } from "./types.js";
 import { rowToMemory } from "./utils.js";
+
 
 export interface MemoryStore {
 	saveMemory(
@@ -240,7 +241,7 @@ export function createMemoryStore(db: DatabaseConnection): MemoryStore {
 				.select("*")
 				.order("updated_at", { ascending: false });
 			if (error || !data) return [];
-			return data.map((d) => ({
+			return data.map((d: any) => ({
 				id: d.id,
 				personaId: d.persona_id,
 				content: d.content,

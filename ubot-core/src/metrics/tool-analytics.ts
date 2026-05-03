@@ -141,3 +141,6 @@ export function createToolAnalytics(): ToolAnalytics {
 		},
 	};
 }
+
+/** Pre-constructed singleton — import this everywhere */
+export const toolAnalytics: ToolAnalytics = createToolAnalytics();
