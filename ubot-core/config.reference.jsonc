@@ -288,6 +288,13 @@
         //   "enabled": false,
         //   "apiKey": "YOUR_OPENAI_API_KEY",
         //   "model": "gpt-4o"
+        // },
+        // OpenAI-compatible providers (vLLM, LM Studio, Open Router, etc.)
+        // "my-custom-api": {
+        //   "enabled": true,
+        //   "baseUrl": "https://your-api.example.com/v1",
+        //   "apiKey": "YOUR_API_KEY",
+        //   "model": "llama-3.1-70b"
         // }
       }
     },

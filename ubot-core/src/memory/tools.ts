@@ -87,8 +87,8 @@ const memoryToolModule: ToolModule = {
 
       try {
         const memories = memoryStore.getMemories(contactId);
-        // Exclude internal system summaries like 'chat_digest'
-        const visibleMemories = memories.filter((m: any) => m.category !== 'summary');
+        // Exclude internal system summaries like 'chat_digest' (but allow other summary types)
+        const visibleMemories = memories.filter((m: any) => !(m.category === 'summary' && m.key === 'chat_digest'));
         
         if (visibleMemories.length === 0) {
           return { toolName: 'get_profile', success: true, result: `No profile data found for ${contactId}.`, duration: 0 };

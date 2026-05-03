@@ -2071,3 +2071,68 @@ async function handleExperimentRoutes(req: http.IncomingMessage, res: http.Serve
 
   return false;
 }
+
+// ─── Graceful Shutdown ─────────────────────────────────────
+
+let _isShuttingDown = false;
+
+export async function gracefulShutdown(): Promise<void> {
+  if (_isShuttingDown) return;
+  _isShuttingDown = true;
+
+  console.log('[Shutdown] Starting graceful shutdown...');
+
+  // 1. Disconnect WhatsApp gracefully
+  if (waConnection) {
+    console.log('[Shutdown] Disconnecting WhatsApp...');
+    try {
+      await waConnection.disconnect();
+      console.log('[Shutdown] WhatsApp disconnected gracefully.');
+    } catch (err: any) {
+      console.error('[Shutdown] WhatsApp disconnect error:', err.message);
+    }
+    waConnection = null;
+  }
+
+  // 2. Disconnect Telegram gracefully
+  if (tgConnection) {
+    console.log('[Shutdown] Disconnecting Telegram...');
+    try {
+      await tgConnection.disconnect();
+      console.log('[Shutdown] Telegram disconnected gracefully.');
+    } catch (err: any) {
+      console.error('[Shutdown] Telegram disconnect error:', err.message);
+    }
+    tgConnection = null;
+  }
+
+  // 3. Disconnect Webchat gracefully
+  if (webchatConnection) {
+    console.log('[Shutdown] Disconnecting Webchat...');
+    try {
+      await webchatConnection.disconnect();
+      console.log('[Shutdown] Webchat disconnected gracefully.');
+    } catch (err: any) {
+      console.error('[Shutdown] Webchat disconnect error:', err.message);
+    }
+    webchatConnection = null;
+  }
+
+  // 4. Stop MCP servers
+  if (mcpManager) {
+    console.log('[Shutdown] Stopping MCP servers...');
+    try {
+      const statuses = mcpManager.getServers();
+      for (const status of statuses) {
+        try {
+          await mcpManager.disconnectServer(status.id);
+        } catch { /* ignore individual failures */ }
+      }
+      console.log('[Shutdown] MCP servers stopped.');
+    } catch (err: any) {
+      console.error('[Shutdown] MCP disconnect error:', err.message);
+    }
+  }
+
+  console.log('[Shutdown] Graceful shutdown complete.');
+}

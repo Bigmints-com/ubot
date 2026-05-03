@@ -433,6 +433,26 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
     return;
   }
 
+  // Graceful shutdown endpoint (authenticated — after login check above)
+  if (url === '/api/shutdown' && method === 'POST') {
+    (async () => {
+      try {
+        res.writeHead(202, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ status: 'shutting-down', message: 'Graceful shutdown in progress...' }));
+        const { gracefulShutdown } = await import('./api/index.js');
+        await gracefulShutdown();
+        // Exit after cleanup
+        setTimeout(() => process.exit(0), 2000);
+      } catch (err: any) {
+        if (!res.writableEnded) {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: err.message }));
+        }
+      }
+    })();
+    return;
+  }
+
   // Feature flags endpoint — used by frontend to know available features
   if (url === '/api/features' && method === 'GET') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -642,6 +662,30 @@ if (process.env.NODE_ENV !== 'test' && !process.env.VITEST) {
         console.error('[Main] Error resuming active plans:', err.message);
       });
     });
+
+    // ── Graceful Shutdown Signal Handlers ─────────────────────
+    async function handleShutdown(signal: string) {
+      console.log(`\n[${signal}] Received — shutting down gracefully...`);
+      try {
+        const { gracefulShutdown } = await import('./api/index.js');
+        await gracefulShutdown();
+      } catch (err: any) {
+        console.error('[Shutdown] Error:', err.message);
+      } finally {
+        server.close(() => {
+          console.log('[Shutdown] HTTP server closed.');
+          process.exit(0);
+        });
+        // Force exit after 10s if server.close hangs
+        setTimeout(() => {
+          console.warn('[Shutdown] Force-exiting after timeout.');
+          process.exit(1);
+        }, 10_000).unref();
+      }
+    }
+
+    process.on('SIGTERM', () => handleShutdown('SIGTERM'));
+    process.on('SIGINT', () => handleShutdown('SIGINT'));
   });
 }
 
