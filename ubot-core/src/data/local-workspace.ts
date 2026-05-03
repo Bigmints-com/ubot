@@ -100,6 +100,7 @@ export class LocalWorkspaceProvider implements WorkspaceProvider {
     try {
       const entries = fs.readdirSync(fullPath, { withFileTypes: true });
       return entries
+        .filter(e => !e.name.startsWith('.'))  // skip hidden files
         .map(e => ({
           name: e.name,
           isDirectory: e.isDirectory(),
