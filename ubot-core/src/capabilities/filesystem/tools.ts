@@ -91,7 +91,6 @@ async function searchDir(dir: string, pattern: string, maxDepth: number, current
     const entries = await fs.readdir(dir, { withFileTypes: true });
     for (const entry of entries) {
       const fullPath = path.join(dir, entry.name);
-      if (entry.name.startsWith('.')) continue; // skip hidden
       if (matchesPattern(entry.name, pattern)) {
         results.push(fullPath);
       }
