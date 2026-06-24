@@ -1,0 +1,13 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "rootDir": "..",
+    "outDir": ".",
+    "declaration": false,
+    "declarationMap": false,
+    "noEmit": false,
+    "sourceMap": false
+  },
+  "include": ["modules/**/*", "../src/tools/types.ts", "../src/engine/types.ts"],
+  "exclude": ["node_modules", "staging"]
+}
