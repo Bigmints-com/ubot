@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
+import { EmptyState } from "@/components/ui/empty-state";
 import {
   MessageCircle,
   Wifi,
@@ -147,13 +148,13 @@ export default function WhatsAppPage() {
       : "bg-muted-foreground";
 
   return (
-    <div className="p-6 space-y-6 max-w-4xl mx-auto">
-      {/* Header — matches Telegram / Google */}
-      <div className="flex items-center gap-3">
-        <MessageCircle className="h-8 w-8 text-green-600 dark:text-green-400" />
+    <div className="p-6 pb-12 space-y-6 flex-1">
+      {/* Header */}
+      <div className="flex items-center gap-3 border-b pb-6 mb-6">
+        <MessageCircle className="h-8 w-8 text-primary" />
         <div>
           <h1 className="text-2xl font-bold">WhatsApp</h1>
-          <p className="text-sm text-muted-foreground">
+          <p className="text-sm text-muted-foreground mt-1">
             Connect your WhatsApp account to receive and send messages
           </p>
         </div>
@@ -234,23 +235,25 @@ export default function WhatsAppPage() {
           )}
 
           {!isConnected && !qrImage && (
-            <div className="space-y-3">
-              <p className="text-sm text-muted-foreground">
-                Click Connect to generate a QR code for linking your WhatsApp.
-              </p>
-              <Button
-                onClick={handleConnect}
-                disabled={isConnecting}
-                className="gap-2"
-              >
-                {isConnecting ? (
-                  <RefreshCw className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Power className="h-4 w-4" />
-                )}
-                {isConnecting ? "Connecting..." : "Connect"}
-              </Button>
-            </div>
+            <EmptyState
+              icon={<MessageCircle className="size-8" />}
+              title="Not connected"
+              description="Click Connect to generate a QR code for linking your WhatsApp account."
+              action={
+                <Button
+                  onClick={handleConnect}
+                  disabled={isConnecting}
+                  className="gap-2"
+                >
+                  {isConnecting ? (
+                    <RefreshCw className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Power className="h-4 w-4" />
+                  )}
+                  {isConnecting ? "Connecting..." : "Connect"}
+                </Button>
+              }
+            />
           )}
 
           {isConnected && (

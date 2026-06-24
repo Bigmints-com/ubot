@@ -8,6 +8,7 @@ import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { EmptyState } from "@/components/ui/empty-state";
 import {
   Dialog,
   DialogContent,
@@ -392,9 +393,9 @@ export default function McpServersPage() {
   // ── Render ──────────────────────────────────────────────
 
   return (
-    <div className="p-6 space-y-6 max-w-4xl mx-auto">
+    <div className="p-6 pb-12 space-y-6 flex-1">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between border-b pb-6 mb-6">
         <div className="flex items-center gap-3">
           <div className="flex items-center justify-center h-10 w-10 rounded-xl bg-gradient-to-br from-violet-500 to-fuchsia-500 shadow-lg shadow-violet-500/20">
             <Plug className="h-5 w-5 text-white" />
@@ -709,26 +710,17 @@ export default function McpServersPage() {
 
       {/* Empty State */}
       {!loading && servers.length === 0 && (
-        <Card>
-          <CardContent className="py-12">
-            <div className="text-center space-y-3">
-              <Plug className="h-12 w-12 mx-auto text-muted-foreground/30" />
-              <h3 className="text-lg font-medium">No MCP Servers</h3>
-              <p className="text-sm text-muted-foreground max-w-md mx-auto">
-                Add an MCP server to extend the agent with external tools.
-                Popular options include filesystem, GitHub, databases, and more.
-              </p>
-              <Button
-                variant="outline"
-                className="gap-2"
-                onClick={() => setAddOpen(true)}
-              >
-                <Plus className="h-4 w-4" />
-                Add Your First Server
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
+        <EmptyState
+          icon={<Plug className="size-8" />}
+          title="No MCP Servers"
+          description="Add an MCP server to extend the agent with external tools. Popular options include filesystem, GitHub, databases, and more."
+          action={
+            <Button onClick={() => setAddOpen(true)}>
+              <Plus className="mr-2 h-4 w-4" />
+              Add Your First Server
+            </Button>
+          }
+        />
       )}
 
       {/* Server Cards */}

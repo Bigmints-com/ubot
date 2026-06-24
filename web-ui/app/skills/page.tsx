@@ -149,19 +149,20 @@ export default function SkillsPage() {
   };
 
   return (
-    <div className="p-6 space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Skills</h1>
-          <p className="text-muted-foreground text-sm">Stored as SKILL.md files · Edit raw to change trigger, instructions &amp; outcome</p>
+    <div className="p-6 pb-12 space-y-6 flex-1">
+      <div className="flex items-center justify-between border-b pb-6 mb-6">
+        <div className="flex items-center gap-3">
+          <FileCode2 className="h-8 w-8 text-primary" />
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight">Skills</h1>
+            <p className="text-muted-foreground text-sm mt-1">Stored as SKILL.md files · Edit raw to change trigger, instructions &amp; outcome</p>
+          </div>
         </div>
         <Button variant="outline" size="sm" onClick={loadSkills}>
           <RefreshCw className="size-4 mr-2" />
           Refresh
         </Button>
       </div>
-
-      <Separator />
 
       <Card>
         <CardContent className="p-0">

@@ -28,7 +28,7 @@ export interface Features {
   lmstudio: boolean;
   localWhisper: boolean;
   localTts: boolean;
-  filesystem: boolean;
+
   cli: boolean;
   browserMcp: boolean;
   // Allow extensions to add their own feature flags
@@ -67,7 +67,7 @@ const DEFAULT_FEATURES: FeaturesResponse = {
     lmstudio: true,
     localWhisper: true,
     localTts: true,
-    filesystem: true,
+
     cli: true,
     browserMcp: true,
   },

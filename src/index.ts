@@ -655,7 +655,7 @@ if (process.env.NODE_ENV !== 'test' && !process.env.VITEST) {
       console.log(`🚀 ${appState.name} v${appState.version} running at http://localhost:${PORT}`);
       console.log(`📊 Health check: http://localhost:${PORT}/health`);
       console.log(`📈 State API: http://localhost:${PORT}/api/state`);
-      console.log(`[YOUBOT] Mode: ${MODE.toUpperCase()} | Features: WA=${FEATURES.whatsapp} TG=${FEATURES.telegram} FS=${FEATURES.filesystem} CLI=${FEATURES.cli}`);
+      console.log(`[YOUBOT] Mode: ${MODE.toUpperCase()} | Features: WA=${FEATURES.whatsapp} TG=${FEATURES.telegram} CLI=${FEATURES.cli}`);
       
       // Resume active plans in the background
       agent?.resumeActivePlans().catch((err: any) => {

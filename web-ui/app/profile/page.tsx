@@ -97,19 +97,17 @@ export default function ProfilePage() {
   const isLocal = profile?.authMode === "local";
 
   return (
-    <div className="p-6 space-y-6 max-w-4xl mx-auto">
+    <div className="p-6 pb-12 space-y-6 flex-1">
       {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
-          <User className="size-6" />
-          Profile
-        </h1>
-        <p className="text-muted-foreground">
-          Manage your account settings and security
-        </p>
+      <div className="flex items-center gap-3 border-b pb-6 mb-6">
+        <User className="h-8 w-8 text-primary" />
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">Profile</h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            Manage your account settings and security
+          </p>
+        </div>
       </div>
-
-      <Separator />
 
       {/* User Info Card */}
       <Card>

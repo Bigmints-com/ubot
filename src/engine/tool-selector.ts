@@ -50,7 +50,7 @@ const MODULE_DESCRIPTIONS: Record<string, string> = {
   scheduler:     'Schedule messages, reminders, and agent tasks',
   browser:       'Browser automation, screenshots, form filling',
   mcp:           'External MCP server tools',
-  orchestrator:  'Multi-agent coordination ONLY: delegate to specialized agents (researcher, writer, minions-coder, publisher) or decompose requests requiring 3+ distinct capabilities. For coding activities, route to minions-coder (CLI execution). Do NOT use for simple lookups, weather, facts, or single-tool tasks.',
+  orchestrator:  'Multi-agent coordination ONLY: delegate to specialized agents (researcher, writer, publisher) or decompose requests requiring 3+ distinct capabilities. Do NOT use for simple lookups, weather, facts, or single-tool tasks.',
 };
 
 /**
