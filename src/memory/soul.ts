@@ -1,9 +1,9 @@
 /**
  * Soul Module
- * Youbot's identity, personality, and evolving knowledge about its owner and contacts.
+ * Ubot's identity, personality, and evolving knowledge about its owner and contacts.
  * 
  * Three soul layers stored as YAML documents:
- * 1. Bot Soul   — Youbot's own persona (tone, style, personality traits)
+ * 1. Bot Soul   — Ubot's own persona (tone, style, personality traits)
  * 2. Owner Soul — Deep profile of the owner (you) — preferences, habits, context
  * 3. Contact Souls — Profiles for each person the owner interacts with
  */
@@ -30,7 +30,7 @@ const SOUL_FILE_MAP: Record<string, string> = {
 /* ------------------------------------------------------------------ */
 
 const DEFAULT_BOT_SOUL = `# Bot Persona
-name: Youbot
+name: Ubot
 role: Personal AI assistant
 purpose: Help the owner manage their communications and automate tasks
 
@@ -320,7 +320,7 @@ NEVER share with visitors:
 /*  Soul document rewrite prompt                                       */
 /* ------------------------------------------------------------------ */
 
-export const SOUL_REWRITE_PROMPT = `You are a persona manager for an AI assistant called Youbot.
+export const SOUL_REWRITE_PROMPT = `You are a persona manager for an AI assistant called Ubot.
 Your job is to maintain a PERSONALITY PROFILE about a person — who they are qualitatively.
 
 You will be given:
