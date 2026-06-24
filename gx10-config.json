@@ -4,7 +4,7 @@
   },
 
   "server": {
-    "port": 11490,
+    "port": 11590,
     "auth": {
       "mode": "local",
       "username": "admin",

@@ -1,23 +1,23 @@
 #!/usr/bin/env bash
 # ─────────────────────────────────────────────────────────────────────────────
-# UBOT GX10 Bootstrap Script
+# YOUBOT GX10 Bootstrap Script
 # Run this ON the GX10 machine (or via: ssh bigmints@100.77.38.96 'bash -s' < setup-gx10.sh)
 #
 # What this does:
-#   1. Creates ~/Projects/ubot-workspace/
-#   2. Clones the UBOT repo
+#   1. Creates ~/Projects/youbot-workspace/
+#   2. Clones the YOUBOT repo
 #   3. Installs backend + web-ui npm dependencies
 #   4. Creates a dev-friendly config.json stub
-#   5. Installs the ubot CLI to ~/.local/bin
-#   6. Adds a systemd user service (ubot-dev) that auto-starts on login
+#   5. Installs the youbot CLI to ~/.local/bin
+#   6. Adds a systemd user service (youbot-dev) that auto-starts on login
 #   7. Prints next steps
 # ─────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
-REPO_URL="https://github.com/Bigmints-com/ubot.git"
-WORKSPACE="$HOME/Projects/ubot-workspace"
-UBOT_REPO="$WORKSPACE/ubot"
-UBOT_CORE="$UBOT_REPO/ubot-core"
+REPO_URL="https://github.com/Bigmints-com/youbot.git"
+WORKSPACE="$HOME/Projects/youbot-workspace"
+YOUBOT_REPO="$WORKSPACE/youbot"
+YOUBOT_CORE="$YOUBOT_REPO/youbot-core"
 BRANCH="${BRANCH:-feature/multi-agent-crew}"   # override: BRANCH=main ./setup-gx10.sh
 
 # ── Colour helpers ────────────────────────────────────────────────────────────
@@ -50,29 +50,29 @@ info "Node $(node -v) / npm $(npm -v) ✓"
 # ── 1. Clone or update ───────────────────────────────────────────────────────
 mkdir -p "$WORKSPACE"
 
-if [ -d "$UBOT_REPO/.git" ]; then
-  warn "Repo already exists at $UBOT_REPO — pulling latest from $BRANCH..."
-  git -C "$UBOT_REPO" fetch origin
-  git -C "$UBOT_REPO" checkout "$BRANCH" 2>/dev/null || git -C "$UBOT_REPO" checkout -b "$BRANCH" origin/"$BRANCH"
-  git -C "$UBOT_REPO" pull --rebase origin "$BRANCH"
+if [ -d "$YOUBOT_REPO/.git" ]; then
+  warn "Repo already exists at $YOUBOT_REPO — pulling latest from $BRANCH..."
+  git -C "$YOUBOT_REPO" fetch origin
+  git -C "$YOUBOT_REPO" checkout "$BRANCH" 2>/dev/null || git -C "$YOUBOT_REPO" checkout -b "$BRANCH" origin/"$BRANCH"
+  git -C "$YOUBOT_REPO" pull --rebase origin "$BRANCH"
 else
-  info "Cloning UBOT ($BRANCH) → $UBOT_REPO"
-  git clone --branch "$BRANCH" "$REPO_URL" "$UBOT_REPO"
+  info "Cloning YOUBOT ($BRANCH) → $YOUBOT_REPO"
+  git clone --branch "$BRANCH" "$REPO_URL" "$YOUBOT_REPO"
 fi
-success "Repo ready at $UBOT_REPO"
+success "Repo ready at $YOUBOT_REPO"
 
 # ── 2. Install backend dependencies ─────────────────────────────────────────
-info "Installing backend deps ($UBOT_CORE)..."
-(cd "$UBOT_CORE" && npm install --prefer-offline)
+info "Installing backend deps ($YOUBOT_CORE)..."
+(cd "$YOUBOT_CORE" && npm install --prefer-offline)
 success "Backend deps installed"
 
 # ── 3. Install web-ui dependencies ──────────────────────────────────────────
-info "Installing web-ui deps ($UBOT_CORE/web-ui)..."
-(cd "$UBOT_CORE/web-ui" && npm install --prefer-offline)
+info "Installing web-ui deps ($YOUBOT_CORE/web-ui)..."
+(cd "$YOUBOT_CORE/web-ui" && npm install --prefer-offline)
 success "Web-ui deps installed"
 
 # ── 4. Create a minimal config.json for dev mode ────────────────────────────
-CONFIG="$UBOT_CORE/config.json"
+CONFIG="$YOUBOT_CORE/config.json"
 if [ ! -f "$CONFIG" ]; then
   info "Creating minimal dev config at $CONFIG ..."
   cat > "$CONFIG" <<'EOF'
@@ -111,33 +111,33 @@ fi
 # ── 5. Install CLI to ~/.local/bin ───────────────────────────────────────────
 BIN_DIR="$HOME/.local/bin"
 mkdir -p "$BIN_DIR"
-CLI_SRC="$UBOT_REPO/cli/ubot"
+CLI_SRC="$YOUBOT_REPO/cli/youbot"
 if [ -f "$CLI_SRC" ]; then
-  cp "$CLI_SRC" "$BIN_DIR/ubot"
-  chmod +x "$BIN_DIR/ubot"
-  success "CLI installed → $BIN_DIR/ubot"
+  cp "$CLI_SRC" "$BIN_DIR/youbot"
+  chmod +x "$BIN_DIR/youbot"
+  success "CLI installed → $BIN_DIR/youbot"
 else
-  warn "cli/ubot not found — skipping CLI install (build first with 'make build')"
+  warn "cli/youbot not found — skipping CLI install (build first with 'make build')"
 fi
 
-# ── 6. systemd user service (ubot-dev) ──────────────────────────────────────
+# ── 6. systemd user service (youbot-dev) ──────────────────────────────────────
 SYSTEMD_DIR="$HOME/.config/systemd/user"
 mkdir -p "$SYSTEMD_DIR"
 
 # Resolve the absolute node path from nvm
 NODE_BIN="$(command -v node)"
 
-cat > "$SYSTEMD_DIR/ubot-dev.service" <<EOF
+cat > "$SYSTEMD_DIR/youbot-dev.service" <<EOF
 [Unit]
-Description=UBOT Dev Server (GX10)
+Description=YOUBOT Dev Server (GX10)
 After=network.target
 
 [Service]
 Type=simple
-WorkingDirectory=$UBOT_CORE
+WorkingDirectory=$YOUBOT_CORE
 Environment="NODE_ENV=development"
 Environment="PATH=$HOME/.nvm/versions/node/v22.14.0/bin:$HOME/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
-ExecStart=$NODE_BIN -r tsx/cjs $UBOT_CORE/src/index.ts
+ExecStart=$NODE_BIN -r tsx/cjs $YOUBOT_CORE/src/index.ts
 Restart=on-failure
 RestartSec=5
 
@@ -146,8 +146,8 @@ WantedBy=default.target
 EOF
 
 # Try to enable (only works if systemd --user is running, which it might not be on GX10 headless)
-if systemctl --user daemon-reload 2>/dev/null && systemctl --user enable ubot-dev.service 2>/dev/null; then
-  success "systemd user service 'ubot-dev' enabled (start: systemctl --user start ubot-dev)"
+if systemctl --user daemon-reload 2>/dev/null && systemctl --user enable youbot-dev.service 2>/dev/null; then
+  success "systemd user service 'youbot-dev' enabled (start: systemctl --user start youbot-dev)"
 else
   warn "systemd --user not available (headless server). Use the start.sh script instead."
 fi
@@ -155,10 +155,10 @@ fi
 # ── 7. Summary ───────────────────────────────────────────────────────────────
 echo ""
 echo -e "${bold}═══════════════════════════════════════════════════════${reset}"
-echo -e "${bold}  UBOT GX10 Bootstrap Complete!${reset}"
+echo -e "${bold}  YOUBOT GX10 Bootstrap Complete!${reset}"
 echo -e "${bold}═══════════════════════════════════════════════════════${reset}"
 echo ""
-echo "  Repo:         $UBOT_REPO"
+echo "  Repo:         $YOUBOT_REPO"
 echo "  Branch:       $BRANCH"
 echo "  Config:       $CONFIG"
 echo "  Dashboard:    http://100.77.38.96:11490"
@@ -166,13 +166,13 @@ echo ""
 echo -e "${bold}Next Steps:${reset}"
 echo ""
 echo "  1. Edit config.json to set your LLM provider & password"
-echo "  2. Build:     cd $UBOT_REPO && make build"
-echo "  3. Install:   cd $UBOT_REPO && make install"
-echo "  4. Start:     ubot start"
+echo "  2. Build:     cd $YOUBOT_REPO && make build"
+echo "  3. Install:   cd $YOUBOT_REPO && make install"
+echo "  4. Start:     youbot start"
 echo ""
 echo "  Or run in dev mode (no build required):"
-echo "     cd $UBOT_CORE && npm run dev"
+echo "     cd $YOUBOT_CORE && npm run dev"
 echo ""
 echo "  VSCode SSH:   Open VS Code → Remote-SSH → bigmints@100.77.38.96"
-echo "     Then: File → Open Folder → $UBOT_CORE"
+echo "     Then: File → Open Folder → $YOUBOT_CORE"
 echo ""

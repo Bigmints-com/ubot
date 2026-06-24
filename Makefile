@@ -7,14 +7,14 @@ NVM_NODE_DIR := $(shell ls -d $(HOME)/.nvm/versions/node/v22.*/bin 2>/dev/null |
 export PATH := $(NVM_NODE_DIR):$(HOME)/.local/bin:$(PATH)
 
 # ─── Variables ──────────────────────────────────────────────────────────────────
-UBOT_HOME ?= $(HOME)/.ubot
+YOUBOT_HOME ?= $(HOME)/.youbot
 INSTALL_BIN_DIR ?= $(HOME)/.local/bin
-CORE_DIR = ubot-core
+CORE_DIR = youbot-core
 WEB_DIR = $(CORE_DIR)/web-ui
 CLI_DIR = cli
 
 # Marker file written after a successful first install
-INSTALL_MARKER = $(UBOT_HOME)/.installed
+INSTALL_MARKER = $(YOUBOT_HOME)/.installed
 
 # ─── Default ────────────────────────────────────────────────────────────────────
 all: build
@@ -23,7 +23,7 @@ all: build
 check-deps:
 	@echo "🔍 Checking system dependencies..."
 	@if ! command -v node >/dev/null 2>&1; then \
-		echo "❌ Node.js is not installed! Ubot requires Node.js v22 or higher. Please install it."; \
+		echo "❌ Node.js is not installed! Youbot requires Node.js v22 or higher. Please install it."; \
 		exit 1; \
 	fi
 	@if ! command -v npm >/dev/null 2>&1; then \
@@ -54,11 +54,11 @@ build-web:
 	@cd $(WEB_DIR) && npm run build
 	@echo "   Web UI build complete."
 
-## install: First-time install of ubot to ~/.ubot and CLI to ~/.local/bin
+## install: First-time install of youbot to ~/.youbot and CLI to ~/.local/bin
 install: build
 	@if [ -f "$(INSTALL_MARKER)" ]; then \
 		echo ""; \
-		echo "❌ Ubot is already installed at $(UBOT_HOME)"; \
+		echo "❌ Youbot is already installed at $(YOUBOT_HOME)"; \
 		echo "   Use 'make update' to update to the latest code."; \
 		echo "   Use 'make install-force' to reinstall from scratch (keeps data)."; \
 		echo ""; \
@@ -66,11 +66,11 @@ install: build
 	fi
 	@$(MAKE) --no-print-directory _do_install FIRST_INSTALL=1
 	@echo ""
-	@echo "✅ Ubot installed!"
+	@echo "✅ Youbot installed!"
 	@echo ""
-	@echo "   Get started:  ubot start"
+	@echo "   Get started:  youbot start"
 	@echo "   Dashboard:    http://localhost:11490"
-	@echo "   Config:       $(UBOT_HOME)/config.json"
+	@echo "   Config:       $(YOUBOT_HOME)/config.json"
 	@echo ""
 	@echo "   🔐 Login with the username and password you set above."
 	@echo "      To change later: edit server.access_username/access_password in config.json"
@@ -78,33 +78,33 @@ install: build
 ## install-force: Reinstall even if already installed (keeps user data)
 install-force: build
 	@echo ""
-	@echo "⚠️  Force-reinstalling Ubot to $(UBOT_HOME) ..."
+	@echo "⚠️  Force-reinstalling Youbot to $(YOUBOT_HOME) ..."
 	@$(MAKE) --no-print-directory _do_install FIRST_INSTALL=1
 	@echo ""
-	@echo "✅ Ubot reinstalled!"
+	@echo "✅ Youbot reinstalled!"
 	@$(MAKE) --no-print-directory _post_install_info
 
 ## update: Update an existing installation with the latest code
 update: build
 	@if [ ! -f "$(INSTALL_MARKER)" ]; then \
 		echo ""; \
-		echo "❌ Ubot is not installed yet."; \
+		echo "❌ Youbot is not installed yet."; \
 		echo "   Run 'make install' first."; \
 		echo ""; \
 		exit 1; \
 	fi
 	@echo ""
-	@echo "🔄 Updating Ubot at $(UBOT_HOME) ..."
+	@echo "🔄 Updating Youbot at $(YOUBOT_HOME) ..."
 	@$(MAKE) --no-print-directory _do_install FIRST_INSTALL=0
 	@echo ""
-	@echo "✅ Ubot updated!"
+	@echo "✅ Youbot updated!"
 	@$(MAKE) --no-print-directory _post_install_info
 
 # ─── Internal: shared install/update logic ──────────────────────────────────────
 
 _do_install:
 	@echo ""
-	@echo "📦 $(if $(filter 1,$(FIRST_INSTALL)),Installing,Updating) Ubot at $(UBOT_HOME) ..."
+	@echo "📦 $(if $(filter 1,$(FIRST_INSTALL)),Installing,Updating) Youbot at $(YOUBOT_HOME) ..."
 
 	@# ── Create directory structure ──────────────────────────────────────
 	@# User data directories (NEVER replaced by install):
@@ -116,42 +116,42 @@ _do_install:
 	@#   workspace/      → CLI project files
 	@#   custom/         → Custom tool modules
 	@#   config.json     → User configuration (merged, never overwritten)
-	@mkdir -p $(UBOT_HOME)/lib
-	@mkdir -p $(UBOT_HOME)/web
-	@mkdir -p $(UBOT_HOME)/data
-	@mkdir -p $(UBOT_HOME)/data/models
-	@mkdir -p $(UBOT_HOME)/logs
-	@mkdir -p $(UBOT_HOME)/sessions
-	@mkdir -p $(UBOT_HOME)/creds
+	@mkdir -p $(YOUBOT_HOME)/lib
+	@mkdir -p $(YOUBOT_HOME)/web
+	@mkdir -p $(YOUBOT_HOME)/data
+	@mkdir -p $(YOUBOT_HOME)/data/models
+	@mkdir -p $(YOUBOT_HOME)/logs
+	@mkdir -p $(YOUBOT_HOME)/sessions
+	@mkdir -p $(YOUBOT_HOME)/creds
 
-	@mkdir -p $(UBOT_HOME)/workspace
-	@mkdir -p $(UBOT_HOME)/custom/modules
-	@mkdir -p $(UBOT_HOME)/custom/staging
-	@mkdir -p $(UBOT_HOME)/workspace/skills
+	@mkdir -p $(YOUBOT_HOME)/workspace
+	@mkdir -p $(YOUBOT_HOME)/custom/modules
+	@mkdir -p $(YOUBOT_HOME)/custom/staging
+	@mkdir -p $(YOUBOT_HOME)/workspace/skills
 
 	@# Copy default skills (only if skill dir doesn't already exist — respects user deletions)
 	@if [ -d $(CORE_DIR)/skills ]; then \
 		for skill_dir in $(CORE_DIR)/skills/*/; do \
 			skill_name=$$(basename "$$skill_dir"); \
-			if [ ! -d "$(UBOT_HOME)/workspace/skills/$$skill_name" ]; then \
-				cp -r "$$skill_dir" "$(UBOT_HOME)/workspace/skills/$$skill_name"; \
+			if [ ! -d "$(YOUBOT_HOME)/workspace/skills/$$skill_name" ]; then \
+				cp -r "$$skill_dir" "$(YOUBOT_HOME)/workspace/skills/$$skill_name"; \
 			fi; \
 		done; \
-		echo "   Synced default skills to $(UBOT_HOME)/workspace/skills/"; \
+		echo "   Synced default skills to $(YOUBOT_HOME)/workspace/skills/"; \
 	fi
 
 	@# Copy default agents (e.g. Nexus orchestrator - respects user deletions)
-	@mkdir -p $(UBOT_HOME)/workspace/agents
+	@mkdir -p $(YOUBOT_HOME)/workspace/agents
 	@if [ -d $(CORE_DIR)/agents ]; then \
 		for agent_file in $(CORE_DIR)/agents/*; do \
 			if [ -f "$$agent_file" ]; then \
 				agent_name=$$(basename "$$agent_file"); \
-				if [ ! -e "$(UBOT_HOME)/workspace/agents/$$agent_name" ]; then \
-					cp "$$agent_file" "$(UBOT_HOME)/workspace/agents/$$agent_name"; \
+				if [ ! -e "$(YOUBOT_HOME)/workspace/agents/$$agent_name" ]; then \
+					cp "$$agent_file" "$(YOUBOT_HOME)/workspace/agents/$$agent_name"; \
 				fi; \
 			fi; \
 		done; \
-		echo "   Synced default agents to $(UBOT_HOME)/workspace/agents/"; \
+		echo "   Synced default agents to $(YOUBOT_HOME)/workspace/agents/"; \
 	fi
 
 
@@ -159,60 +159,60 @@ _do_install:
 	@# These are safe to replace — they contain only compiled code, not user data.
 
 	@# Copy compiled backend (clean copy to avoid stale files)
-	@rm -rf $(UBOT_HOME)/lib
-	@cp -R $(CORE_DIR)/dist $(UBOT_HOME)/lib
-	@echo "   Installed backend to $(UBOT_HOME)/lib/"
+	@rm -rf $(YOUBOT_HOME)/lib
+	@cp -R $(CORE_DIR)/dist $(YOUBOT_HOME)/lib
+	@echo "   Installed backend to $(YOUBOT_HOME)/lib/"
 
 	@# Copy node_modules (needed at runtime)
-	@mkdir -p $(UBOT_HOME)/node_modules
-	@cp -R $(CORE_DIR)/node_modules/* $(UBOT_HOME)/node_modules/ 2>/dev/null || true
+	@mkdir -p $(YOUBOT_HOME)/node_modules
+	@cp -R $(CORE_DIR)/node_modules/* $(YOUBOT_HOME)/node_modules/ 2>/dev/null || true
 	@# Fix whisper addon platform naming (mac-arm64 → darwin-arm64)
 	@if [ -f $(CORE_DIR)/scripts/fix-whisper-addon.sh ]; then \
-		ADDON_DIR="$(UBOT_HOME)/node_modules/@kutalia/whisper-node-addon/dist"; \
+		ADDON_DIR="$(YOUBOT_HOME)/node_modules/@kutalia/whisper-node-addon/dist"; \
 		if [ -d "$$ADDON_DIR" ]; then \
 			([ -d "$$ADDON_DIR/mac-arm64" ] && [ ! -e "$$ADDON_DIR/darwin-arm64" ] && ln -sf mac-arm64 "$$ADDON_DIR/darwin-arm64") || true; \
 			([ -d "$$ADDON_DIR/mac-x64" ] && [ ! -e "$$ADDON_DIR/darwin-x64" ] && ln -sf mac-x64 "$$ADDON_DIR/darwin-x64") || true; \
 		fi; \
 	fi
 	@# Rebuild native modules for the current Node.js version (prevents ERR_DLOPEN_FAILED)
-	@cd $(UBOT_HOME) && npm rebuild 2>/dev/null || true
-	@echo "   Installed dependencies to $(UBOT_HOME)/node_modules/"
+	@cd $(YOUBOT_HOME) && npm rebuild 2>/dev/null || true
+	@echo "   Installed dependencies to $(YOUBOT_HOME)/node_modules/"
 
 	@# Copy static web UI (clean copy)
 	@if [ -d $(WEB_DIR)/out ]; then \
-		rm -rf $(UBOT_HOME)/web; \
-		mkdir -p $(UBOT_HOME)/web; \
-		cp -r $(WEB_DIR)/out/* $(UBOT_HOME)/web/; \
-		echo "   Installed web UI to $(UBOT_HOME)/web/"; \
+		rm -rf $(YOUBOT_HOME)/web; \
+		mkdir -p $(YOUBOT_HOME)/web; \
+		cp -r $(WEB_DIR)/out/* $(YOUBOT_HOME)/web/; \
+		echo "   Installed web UI to $(YOUBOT_HOME)/web/"; \
 	else \
 		echo "   ⚠️  No web export found (expected $(WEB_DIR)/out/)"; \
 	fi
 
 	@# ── Config (merge, never overwrite) ────────────────────────────────
-	@if [ ! -f $(UBOT_HOME)/config.json ]; then \
-		cp $(CLI_DIR)/default-config.json $(UBOT_HOME)/config.json; \
-		echo "   Created default config at $(UBOT_HOME)/config.json"; \
+	@if [ ! -f $(YOUBOT_HOME)/config.json ]; then \
+		cp $(CLI_DIR)/default-config.json $(YOUBOT_HOME)/config.json; \
+		echo "   Created default config at $(YOUBOT_HOME)/config.json"; \
 	else \
-		python3 $(CLI_DIR)/merge-config.py $(UBOT_HOME)/config.json $(CLI_DIR)/default-config.json; \
+		python3 $(CLI_DIR)/merge-config.py $(YOUBOT_HOME)/config.json $(CLI_DIR)/default-config.json; \
 	fi
 
 	@# ── Copy Migrations explicitly for Setup Wizard ───────────────
-	@rm -rf $(UBOT_HOME)/migrations
-	@cp -R $(CORE_DIR)/supabase/migrations $(UBOT_HOME)/migrations
-	@echo "   Prepared auto-migration scripts in $(UBOT_HOME)/migrations/"
+	@rm -rf $(YOUBOT_HOME)/migrations
+	@cp -R $(CORE_DIR)/supabase/migrations $(YOUBOT_HOME)/migrations
+	@echo "   Prepared auto-migration scripts in $(YOUBOT_HOME)/migrations/"
 
 	@# ── Interactive Initialization Wizard (first install only) ──
 	@if [ "$(FIRST_INSTALL)" = "1" ]; then \
 		echo ""; \
-		UBOT_HOME=$(UBOT_HOME) node $(UBOT_HOME)/lib/cli/wizard.js; \
+		YOUBOT_HOME=$(YOUBOT_HOME) node $(YOUBOT_HOME)/lib/cli/wizard.js; \
 		echo ""; \
 	fi
 
 	@# Install CLI to PATH
 	@mkdir -p $(INSTALL_BIN_DIR)
-	@cp $(CLI_DIR)/ubot $(INSTALL_BIN_DIR)/ubot
-	@chmod +x $(INSTALL_BIN_DIR)/ubot
-	@echo "   Installed CLI to $(INSTALL_BIN_DIR)/ubot"
+	@cp $(CLI_DIR)/youbot $(INSTALL_BIN_DIR)/youbot
+	@chmod +x $(INSTALL_BIN_DIR)/youbot
+	@echo "   Installed CLI to $(INSTALL_BIN_DIR)/youbot"
 
 	@# ── Write install marker ───────────────────────────────────────────
 	@date -u +"%Y-%m-%dT%H:%M:%SZ" > "$(INSTALL_MARKER)"
@@ -220,31 +220,31 @@ _do_install:
 
 _post_install_info:
 	@# ── Auto-restart if server is running ──────────────────────────────
-	@if [ -f $(UBOT_HOME)/ubot.pid ] && kill -0 $$(cat $(UBOT_HOME)/ubot.pid) 2>/dev/null; then \
+	@if [ -f $(YOUBOT_HOME)/youbot.pid ] && kill -0 $$(cat $(YOUBOT_HOME)/youbot.pid) 2>/dev/null; then \
 		echo ""; \
 		echo "🔄 Server is running — restarting with new code..."; \
-		$(INSTALL_BIN_DIR)/ubot restart; \
+		$(INSTALL_BIN_DIR)/youbot restart; \
 	else \
 		echo ""; \
-		echo "   Start with:   ubot start"; \
+		echo "   Start with:   youbot start"; \
 	fi
 	@echo "   Dashboard:    http://localhost:11490"
-	@echo "   Config:       $(UBOT_HOME)/config.json"
+	@echo "   Config:       $(YOUBOT_HOME)/config.json"
 
-## uninstall: Remove ubot CLI (keeps data)
+## uninstall: Remove youbot CLI (keeps data)
 uninstall:
-	@echo "🗑  Removing ubot CLI..."
-	@rm -f $(INSTALL_BIN_DIR)/ubot
-	@echo "   Removed CLI from $(INSTALL_BIN_DIR)/ubot"
+	@echo "🗑  Removing youbot CLI..."
+	@rm -f $(INSTALL_BIN_DIR)/youbot
+	@echo "   Removed CLI from $(INSTALL_BIN_DIR)/youbot"
 	@echo ""
-	@echo "   Note: Data is preserved at $(UBOT_HOME)/"
+	@echo "   Note: Data is preserved at $(YOUBOT_HOME)/"
 	@echo "   To remove everything: make uninstall-all"
 
-## uninstall-all: Remove ubot CLI and all data
+## uninstall-all: Remove youbot CLI and all data
 uninstall-all: uninstall
-	@echo "🗑  Removing all ubot data..."
-	@rm -rf $(UBOT_HOME)
-	@echo "   Removed $(UBOT_HOME)/"
+	@echo "🗑  Removing all youbot data..."
+	@rm -rf $(YOUBOT_HOME)
+	@echo "   Removed $(YOUBOT_HOME)/"
 
 ## clean: Remove build artifacts
 clean:
@@ -266,7 +266,7 @@ deps:
 
 ## help: Show this help
 help:
-	@echo "🤖 Ubot Makefile"
+	@echo "🤖 Youbot Makefile"
 	@echo ""
 	@echo "Usage:"
 	@echo "  make [target]"
@@ -275,5 +275,5 @@ help:
 	@grep -E '^## ' $(MAKEFILE_LIST) | sed 's/## /  /'
 	@echo ""
 	@echo "Variables:"
-	@echo "  UBOT_HOME        Runtime directory (default: ~/.ubot)"
+	@echo "  YOUBOT_HOME        Runtime directory (default: ~/.youbot)"
 	@echo "  INSTALL_BIN_DIR   CLI install directory (default: ~/.local/bin)"

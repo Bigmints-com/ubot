@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="ubot-core/web/public/ubot.svg" width="80" alt="Ubot Logo" />
+  <img src="youbot-core/web/public/youbot.svg" width="80" alt="Youbot Logo" />
 </p>
 
-<h1 align="center">Ubot</h1>
+<h1 align="center">Youbot</h1>
 <p align="center"><strong>Your Personal AI Operating System</strong></p>
 <p align="center">
   Open-source, self-hosted AI assistant that connects to your messaging apps, tools, and services.<br/>
@@ -17,11 +17,11 @@
 
 ---
 
-## What is Ubot?
+## What is Youbot?
 
-Ubot is a **self-hosted AI assistant** that acts as your personal operating system for digital life. Connect it to WhatsApp, Telegram, iMessage, Gmail, and more — then control everything through natural conversation. It browses the web, sends messages, manages files, schedules tasks, and replies to people on your behalf.
+Youbot is a **self-hosted AI assistant** that acts as your personal operating system for digital life. Connect it to WhatsApp, Telegram, iMessage, Gmail, and more — then control everything through natural conversation. It browses the web, sends messages, manages files, schedules tasks, and replies to people on your behalf.
 
-Unlike cloud-based assistants, Ubot runs **entirely on your machine**. Your data never leaves your computer.
+Unlike cloud-based assistants, Youbot runs **entirely on your machine**. Your data never leaves your computer.
 
 ### Key Capabilities
 
@@ -59,14 +59,14 @@ Unlike cloud-based assistants, Ubot runs **entirely on your machine**. Your data
 
 ```bash
 # Clone
-git clone https://github.com/Bigmints-com/ubot.git
-cd ubot
+git clone https://github.com/Bigmints-com/youbot.git
+cd youbot
 
 # Install dependencies + build + install
 make install
 
 # Start
-ubot start
+youbot start
 ```
 
 Dashboard: **http://localhost:11490**
@@ -85,10 +85,10 @@ Dashboard: **http://localhost:11490**
 ## Architecture
 
 ```
-ubot/
+youbot/
 ├── Makefile                  # Build + install pipeline
 ├── start.sh / stop.sh        # Dev mode scripts
-└── ubot-core/                # Main application
+└── youbot-core/                # Main application
     ├── src/
     │   ├── api/              # REST API (custom HTTP router)
     │   ├── engine/           # LLM orchestrator, tool routing, unified handler
@@ -118,31 +118,31 @@ All valid messages — from both the owner and visitors — go through the LLM o
 
 | What     | Where                                 |
 | -------- | ------------------------------------- |
-| Config   | `~/.ubot/config.json`                 |
-| Database | `~/.ubot/data/ubot.db` (SQLite)       |
-| Skills   | `~/.ubot/skills/<name>/SKILL.md`      |
-| Identity | `~/.ubot/data/SOUL.md`, `IDENTITY.md` |
-| Backend  | `~/.ubot/lib/` (compiled JS)          |
-| Web UI   | `~/.ubot/web/` (Next.js static)       |
-| Logs     | `~/.ubot/logs/`                       |
+| Config   | `~/.youbot/config.json`                 |
+| Database | `~/.youbot/data/youbot.db` (SQLite)       |
+| Skills   | `~/.youbot/skills/<name>/SKILL.md`      |
+| Identity | `~/.youbot/data/SOUL.md`, `IDENTITY.md` |
+| Backend  | `~/.youbot/lib/` (compiled JS)          |
+| Web UI   | `~/.youbot/web/` (Next.js static)       |
+| Logs     | `~/.youbot/logs/`                       |
 
 ---
 
 ## CLI
 
 ```bash
-ubot start             # Start on port 11490
-ubot stop              # Graceful shutdown
-ubot restart           # Stop + start
-ubot status            # Show PID, port, dashboard URL
-ubot logs              # Last 50 log lines
-ubot logs -f           # Follow logs in real-time
-ubot config            # Show current config
-ubot config edit       # Open config in $EDITOR
-ubot config set k v    # Set a config value
-ubot config get k      # Get a config value
-ubot doctor            # Health check
-ubot open              # Open dashboard in browser
+youbot start             # Start on port 11490
+youbot stop              # Graceful shutdown
+youbot restart           # Stop + start
+youbot status            # Show PID, port, dashboard URL
+youbot logs              # Last 50 log lines
+youbot logs -f           # Follow logs in real-time
+youbot config            # Show current config
+youbot config edit       # Open config in $EDITOR
+youbot config set k v    # Set a config value
+youbot config get k      # Get a config value
+youbot doctor            # Health check
+youbot open              # Open dashboard in browser
 ```
 
 ---
@@ -157,24 +157,24 @@ ubot open              # Open dashboard in browser
 ./stop.sh
 
 # Run tests
-cd ubot-core && npx vitest
+cd youbot-core && npx vitest
 
 # Build + deploy to runtime
-make install           # Builds, copies to ~/.ubot/, restarts
+make install           # Builds, copies to ~/.youbot/, restarts
 ```
 
-> **Important**: `npm run build` only compiles to `ubot-core/dist/`. The runtime loads from `~/.ubot/lib/`. Always use `make install` to deploy changes.
+> **Important**: `npm run build` only compiles to `youbot-core/dist/`. The runtime loads from `~/.youbot/lib/`. Always use `make install` to deploy changes.
 
 ---
 
 ## Configuration
 
-Config lives at `~/.ubot/config.json`:
+Config lives at `~/.youbot/config.json`:
 
 ```json
 {
   "server": { "port": 11490 },
-  "database": { "path": "data/ubot.db" },
+  "database": { "path": "data/youbot.db" },
   "owner": {
     "phone": "",
     "telegram_id": "",
@@ -235,7 +235,7 @@ Respond warmly and ask how you can help today.
 Mention the person's name if you know it.
 ```
 
-Skills are stored in `~/.ubot/skills/<skill-name>/SKILL.md` and are injected as LLM context when their fast filters match an incoming message. The LLM decides whether and how to follow them.
+Skills are stored in `~/.youbot/skills/<skill-name>/SKILL.md` and are injected as LLM context when their fast filters match an incoming message. The LLM decides whether and how to follow them.
 
 Create skills via the web dashboard (**Skills** page), the `create_skill` tool, or by writing the files directly.
 
