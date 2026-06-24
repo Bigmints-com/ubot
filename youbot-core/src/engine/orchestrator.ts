@@ -399,16 +399,10 @@ export function createAgentOrchestrator(
 		};
 		if (db) {
 			try {
-				await db
-					.get_client()
-					.from("ubot_spawned_sessions")
-					.insert({
-						id: sid,
-						agent_id: agentDef.id,
-						task: task.slice(0, 500),
-						status: "running",
-						start_time: new Date().toISOString(),
-					});
+				await db.execute(
+					`INSERT INTO ubot_spawned_sessions (id, agent_id, task, status, start_time) VALUES (?, ?, ?, 'running', ?)`,
+					[sid, agentDef.id, task.slice(0, 500), new Date().toISOString()]
+				);
 			} catch (e: any) {
 				console.error(
 					"[Orchestrator] Failed to insert subagent session:",
@@ -421,19 +415,13 @@ export function createAgentOrchestrator(
 
 		if (db) {
 			try {
-				await db
-					.get_client()
-					.from("ubot_spawned_sessions")
-					.update({
-						status: result.status === "completed" ? "completed" : "failed",
-						result: result.result || null,
-						error: result.error || null,
-						end_time: new Date().toISOString(),
-					})
-					.eq("id", sid);
+				await db.execute(
+					`UPDATE ubot_spawned_sessions SET status = ?, result = ?, error = ?, end_time = ? WHERE id = ?`,
+					[result.status === "completed" ? "completed" : "failed", result.result || null, result.error || null, new Date().toISOString(), sid]
+				);
 
 				// Ensure no lingering history chunks clog the main DB memory array
-				await db.get_client().from("ubot_sessions").delete().eq("id", sid);
+				await db.execute(`DELETE FROM ubot_sessions WHERE id = ?`, [sid]);
 			} catch (e: any) {
 				console.error(
 					"[Orchestrator] Failed to update/cleanup subagent session:",
@@ -767,11 +755,7 @@ export function createAgentOrchestrator(
 
 						if (db) {
 							try {
-								await db
-									.get_client()
-									.from("ubot_sessions")
-									.delete()
-									.eq("id", sid);
+								await db.execute(`DELETE FROM ubot_sessions WHERE id = ?`, [sid]);
 							} catch (e: any) {
 								console.error(
 									"[Orchestrator] Failed to cleanup plan subagent session:",
@@ -3183,12 +3167,10 @@ REQUIREMENTS:
 		async resumeActivePlans(): Promise<void> {
 			if (!db) return;
 			try {
-				const { data: rows, error } = await db
-					.get_client()
-					.from("ubot_task_plans")
-					.select("id")
-					.in("status", ["executing", "planning"]);
-				if (error || !rows || rows.length === 0) return;
+				const rows = await db.query(
+					`SELECT id FROM ubot_task_plans WHERE status IN ('executing', 'planning')`
+				);
+				if (!rows || rows.length === 0) return;
 
 				console.log(
 					`[Orchestrator] 🔄 Resuming ${rows.length} interrupted task plans...`,

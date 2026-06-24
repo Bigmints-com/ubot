@@ -21,68 +21,20 @@ export interface ConversationStore {
 }
 
 export function createConversationStore(db: DatabaseConnection): ConversationStore {
-  const getClient = () => db.get_client();
-
   return {
     async createSession(id: string, type: 'web' | 'whatsapp' | 'telegram' | 'webchat' | 'sub-agent' | 'scheduler', name?: string): Promise<ConversationSession> {
       const now = new Date().toISOString();
       const sessionName = name || (type === 'web' ? 'Command Center' : id);
-      let ownerId: string | null = null;
-      
+      const ownerId = '00000000-0000-0000-0000-000000000000'; // Default owner for SQLite backend
+
       try {
-        const { data: authUsers } = await getClient().auth.admin.listUsers();
-        if (authUsers?.users?.length) {
-          ownerId = authUsers.users[0].id;
-        } else {
-          const { data: profiles } = await getClient().from('users').select('id').limit(1);
-          if (profiles?.length) ownerId = profiles[0].id;
-        }
-      } catch (e) {
-        console.error('[Supabase] owner_id resolution failed:', e);
-      }
-
-      let error: any = null;
-      try {
-        const { data: existing } = await getClient()
-          .from('youbot_chat_sessions')
-          .select('id')
-          .eq('id', id)
-          .maybeSingle();
-
-        if (existing) {
-          const { error: updErr } = await getClient()
-            .from('youbot_chat_sessions')
-            .update({
-              type,
-              name: sessionName,
-              owner_id: ownerId || '00000000-0000-0000-0000-000000000000',
-              updated_at: now
-            })
-            .eq('id', id);
-          error = updErr;
-        } else {
-          const { error: insErr } = await getClient()
-            .from('youbot_chat_sessions')
-            .insert({
-              id,
-              type,
-              name: sessionName,
-              owner_id: ownerId || '00000000-0000-0000-0000-000000000000',
-              created_at: now,
-              updated_at: now
-            });
-          
-          // Ignore unique violation if another process inserted simultaneously
-          if (insErr && insErr.code !== '23505') {
-            error = insErr;
-          }
-        }
-      } catch (err) {
-        error = err;
-      }
-
-      if (error) {
-        console.error('[Supabase] createSession Error:', error);
+        await db.execute(
+          `INSERT INTO youbot_chat_sessions (id, type, name, owner_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)
+           ON CONFLICT(id) DO UPDATE SET type = excluded.type, name = excluded.name, updated_at = excluded.updated_at`,
+          [id, type, sessionName, ownerId, now, now]
+        );
+      } catch (error: any) {
+        console.error('[SQLite] createSession Error:', error);
         throw new Error(`Failed to create session: ${error.message || error}`);
       }
 
@@ -97,20 +49,11 @@ export function createConversationStore(db: DatabaseConnection): ConversationSto
     },
 
     async getSession(id: string): Promise<ConversationSession | undefined> {
-      const { data, error } = await getClient()
-        .from('youbot_chat_sessions')
-        .select(`
-          id, type, name, created_at, updated_at
-        `)
-        .eq('id', id)
-        .single();
-        
-      if (error || !data) return undefined;
+      const data = await db.get(`SELECT id, type, name, created_at, updated_at FROM youbot_chat_sessions WHERE id = ?`, [id]);
+      if (!data) return undefined;
 
-      const { count } = await getClient()
-        .from('youbot_chat_messages')
-        .select('id', { count: 'exact', head: true })
-        .eq('session_id', id);
+      const row = await db.get<{count: number}>(`SELECT COUNT(*) as count FROM youbot_chat_messages WHERE session_id = ?`, [id]);
+      const count = row?.count || 0;
 
       return {
         id: data.id,
@@ -118,7 +61,7 @@ export function createConversationStore(db: DatabaseConnection): ConversationSto
         name: data.name,
         createdAt: new Date(data.created_at),
         updatedAt: new Date(data.updated_at),
-        messageCount: count || 0,
+        messageCount: count,
       };
     },
 
@@ -129,37 +72,29 @@ export function createConversationStore(db: DatabaseConnection): ConversationSto
     },
 
     async listSessions(): Promise<ConversationSession[]> {
-      const { data, error } = await getClient()
-        .from('youbot_chat_sessions')
-        .select(`
-          id, type, name, created_at, updated_at
-        `)
-        .order('updated_at', { ascending: false });
+      try {
+        const sessions = await db.query(`SELECT id, type, name, created_at, updated_at FROM youbot_chat_sessions ORDER BY updated_at DESC`);
         
-      if (error) {
-        console.error('[Supabase] listSessions Error:', error);
+        if (!sessions.length) return [];
+        
+        const messages = await db.query(`SELECT session_id, COUNT(*) as count FROM youbot_chat_messages GROUP BY session_id`);
+        const counts = messages.reduce((acc: any, msg: any) => {
+          acc[msg.session_id] = msg.count;
+          return acc;
+        }, {});
+        
+        return sessions.map((row: any) => ({
+          id: row.id,
+          type: row.type,
+          name: row.name,
+          createdAt: new Date(row.created_at),
+          updatedAt: new Date(row.updated_at),
+          messageCount: counts[row.id] || 0,
+        }));
+      } catch (error) {
+        console.error('[SQLite] listSessions Error:', error);
         return [];
       }
-
-      if (!data) return [];
-      
-      const { data: messages } = await getClient()
-        .from('youbot_chat_messages')
-        .select('session_id');
-
-      const counts = messages?.reduce((acc: any, msg: any) => {
-        acc[msg.session_id] = (acc[msg.session_id] || 0) + 1;
-        return acc;
-      }, {}) || {};
-      
-      return data.map((row: any) => ({
-        id: row.id,
-        type: row.type,
-        name: row.name,
-        createdAt: new Date(row.created_at),
-        updatedAt: new Date(row.updated_at),
-        messageCount: counts[row.id] || 0,
-      }));
     },
 
     async addMessage(sessionId: string, role: ChatRole, content: string, metadata?: ChatMessageMetadata): Promise<ChatMessage> {
@@ -167,24 +102,19 @@ export function createConversationStore(db: DatabaseConnection): ConversationSto
       const now = new Date();
       const timestamp = now.toISOString();
 
-      const { error } = await getClient()
-        .from('youbot_chat_messages')
-        .insert({
-          id,
-          session_id: sessionId,
-          role,
-          content,
-          timestamp,
-          metadata: metadata ? metadata : null
-        });
+      try {
+        await db.execute(
+          `INSERT INTO youbot_chat_messages (id, session_id, role, content, timestamp, metadata) VALUES (?, ?, ?, ?, ?, ?)`,
+          [id, sessionId, role, content, timestamp, metadata ? JSON.stringify(metadata) : null]
+        );
 
-      if (error) console.error('[Supabase] addMessage Error:', error);
-
-      // Update session timestamp
-      await getClient()
-        .from('youbot_chat_sessions')
-        .update({ updated_at: timestamp })
-        .eq('id', sessionId);
+        await db.execute(
+          `UPDATE youbot_chat_sessions SET updated_at = ? WHERE id = ?`,
+          [timestamp, sessionId]
+        );
+      } catch (error) {
+        console.error('[SQLite] addMessage Error:', error);
+      }
 
       return {
         id,
@@ -197,14 +127,10 @@ export function createConversationStore(db: DatabaseConnection): ConversationSto
     },
 
     async getHistory(sessionId: string, limit = 50): Promise<ChatMessage[]> {
-      const { data, error } = await getClient()
-        .from('youbot_chat_messages')
-        .select('*')
-        .eq('session_id', sessionId)
-        .order('timestamp', { ascending: false })
-        .limit(limit);
-        
-      if (error || !data) return [];
+      const data = await db.query(
+        `SELECT * FROM youbot_chat_messages WHERE session_id = ? ORDER BY timestamp DESC LIMIT ?`,
+        [sessionId, limit]
+      );
       
       return data.reverse().map((row: any) => ({
         id: row.id,
@@ -217,33 +143,24 @@ export function createConversationStore(db: DatabaseConnection): ConversationSto
     },
 
     async clearSession(sessionId: string): Promise<void> {
-      await getClient()
-        .from('youbot_chat_messages')
-        .delete()
-        .eq('session_id', sessionId);
+      await db.execute(`DELETE FROM youbot_chat_messages WHERE session_id = ?`, [sessionId]);
     },
 
     async clearAll(): Promise<void> {
-      await getClient().from('youbot_chat_messages').delete().neq('id', '0');
-      await getClient().from('youbot_chat_sessions').delete().neq('id', '0');
+      await db.execute(`DELETE FROM youbot_chat_messages WHERE id != '0'`);
+      await db.execute(`DELETE FROM youbot_chat_sessions WHERE id != '0'`);
     },
 
     async deleteSession(sessionId: string): Promise<void> {
-      await getClient()
-        .from('youbot_chat_messages')
-        .delete()
-        .eq('session_id', sessionId);
-      await getClient()
-        .from('youbot_chat_sessions')
-        .delete()
-        .eq('id', sessionId);
+      await db.execute(`DELETE FROM youbot_chat_messages WHERE session_id = ?`, [sessionId]);
+      await db.execute(`DELETE FROM youbot_chat_sessions WHERE id = ?`, [sessionId]);
     },
 
     async renameSession(sessionId: string, name: string): Promise<void> {
-      await getClient()
-        .from('youbot_chat_sessions')
-        .update({ name: name, updated_at: new Date().toISOString() })
-        .eq('id', sessionId);
+      await db.execute(
+        `UPDATE youbot_chat_sessions SET name = ?, updated_at = ? WHERE id = ?`,
+        [name, new Date().toISOString(), sessionId]
+      );
     },
   };
 }

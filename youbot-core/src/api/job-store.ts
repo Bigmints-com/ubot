@@ -29,8 +29,6 @@ export interface AsyncJobStore {
 }
 
 export function createAsyncJobStore(db: DatabaseConnection): AsyncJobStore {
-  const getClient = () => db.get_client();
-
   function rowToJob(row: any): AsyncJob {
     return {
       id: row.id,
@@ -46,92 +44,95 @@ export function createAsyncJobStore(db: DatabaseConnection): AsyncJobStore {
   return {
     async create(jobId: string, sessionId: string): Promise<AsyncJob> {
       const startedAt = Date.now();
-      const { error } = await getClient().from('youbot_async_jobs').insert({
-        id: jobId,
-        session_id: sessionId,
-        status: 'processing',
-        started_at: new Date(startedAt).toISOString()
-      });
-      if (error) {
+      try {
+        await db.execute(
+          `INSERT INTO youbot_async_jobs (id, session_id, status, started_at) VALUES (?, ?, 'processing', ?)`,
+          [jobId, sessionId, new Date(startedAt).toISOString()]
+        );
+      } catch (error) {
         console.error('[AsyncJobStore] Failed to insert job:', error);
       }
       return { id: jobId, sessionId, status: 'processing', startedAt };
     },
 
     async get(jobId: string): Promise<AsyncJob | undefined> {
-      const { data, error } = await getClient().from('youbot_async_jobs').select('*').eq('id', jobId).single();
-      return data && !error ? rowToJob(data) : undefined;
+      try {
+        const row = await db.get(`SELECT * FROM youbot_async_jobs WHERE id = ?`, [jobId]);
+        return row ? rowToJob(row) : undefined;
+      } catch (error) {
+        return undefined;
+      }
     },
 
     async update(jobId: string, updates: Partial<Omit<AsyncJob, 'id' | 'sessionId' | 'startedAt'>>): Promise<boolean> {
-      const existing = await this.get(jobId);
-      if (!existing) return false;
+      const fields: string[] = [];
+      const params: any[] = [];
+      
+      if (updates.status) { fields.push('status = ?'); params.push(updates.status); }
+      if (updates.result !== undefined) { fields.push('result = ?'); params.push(JSON.stringify(updates.result)); }
+      if (updates.error !== undefined) { fields.push('error = ?'); params.push(updates.error); }
+      if (updates.completedAt) { fields.push('completed_at = ?'); params.push(new Date(updates.completedAt).toISOString()); }
 
-      const fields: any = {};
-      if (updates.status) fields.status = updates.status;
-      if (updates.result !== undefined) fields.result = JSON.stringify(updates.result);
-      if (updates.error !== undefined) fields.error = updates.error;
-      if (updates.completedAt) fields.completed_at = new Date(updates.completedAt).toISOString();
+      if (fields.length === 0) return true;
+      params.push(jobId);
 
-      if (Object.keys(fields).length === 0) return true;
-
-      const { error } = await getClient().from('youbot_async_jobs').update(fields).eq('id', jobId);
-      return !error;
+      try {
+        await db.execute(`UPDATE youbot_async_jobs SET ${fields.join(', ')} WHERE id = ?`, params);
+        return true;
+      } catch (error) {
+        return false;
+      }
     },
 
     async addEvent(jobId: string, event: any): Promise<boolean> {
       const existing = await this.get(jobId);
-      if (!existing) return false;
-      
-      // Prevent overwriting a completed result
-      if (existing.status !== 'processing') return false;
+      if (!existing || existing.status !== 'processing') return false;
 
-      // Extract existing events from the transient result struct
       const parsedRes = existing.result || { _type: 'transient_events', events: [] };
       const events = Array.isArray(parsedRes.events) ? parsedRes.events : [];
-      
       events.push({ ...event, timestamp: Date.now() });
 
-      const { error } = await getClient().from('youbot_async_jobs').update({
-        result: JSON.stringify({ _type: 'transient_events', events })
-      }).eq('id', jobId);
-      return !error;
+      try {
+        await db.execute(`UPDATE youbot_async_jobs SET result = ? WHERE id = ?`, [JSON.stringify({ _type: 'transient_events', events }), jobId]);
+        return true;
+      } catch (error) {
+        return false;
+      }
     },
 
     async delete(jobId: string): Promise<boolean> {
-      const { error } = await getClient().from('youbot_async_jobs').delete().eq('id', jobId);
-      return !error;
+      try {
+        await db.execute(`DELETE FROM youbot_async_jobs WHERE id = ?`, [jobId]);
+        return true;
+      } catch (error) {
+        return false;
+      }
     },
 
     async cleanup(maxAgeMs: number): Promise<number> {
-      const cutoff = Date.now() - maxAgeMs;
-      const { data, error } = await getClient()
-        .from('youbot_async_jobs')
-        .delete()
-        .lt('started_at', cutoff)
-        .select('id');
-        
-      if (error) return 0;
-      const count = data ? data.length : 0;
-      if (count > 0) {
-        log.info('JobStore', `Cleaned up ${count} expired async jobs`);
+      const cutoff = new Date(Date.now() - maxAgeMs).toISOString();
+      try {
+        const result = await db.execute(`DELETE FROM youbot_async_jobs WHERE started_at < ?`, [cutoff]);
+        const count = Number(result.changes);
+        if (count > 0) log.info('JobStore', `Cleaned up ${count} expired async jobs`);
+        return count;
+      } catch (error) {
+        return 0;
       }
-      return count;
     },
 
     async failAllProcessingJobs(errorMessage: string): Promise<number> {
-      const { data, error } = await getClient()
-        .from('youbot_async_jobs')
-        .update({ status: 'failed', error: errorMessage, completed_at: Date.now() })
-        .eq('status', 'processing')
-        .select('id');
-        
-      if (error) return 0;
-      const count = data ? data.length : 0;
-      if (count > 0) {
-        log.info('JobStore', `Marked ${count} abandoned jobs as failed`);
+      try {
+        const result = await db.execute(
+          `UPDATE youbot_async_jobs SET status = 'failed', error = ?, completed_at = ? WHERE status = 'processing'`,
+          [errorMessage, new Date().toISOString()]
+        );
+        const count = Number(result.changes);
+        if (count > 0) log.info('JobStore', `Marked ${count} abandoned jobs as failed`);
+        return count;
+      } catch (error) {
+        return 0;
       }
-      return count;
     }
   };
 }

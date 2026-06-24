@@ -106,48 +106,33 @@ export function createApprovalStore(db: DatabaseConnection): ApprovalStore {
     async create(data) {
       const id = generateId();
       const now = new Date().toISOString();
-      await db.get_client().from('youbot_pending_approvals').insert({
-        id,
-        question: data.question,
-        context: data.context,
-        requester_jid: data.requesterJid,
-        session_id: data.sessionId,
-        status: 'pending',
-        created_at: now
-      });
+      await db.execute(
+        `INSERT INTO youbot_pending_approvals (id, question, context, requester_jid, session_id, status, created_at) VALUES (?, ?, ?, ?, ?, 'pending', ?)`,
+        [id, data.question, data.context, data.requesterJid, data.sessionId, now]
+      );
       return (await this.getById(id))!;
     },
 
     async getPending() {
-      const { data, error } = await db.get_client()
-        .from('youbot_pending_approvals')
-        .select('*')
-        .eq('status', 'pending')
-        .order('created_at', { ascending: false });
-        
-      if (error || !data) return [];
+      const data = await db.query(
+        `SELECT * FROM youbot_pending_approvals WHERE status = 'pending' ORDER BY created_at DESC`
+      );
       return data.map(rowToApproval);
     },
 
     async getAll() {
-      const { data, error } = await db.get_client()
-        .from('youbot_pending_approvals')
-        .select('*')
-        .order('created_at', { ascending: false });
-        
-      if (error || !data) return [];
+      const data = await db.query(
+        `SELECT * FROM youbot_pending_approvals ORDER BY created_at DESC`
+      );
       return data.map(rowToApproval);
     },
 
     async getById(id: string) {
-      const { data, error } = await db.get_client()
-        .from('youbot_pending_approvals')
-        .select('*')
-        .eq('id', id)
-        .single();
-        
-      if (error || !data) return null;
-      return rowToApproval(data);
+      const data = await db.get(
+        `SELECT * FROM youbot_pending_approvals WHERE id = ?`,
+        [id]
+      );
+      return data ? rowToApproval(data) : null;
     },
 
     async isPending(id: string) {
@@ -157,23 +142,16 @@ export function createApprovalStore(db: DatabaseConnection): ApprovalStore {
 
     async resolve(id: string, ownerResponse: string) {
       const now = new Date().toISOString();
-      await db.get_client()
-        .from('youbot_pending_approvals')
-        .update({
-          status: 'resolved',
-          owner_response: ownerResponse,
-          resolved_at: now
-        })
-        .eq('id', id);
-        
+      await db.execute(
+        `UPDATE youbot_pending_approvals SET status = 'resolved', owner_response = ?, resolved_at = ? WHERE id = ?`,
+        [ownerResponse, now, id]
+      );
       return this.getById(id);
     },
 
     async delete(id: string) {
-      const existing = await this.getById(id);
-      if (!existing) return false;
-      await db.get_client().from('youbot_pending_approvals').delete().eq('id', id);
-      return true;
+      const res = await db.execute(`DELETE FROM youbot_pending_approvals WHERE id = ?`, [id]);
+      return res.changes > 0;
     },
   };
 }

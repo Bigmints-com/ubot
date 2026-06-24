@@ -121,17 +121,21 @@ export function createSoul(memoryStore: MemoryStore, workspacePath?: string, wor
   // Seed default documents if not already present in memoryStore
   memoryStore.getDocument(BOT_SOUL_ID).then(existingBot => {
     if (!existingBot) {
-      memoryStore.saveDocument(BOT_SOUL_ID, DEFAULT_BOT_SOUL);
+      memoryStore.saveDocument(BOT_SOUL_ID, DEFAULT_BOT_SOUL).catch(err => {
+        console.warn(`[Soul] ⚠️ Failed to seed bot document to DB: ${err.message}`);
+      });
       console.log('[Soul] 🧠 Seeded default bot persona document');
     }
-  });
+  }).catch(() => {});
 
   memoryStore.getDocument(OWNER_SOUL_ID).then(existingOwner => {
     if (!existingOwner) {
-      memoryStore.saveDocument(OWNER_SOUL_ID, DEFAULT_OWNER_SOUL);
+      memoryStore.saveDocument(OWNER_SOUL_ID, DEFAULT_OWNER_SOUL).catch(err => {
+        console.warn(`[Soul] ⚠️ Failed to seed owner document to DB: ${err.message}`);
+      });
       console.log('[Soul] 🧠 Seeded default owner profile document');
     }
-  });
+  }).catch(() => {});
 
   return {
     async getDocument(personaId: string): Promise<string> {
@@ -144,7 +148,11 @@ export function createSoul(memoryStore: MemoryStore, workspacePath?: string, wor
     },
 
     async saveDocument(personaId: string, content: string): Promise<void> {
-      await memoryStore.saveDocument(personaId, content);
+      try {
+        await memoryStore.saveDocument(personaId, content);
+      } catch (err: any) {
+        console.warn(`[Soul] ⚠️ Failed to save to database (is DB configured?): ${err.message}`);
+      }
       
       // Also write to workspace if it's a mapped persona
       if (workspace) {
