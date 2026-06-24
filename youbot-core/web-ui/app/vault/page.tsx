@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
@@ -284,16 +284,14 @@ export default function VaultPage() {
   };
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-6 pb-12 space-y-6 flex-1">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between border-b pb-6 mb-6">
         <div className="flex items-center gap-3">
-          <div className="bg-primary/10 p-2 rounded-lg">
-            <Lock className="size-5 text-primary" />
-          </div>
+          <Lock className="h-8 w-8 text-primary" />
           <div>
             <h1 className="text-2xl font-bold tracking-tight">Vault</h1>
-            <p className="text-muted-foreground text-sm">
+            <p className="text-muted-foreground text-sm mt-1">
               Encrypted secure storage — owner only
             </p>
           </div>
@@ -314,35 +312,41 @@ export default function VaultPage() {
         </div>
       </div>
 
-      <Separator />
-
       {/* Stats */}
       {stats && stats.total > 0 && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           <Card>
-            <CardContent className="p-4 text-center">
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Total Items</CardTitle>
+            </CardHeader>
+            <CardContent>
               <div className="text-2xl font-bold">{stats.total}</div>
-              <div className="text-xs text-muted-foreground">Total Items</div>
             </CardContent>
           </Card>
           <Card>
-            <CardContent className="p-4 text-center">
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Secrets</CardTitle>
+            </CardHeader>
+            <CardContent>
               <div className="text-2xl font-bold">{stats.textItems}</div>
-              <div className="text-xs text-muted-foreground">Secrets</div>
             </CardContent>
           </Card>
           <Card>
-            <CardContent className="p-4 text-center">
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Documents</CardTitle>
+            </CardHeader>
+            <CardContent>
               <div className="text-2xl font-bold">{stats.documentItems}</div>
-              <div className="text-xs text-muted-foreground">Documents</div>
             </CardContent>
           </Card>
           <Card>
-            <CardContent className="p-4 text-center">
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Categories</CardTitle>
+            </CardHeader>
+            <CardContent>
               <div className="text-2xl font-bold">
                 {Object.keys(stats.categories).length}
               </div>
-              <div className="text-xs text-muted-foreground">Categories</div>
             </CardContent>
           </Card>
         </div>

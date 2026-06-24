@@ -30,6 +30,7 @@ import {
   Zap,
   LogOut,
   User,
+  Users,
   ChevronsUpDown,
 } from "lucide-react";
 import Link from "next/link";
@@ -125,19 +126,23 @@ export function registerSidebarFooterExtensions(ext: FooterExtension): void {
 
 // ── Core Nav Items ──────────────────────────────────────
 
-const coreItems: NavItem[] = [
-  { title: "Dashboard", href: "/", icon: LayoutDashboard },
-];
+const coreItems: NavItem[] = [];
 
-const agentItems: NavItem[] = [
-  { title: "Skills", href: "/skills", icon: Puzzle },
-  { title: "Safety Rules", href: "/safety", icon: ShieldAlert },
+const knowledgeItems: NavItem[] = [
+  { title: "Personas", href: "/personas", icon: User },
+  { title: "Contacts", href: "/contacts", icon: Users },
   { title: "Vault", href: "/vault", icon: Lock },
 ];
 
-const automationItems: NavItem[] = [
+const capabilityItems: NavItem[] = [
+  { title: "Models", href: "/llms", icon: Bot },
+  { title: "Skills", href: "/skills", icon: Puzzle },
+  { title: "MCP Servers", href: "/mcp-servers", icon: Plug, feature: "mcp" },
+];
+
+const behaviorItems: NavItem[] = [
+  { title: "Safety Rules", href: "/safety", icon: ShieldAlert },
   { title: "Scheduler", href: "/scheduler", icon: Clock },
-  { title: "Task Manager", href: "/tasks", icon: LayoutTemplate },
 ];
 
 const channelItems: NavItem[] = [
@@ -146,19 +151,13 @@ const channelItems: NavItem[] = [
   { title: "Web Chat", href: "/webchat", icon: Globe, feature: "webchat" },
 ];
 
-const capabilityItems: NavItem[] = [
-  { title: "Models", href: "/llms", icon: Bot },
-  { title: "Filesystem", href: "/filesystem", icon: FolderOpen, feature: "filesystem" },
-  { title: "MCP Servers", href: "/mcp-servers", icon: Plug, feature: "mcp" },
-];
-
 /** Merge core items with any injected extension items for a group */
 function getGroupItems(group: ExistingGroup, coreItems: NavItem[]): NavItem[] {
   const injected = _groupInjections.get(group) || [];
   return [...coreItems, ...injected];
 }
 
-const monitorItems: NavItem[] = [
+const systemItems: NavItem[] = [
   { title: "Logs", href: "/logs", icon: ScrollText },
   { title: "Tools Health", href: "/tools", icon: Activity },
 ];
@@ -294,40 +293,45 @@ export function AppSidebar() {
       </SidebarHeader>
 
       <SidebarContent>
-        <SidebarGroup>
-          <SidebarGroupLabel>Core</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {coreItems.map(renderItem)}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
+
 
         {/* Extension point: after-core */}
         {getExtensions('after-core').map((g, i) => renderGroup(g, `ext-core-${i}`))}
 
         <SidebarGroup>
-          <SidebarGroupLabel>Agents</SidebarGroupLabel>
+          <SidebarGroupLabel>Knowledge & Identity</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {agentItems.map(renderItem)}
+              {knowledgeItems.map(renderItem)}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
 
-        {/* Extension point: after-agents */}
+        {/* Extension point: after-agents (kept for backward compatibility) */}
         {getExtensions('after-agents').map((g, i) => renderGroup(g, `ext-agents-${i}`))}
 
         <SidebarGroup>
-          <SidebarGroupLabel>Automation</SidebarGroupLabel>
+          <SidebarGroupLabel>Capabilities</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {automationItems.map(renderItem)}
+              {filteredCapabilities.map(renderItem)}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
 
-        {/* Extension point: after-automation */}
+        {/* Extension point: after-capabilities */}
+        {getExtensions('after-capabilities').map((g, i) => renderGroup(g, `ext-cap-${i}`))}
+
+        <SidebarGroup>
+          <SidebarGroupLabel>Behavior & Rules</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {behaviorItems.map(renderItem)}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+
+        {/* Extension point: after-automation (kept for backward compatibility) */}
         {getExtensions('after-automation').map((g, i) => renderGroup(g, `ext-auto-${i}`))}
 
         {/* Channels — only show if any channel features are enabled */}
@@ -346,22 +350,10 @@ export function AppSidebar() {
         {getExtensions('after-channels').map((g, i) => renderGroup(g, `ext-chan-${i}`))}
 
         <SidebarGroup>
-          <SidebarGroupLabel>Capabilities</SidebarGroupLabel>
+          <SidebarGroupLabel>System Monitor</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {filteredCapabilities.map(renderItem)}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
-
-        {/* Extension point: after-capabilities */}
-        {getExtensions('after-capabilities').map((g, i) => renderGroup(g, `ext-cap-${i}`))}
-
-        <SidebarGroup>
-          <SidebarGroupLabel>Monitor</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {monitorItems.map(renderItem)}
+              {systemItems.map(renderItem)}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>

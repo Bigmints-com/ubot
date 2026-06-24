@@ -156,13 +156,13 @@ export default function DashboardPage() {
     : [];
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-6 pb-12 space-y-6 flex-1">
       {/* Header */}
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-3 border-b pb-6 mb-6">
         <BarChart3 className="h-8 w-8 text-primary" />
         <div>
-          <h1 className="text-2xl font-bold">Dashboard</h1>
-          <p className="text-sm text-muted-foreground">
+          <h1 className="text-2xl font-bold tracking-tight">Dashboard</h1>
+          <p className="text-sm text-muted-foreground mt-1">
             Real-time overview of agent activity across all channels
           </p>
         </div>
@@ -368,7 +368,11 @@ export default function DashboardPage() {
             </div>
             <div className="flex justify-between items-center">
               <span className="text-sm text-muted-foreground">Model</span>
-              <Badge variant="outline">{chatConfig?.model || "—"}</Badge>
+              {chatConfig?.model ? (
+                <Badge variant="outline">{chatConfig.model}</Badge>
+              ) : (
+                <span className="text-muted-foreground">—</span>
+              )}
             </div>
             <div className="flex justify-between items-center">
               <span className="text-sm text-muted-foreground">Base URL</span>

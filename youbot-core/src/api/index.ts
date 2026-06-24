@@ -819,11 +819,7 @@ function migrateConfig(): void {
     log.info('Migration', 'Moved cli → capabilities.cli');
     changed = true;
   }
-  if (cfg.filesystem?.allowed_paths && !cfg.capabilities.filesystem) {
-    cfg.capabilities.filesystem = { enabled: true, ...cfg.filesystem };
-    log.info('Migration', 'Moved filesystem → capabilities.filesystem');
-    changed = true;
-  }
+
   if (cfg.mcp?.servers && !cfg.capabilities.mcp) {
     cfg.capabilities.mcp = cfg.mcp;
     log.info('Migration', 'Moved mcp → capabilities.mcp');
@@ -835,7 +831,7 @@ function migrateConfig(): void {
   if (!cfg.capabilities.search) {
     cfg.capabilities.search = { enabled: true, default: 'duckduckgo', providers: { duckduckgo: { enabled: true } } };
   }
-  if (!cfg.capabilities.filesystem) cfg.capabilities.filesystem = { enabled: true, allowed_paths: [] };
+
   if (!cfg.agent) cfg.agent = { max_history_messages: 20 };
 
   // ── Clean up legacy top-level fields ──
@@ -844,7 +840,7 @@ function migrateConfig(): void {
   delete cfg.models;
   delete cfg.search;
   delete cfg.cli;
-  delete cfg.filesystem;
+
   delete cfg.mcp;
 
   // ── Set version ──
@@ -1177,7 +1173,7 @@ export function initializeApi(
   }
 
   // Log deployment mode
-  console.log(`[YOUBOT] Mode: ${MODE.toUpperCase()} | Features: WA=${FEATURES.whatsapp} TG=${FEATURES.telegram} FS=${FEATURES.filesystem} CLI=${FEATURES.cli}`);
+  console.log(`[YOUBOT] Mode: ${MODE.toUpperCase()} | Features: WA=${FEATURES.whatsapp} TG=${FEATURES.telegram} CLI=${FEATURES.cli}`);
 
   // Gate channel auto-connect based on deployment mode and extension hooks
   const startupHooks = getHooks().startup;
@@ -1318,7 +1314,7 @@ async function handleChannelRoutes(
       serper_api_key: serperKey ? '••••' + serperKey.slice(-4) : '',
       serper_configured: !!serperKey,
       cli: caps.cli || { enabled: false, default: 'gemini' },
-      filesystem: caps.filesystem || { enabled: true, allowed_paths: [] },
+
     });
     return true;
   }
@@ -1338,9 +1334,7 @@ async function handleChannelRoutes(
     if (body.cli !== undefined) {
       cfg.capabilities.cli = { ...cfg.capabilities.cli, ...body.cli };
     }
-    if (body.filesystem !== undefined) {
-      cfg.capabilities.filesystem = { ...cfg.capabilities.filesystem, ...body.filesystem };
-    }
+
 
     saveYoubotConfig(cfg);
     json(res, { saved: true });

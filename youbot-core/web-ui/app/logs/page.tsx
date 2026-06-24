@@ -109,18 +109,24 @@ export default function LogsPage() {
   };
 
   return (
-    <div className="flex flex-col h-[calc(100vh-3rem)]">
-      {/* Toolbar */}
-      <div className="flex items-center justify-between px-4 py-2 border-b bg-background/95 backdrop-blur">
-        <div className="flex items-center gap-2">
-          <ScrollText className="size-5 text-primary" />
-          <h1 className="text-sm font-semibold">Live Logs</h1>
-          <Badge variant="outline" className="text-xs tabular-nums">
-            {filtered.length} entries
-          </Badge>
+    <div className="p-6 pb-12 space-y-6 flex-1 flex flex-col h-[calc(100vh-3rem)]">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b pb-6 shrink-0">
+        <div className="flex items-center gap-3">
+          <ScrollText className="h-8 w-8 text-primary" />
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight">Live Logs</h1>
+            <p className="text-muted-foreground text-sm mt-1">
+              Real-time system and agent activity logs
+            </p>
+          </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge variant="outline" className="text-xs tabular-nums mr-2">
+            {filtered.length} entries
+          </Badge>
+
           {/* Tag filter */}
           <div className="flex items-center gap-1">
             <Filter className="size-3.5 text-muted-foreground" />
@@ -184,7 +190,7 @@ export default function LogsPage() {
       {/* Log output */}
       <div
         ref={containerRef}
-        className="flex-1 overflow-auto bg-zinc-50 dark:bg-zinc-950 font-mono text-[13px] leading-6 p-2"
+        className="flex-1 overflow-auto bg-zinc-50 dark:bg-zinc-950 font-mono text-[13px] leading-6 p-2 rounded-md border min-h-[400px]"
       >
         {filtered.length === 0 ? (
           <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
@@ -193,9 +199,9 @@ export default function LogsPage() {
               : "No entries match the current filters"}
           </div>
         ) : (
-          filtered.map((entry) => (
+          filtered.map((entry, index) => (
             <div
-              key={entry.id}
+              key={`${entry.id}-${index}`}
               className="flex items-start gap-2 hover:bg-zinc-200/50 dark:hover:bg-zinc-900/50 px-2 rounded group"
             >
               {/* Timestamp */}

@@ -71,18 +71,17 @@ export default function SettingsPage() {
   };
 
   return (
-    <div className="p-6 space-y-6 max-w-4xl mx-auto">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
-          <Settings className="size-6" />
-          Settings
-        </h1>
-        <p className="text-muted-foreground">
-          Configure agent behavior, default providers, and owner identity
-        </p>
+    <div className="p-6 pb-12 space-y-6 flex-1">
+      {/* Header */}
+      <div className="flex items-center gap-3 border-b pb-6 mb-6">
+        <Settings className="h-8 w-8 text-primary" />
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">Settings</h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            Configure agent behavior, default providers, and owner identity
+          </p>
+        </div>
       </div>
-
-      <Separator />
 
       <div className="space-y-4">
         {/* ── Context ── */}
@@ -142,6 +141,8 @@ export default function SettingsPage() {
                 Your Telegram username (without @).
               </p>
             </div>
+
+            <Separator />
 
             <div className="space-y-2">
               <Label htmlFor="ownerTelegramId">Telegram Chat ID</Label>

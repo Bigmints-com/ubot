@@ -118,13 +118,13 @@ export default function WebchatPage() {
       : "bg-muted-foreground";
 
   return (
-    <div className="p-6 space-y-6 max-w-4xl mx-auto">
-      {/* Header — matches WhatsApp / Telegram */}
-      <div className="flex items-center gap-3">
-        <Globe className="h-8 w-8 text-indigo-600 dark:text-indigo-400" />
+    <div className="p-6 pb-12 space-y-6 flex-1">
+      {/* Header */}
+      <div className="flex items-center gap-3 border-b pb-6 mb-6">
+        <Globe className="h-8 w-8 text-primary" />
         <div>
           <h1 className="text-2xl font-bold">Web Chat</h1>
-          <p className="text-sm text-muted-foreground">
+          <p className="text-sm text-muted-foreground mt-1">
             Embed a chat widget on any website — messages flow through a cloud relay
           </p>
         </div>

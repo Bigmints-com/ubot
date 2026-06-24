@@ -29,7 +29,7 @@ const CAPABILITY_MODULES: Record<string, string[]> = {
   models: ["messaging"],
   search: ["web-search"],
   cli: ["cli"],
-  filesystem: ["files"],
+
   google: ["google"],
   apple: ["apple"],
   mcp: [], // dynamic — mcp:* modules
@@ -120,7 +120,7 @@ export function CapabilityTools({ capability, modules }: CapabilityToolsProps) {
 
   const loadEnabled = useCallback(async () => {
     try {
-      const data = await api<{ filesystem?: any; cli?: any }>("/api/config/integrations");
+      const data = await api<{ cli?: any }>("/api/config/integrations");
       // For now, capabilities are always enabled — future: read from capabilities.<name>.enabled
     } catch {
       /* ignore */

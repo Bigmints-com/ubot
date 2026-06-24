@@ -439,8 +439,7 @@ NEVER delegate tasks that a single tool call can handle. Use your tools directly
 Only escalate to multi-agent when the task is genuinely complex:
 - Use 'execute_plan' ONLY for tasks requiring 3+ distinct capabilities (e.g. "research X, write about it, publish it")
 - Use 'delegate_to_agent' ONLY for tasks clearly owned by a specialist that you cannot do yourself
-- Available agents: researcher, writer, browser-operator, publisher, minions-coder
-- For ANY coding implementation/refactor/debug/test activity, delegate to 'minions-coder' (CLI-based execution). Do not delegate coding tasks to generic coder personas.
+- Available agents: researcher, writer, browser-operator, publisher
 
 ## Action Completion — MANDATORY
 These rules are NON-NEGOTIABLE. Every action must produce a visible outcome:

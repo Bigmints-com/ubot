@@ -93,12 +93,12 @@ export default function TelegramPage() {
         : "bg-muted-foreground";
 
   return (
-    <div className="p-6 space-y-6 max-w-4xl mx-auto">
-      <div className="flex items-center gap-3">
-        <Send className="h-8 w-8 text-blue-600 dark:text-blue-400" />
+    <div className="p-6 pb-12 space-y-6 flex-1">
+      <div className="flex items-center gap-3 border-b pb-6 mb-6">
+        <Send className="h-8 w-8 text-primary" />
         <div>
           <h1 className="text-2xl font-bold">Telegram</h1>
-          <p className="text-sm text-muted-foreground">
+          <p className="text-sm text-muted-foreground mt-1">
             Connect a Telegram bot to receive and send messages
           </p>
         </div>
@@ -127,7 +127,7 @@ export default function TelegramPage() {
             <div className="flex items-center gap-3 p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
               <Bot className="h-8 w-8 text-emerald-600 dark:text-emerald-400" />
               <div>
-                <p className="font-medium text-emerald-700 dark:text-emerald-300">
+                <p className="font-semibold text-emerald-900 dark:text-emerald-100">
                   @{botUsername}
                 </p>
                 <p className="text-sm text-muted-foreground">{botName}</p>

@@ -75,13 +75,16 @@ export default function SafetyPage() {
   };
 
   return (
-    <div className="p-6 space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Safety Rules</h1>
-          <p className="text-muted-foreground">
-            Content filtering and safety guardrails
-          </p>
+    <div className="p-6 pb-12 space-y-6 flex-1">
+      <div className="flex items-center justify-between border-b pb-6 mb-6">
+        <div className="flex items-center gap-3">
+          <Shield className="h-8 w-8 text-primary" />
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight">Safety Rules</h1>
+            <p className="text-muted-foreground text-sm mt-1">
+              Content filtering and safety guardrails
+            </p>
+          </div>
         </div>
         <Button variant="outline" size="sm" onClick={loadRules}>
           <RefreshCw className="size-4 mr-2" />
@@ -89,15 +92,12 @@ export default function SafetyPage() {
         </Button>
       </div>
 
-      <Separator />
-
       <Card>
         <CardContent className="p-0">
           <Table>
             <TableHeader>
               <TableRow>
                 <TableHead>Rule</TableHead>
-                <TableHead>Type</TableHead>
                 <TableHead>Action</TableHead>
                 <TableHead>Enabled</TableHead>
               </TableRow>
@@ -122,9 +122,6 @@ export default function SafetyPage() {
                           {rule.description}
                         </p>
                       </div>
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant="outline">{rule.type}</Badge>
                     </TableCell>
                     <TableCell>
                       <Badge

@@ -70,7 +70,6 @@ export const FEATURES: Record<string, boolean> = {
   lmstudio:       isLocal,
   localWhisper:   isLocal,
   localTts:       isLocal,
-  filesystem:     isLocal,
   cli:            isLocal,
   browserMcp:     isLocal,
 };

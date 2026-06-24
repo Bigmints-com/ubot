@@ -11,6 +11,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Bot, User, Users, Save, RefreshCw, Brain, Trash2, Check, Plus, Database, Eye, Pencil } from "lucide-react";
+import { EmptyState } from "@/components/ui/empty-state";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
 
@@ -905,6 +906,14 @@ function ContactsTable() {
           Refresh
         </Button>
       </div>
+
+      {personas.length === 0 && !loading ? (
+        <EmptyState
+          icon={<Users className="size-8" />}
+          title="No contacts found"
+          description="Contacts will automatically appear here as users interact with the bot."
+        />
+      ) : (
       <Card>
         <CardContent className="p-0">
           <Table>
@@ -981,6 +990,7 @@ function ContactsTable() {
           </Table>
         </CardContent>
       </Card>
+      )}
     </div>
   );
 }
@@ -990,48 +1000,21 @@ function ContactsTable() {
 /*  Main Page                                                          */
 /* ------------------------------------------------------------------ */
 
-export default function PersonasPage() {
+export default function ContactsPage() {
   return (
     <div className="p-6 pb-12 space-y-6 flex-1">
       <div className="flex items-center gap-3 border-b pb-6 mb-6">
-        <Brain className="h-8 w-8 text-primary" />
+        <Users className="h-8 w-8 text-primary" />
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Personas</h1>
+          <h1 className="text-2xl font-bold tracking-tight">Contacts</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Manage the bot&apos;s identity and your owner profile.
-            Documents are automatically updated from conversations.
+            Manage your contact knowledge base.
+            Profiles are automatically updated from conversations.
           </p>
         </div>
       </div>
 
-      <Tabs defaultValue="bot" className="w-full">
-        <TabsList className="grid w-full max-w-xl grid-cols-2">
-          <TabsTrigger value="bot" className="flex items-center gap-1.5">
-            <Bot className="size-4" />
-            Bot Identity
-          </TabsTrigger>
-          <TabsTrigger value="owner" className="flex items-center gap-1.5">
-            <User className="size-4" />
-            Owner Profile
-          </TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="bot" className="mt-6">
-          <DocumentEditor
-            personaId={BOT_SOUL_ID}
-            label="Bot Identity (IDENTITY.md)"
-            description="Ubot's core persona and communication style. Stored as Markdown in your workspace."
-          />
-        </TabsContent>
-
-        <TabsContent value="owner" className="mt-6 space-y-4">
-          <DocumentEditor
-            personaId={OWNER_SOUL_ID}
-            label="Owner Profile (SOUL.md)"
-            description="Your personality and preferences. Auto-enriched and stored as Markdown."
-          />
-        </TabsContent>
-      </Tabs>
+      <ContactsTable />
     </div>
   );
 }

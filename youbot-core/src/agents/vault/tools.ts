@@ -15,14 +15,6 @@ import fs from 'fs';
 
 const CATEGORIES = ['general', 'credentials', 'identity', 'finance', 'documents', 'keys', 'notes'];
 
-function getAllowedPaths(): string[] {
-  const config = loadYoubotConfig();
-  const paths = config.capabilities?.filesystem?.allowed_paths || [];
-  return paths.map((p: string) =>
-    p.startsWith('~') ? path.join(process.env.HOME || '', p.slice(1)) : p
-  );
-}
-
 const vaultTools: ToolDefinition[] = [
   {
     name: 'vault_store',
@@ -125,8 +117,8 @@ const vaultToolModule: ToolModule = {
       }
 
       try {
-        // Validate path security
-        const safePath = safety.validatePathWithAllowedPaths(filePath, workspacePath || '', getAllowedPaths());
+        // Validate path security (only allow files within workspace)
+        const safePath = safety.validatePathWithAllowedPaths(filePath, workspacePath || '', []);
         // Read the file from local filesystem (agent tool works with local files)
         const fileData = fs.readFileSync(safePath);
         const filename = path.basename(safePath);

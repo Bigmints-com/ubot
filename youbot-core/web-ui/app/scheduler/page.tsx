@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
+import { EmptyState } from "@/components/ui/empty-state";
 import {
   Table,
   TableBody,
@@ -76,21 +77,22 @@ export default function SchedulerPage() {
   }, []);
 
   return (
-    <div className="p-6 space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Scheduler</h1>
-          <p className="text-muted-foreground">
-            Manage scheduled tasks and cron jobs
-          </p>
+    <div className="p-6 pb-12 space-y-6 flex-1">
+      <div className="flex items-center justify-between border-b pb-6 mb-6">
+        <div className="flex items-center gap-3">
+          <Clock className="h-8 w-8 text-primary" />
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight">Scheduler</h1>
+            <p className="text-muted-foreground text-sm mt-1">
+              Manage scheduled tasks and cron jobs
+            </p>
+          </div>
         </div>
         <Button variant="outline" size="sm" onClick={loadTasks}>
           <RefreshCw className="size-4 mr-2" />
           Refresh
         </Button>
       </div>
-
-      <Separator />
 
       <div className="grid gap-4 md:grid-cols-3">
         <Card>
@@ -123,6 +125,13 @@ export default function SchedulerPage() {
         </Card>
       </div>
 
+      {tasks.length === 0 && !loading ? (
+        <EmptyState
+          icon={<Clock className="size-8" />}
+          title="No scheduled tasks"
+          description="You do not have any tasks or cron jobs configured yet."
+        />
+      ) : (
       <Card>
         <CardContent className="p-0">
           <Table>
@@ -137,17 +146,7 @@ export default function SchedulerPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {tasks.length === 0 ? (
-                <TableRow>
-                  <TableCell
-                    colSpan={6}
-                    className="text-center text-muted-foreground py-8"
-                  >
-                    {loading ? "Loading tasks..." : "No scheduled tasks"}
-                  </TableCell>
-                </TableRow>
-              ) : (
-                tasks.map((task) => (
+              {tasks.map((task) => (
                   <TableRow key={task.id}>
                     <TableCell>
                       <div className="font-medium">{task.name}</div>
@@ -196,12 +195,12 @@ export default function SchedulerPage() {
                         : "Never"}
                     </TableCell>
                   </TableRow>
-                ))
-              )}
+                ))}
             </TableBody>
           </Table>
         </CardContent>
       </Card>
+      )}
     </div>
   );
 }

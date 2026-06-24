@@ -49,7 +49,6 @@ const ALWAYS_DISABLED = new Set<string>();
 // Map capability directory names → feature flag names
 const CAPABILITY_FEATURE_MAP: Record<string, FeatureName> = {
   apple: "appleServices",
-  filesystem: "filesystem",
   cli: "cli",
   // transcription: always enabled — uses configured LLM provider, no local model required
   // tts: always enabled — uses configured LLM provider, no local binary required

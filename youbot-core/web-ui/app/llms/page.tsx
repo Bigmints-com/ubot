@@ -528,17 +528,16 @@ export default function ModelsPage() {
   // ── Render ─────────────────────────────────────────────────
 
   return (
-    <div className="p-6 space-y-6 max-w-4xl mx-auto">
+    <div className="p-6 pb-12 space-y-6 flex-1">
       {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
-          <Bot className="size-6" />
-          AI Models
-        </h1>
-        <p className="text-muted-foreground mt-1">
-          Add your API keys and the system will automatically route tasks to the
-          best model
-        </p>
+      <div className="flex items-center gap-3 border-b pb-6 mb-6">
+        <Bot className="h-8 w-8 text-primary" />
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">AI Models</h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            Add your API keys and the system will automatically route tasks to the best model
+          </p>
+        </div>
       </div>
 
       {/* ─── Section 1: API Keys ──────────────────────────────── */}
@@ -590,7 +589,7 @@ export default function ModelsPage() {
               <h2 className="text-lg font-semibold">Usage & Costs</h2>
             </div>
             <Select value={usagePeriod} onValueChange={setUsagePeriod}>
-              <SelectTrigger className="w-[120px]">
+              <SelectTrigger className="w-[150px]">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -603,11 +602,13 @@ export default function ModelsPage() {
           </div>
 
           {/* Summary cards */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <Card>
-              <CardContent className="p-4">
-                <p className="text-xs text-muted-foreground">Total Calls</p>
-                <p className="text-xl font-bold">
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Total Calls</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">
                   {Object.values(
                     (usage.byPurpose || {}) as Record<
                       string,
@@ -616,34 +617,38 @@ export default function ModelsPage() {
                   )
                     .reduce((s, p) => s + p.calls, 0)
                     .toLocaleString()}
-                </p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="p-4">
-                <p className="text-xs text-muted-foreground">Input Tokens</p>
-                <p className="text-xl font-bold">
-                  {(usage.totalInputTokens || 0).toLocaleString()}
-                </p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="p-4">
-                <p className="text-xs text-muted-foreground">Output Tokens</p>
-                <p className="text-xl font-bold">
-                  {(usage.totalOutputTokens || 0).toLocaleString()}
-                </p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="p-4">
-                <div className="flex items-center gap-1">
-                  <TrendingUp className="size-3 text-muted-foreground" />
-                  <p className="text-xs text-muted-foreground">Est. Cost</p>
                 </div>
-                <p className="text-xl font-bold text-primary">
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Input Tokens</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">
+                  {(usage.totalInputTokens || 0).toLocaleString()}
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Output Tokens</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">
+                  {(usage.totalOutputTokens || 0).toLocaleString()}
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Est. Cost</CardTitle>
+                <TrendingUp className="size-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold text-primary">
                   ${(usage.totalCost || 0).toFixed(4)}
-                </p>
+                </div>
               </CardContent>
             </Card>
           </div>
