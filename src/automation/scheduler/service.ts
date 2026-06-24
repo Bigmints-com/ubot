@@ -101,55 +101,50 @@ export class TaskSchedulerService {
     // Persistence disabled temporarily during Supabase migration
   }
 
-  /** Persist a task to database */
   private async persistTask(task: Task): Promise<void> {
     if (!this.db) return;
     try {
-      const client = this.db.get_client();
-      await client.from('youbot_scheduled_tasks').upsert({
-        id: task.id,
-        name: task.name,
-        description: task.description,
-        tag: task.handler, // The tag/handler ID is stored here
-        schedule: task.schedule,
-        data: typeof task.data === 'string' ? task.data : JSON.stringify(task.data),
-        priority: task.priority,
-        status: task.status,
-        tags: JSON.stringify(task.tags || []),
-        metadata: JSON.stringify(task.metadata || {}),
-        created_at: task.createdAt.toISOString(),
-        updated_at: task.updatedAt.toISOString(),
-        next_run_at: task.nextRunAt ? task.nextRunAt.toISOString() : null,
-        run_count: task.runCount,
-        failure_count: task.failureCount,
-        enabled: task.enabled ? 1 : 0
-      });
+      await this.db.execute(
+        `INSERT OR REPLACE INTO youbot_scheduled_tasks 
+          (id, name, description, tag, schedule, data, priority, status, tags, metadata, created_at, updated_at, next_run_at, run_count, failure_count, enabled)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          task.id,
+          task.name,
+          task.description,
+          task.handler, // The tag/handler ID is stored here
+          task.schedule,
+          typeof task.data === 'string' ? task.data : JSON.stringify(task.data),
+          task.priority,
+          task.status,
+          JSON.stringify(task.tags || []),
+          JSON.stringify(task.metadata || {}),
+          task.createdAt.toISOString(),
+          task.updatedAt.toISOString(),
+          task.nextRunAt ? task.nextRunAt.toISOString() : null,
+          task.runCount,
+          task.failureCount,
+          task.enabled ? 1 : 0
+        ]
+      );
     } catch (err: any) {
       this.logger?.error(`Failed to persist task ${task.id}: ${err.message}`);
     }
   }
 
-  /** Remove a task from database */
   private async unpersistTask(id: string): Promise<void> {
     if (!this.db) return;
     try {
-      const client = this.db.get_client();
-      await client.from('youbot_scheduled_tasks').delete().eq('id', id);
+      await this.db.execute(`DELETE FROM youbot_scheduled_tasks WHERE id = ?`, [id]);
     } catch (err: any) {
       this.logger?.error(`Failed to unpersist task ${id}: ${err.message}`);
     }
   }
 
-  /** Load persisted tasks from database and re-create them with handler factories */
   async loadPersistedTasks(): Promise<number> {
     if (!this.db) return 0;
     try {
-      const client = this.db.get_client();
-      const { data: rows, error } = await client.from('youbot_scheduled_tasks').select('*');
-      if (error) {
-        this.logger?.error(`Failed to load persisted tasks: ${error.message}`);
-        return 0;
-      }
+      const rows = await this.db.query(`SELECT * FROM youbot_scheduled_tasks`);
 
       if (!rows || rows.length === 0) return 0;
 

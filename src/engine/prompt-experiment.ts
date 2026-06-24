@@ -47,15 +47,10 @@ export class PromptExperimentManager {
   async createExperiment(ex: Omit<PromptExperiment, 'createdAt'>): Promise<void> {
     if (!this.db) return;
     try {
-      await this.db.get_client().from('youbot_prompt_experiments').insert({
-        id: ex.id,
-        name: ex.name,
-        description: ex.description,
-        variants_json: JSON.stringify(ex.variants),
-        traffic_split_json: JSON.stringify(ex.trafficSplit),
-        active: ex.active ? 1 : 0,
-        created_at: new Date().toISOString()
-      });
+      await this.db.execute(
+        `INSERT INTO youbot_prompt_experiments (id, name, description, variants_json, traffic_split_json, active, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [ex.id, ex.name, ex.description, JSON.stringify(ex.variants), JSON.stringify(ex.trafficSplit), ex.active ? 1 : 0, new Date().toISOString()]
+      );
     } catch (err: any) {
       log.error('ExperimentManager', `Failed to create experiment: ${err.message}`);
     }
@@ -64,14 +59,11 @@ export class PromptExperimentManager {
   async getActiveExperiment(): Promise<PromptExperiment | null> {
     if (!this.db) return null;
     try {
-      const { data: row, error } = await this.db.get_client()
-        .from('youbot_prompt_experiments')
-        .select('*')
-        .eq('active', 1)
-        .limit(1)
-        .single();
+      const row = await this.db.get(
+        `SELECT * FROM youbot_prompt_experiments WHERE active = 1 LIMIT 1`
+      );
         
-      if (error || !row) return null;
+      if (!row) return null;
 
       return {
         id: row.id,
@@ -107,16 +99,10 @@ export class PromptExperimentManager {
   async recordResult(res: Omit<ExperimentResult, 'timestamp'>): Promise<void> {
     if (!this.db) return;
     try {
-      await this.db.get_client().from('youbot_experiment_results').insert({
-        experiment_id: res.experimentId,
-        variant_id: res.variantId,
-        session_id: res.sessionId,
-        tool_calls: res.toolCalls,
-        tool_successes: res.toolSuccesses,
-        tool_failures: res.toolFailures,
-        response_time_ms: res.responseTimeMs,
-        timestamp: new Date().toISOString()
-      });
+      await this.db.execute(
+        `INSERT INTO youbot_experiment_results (experiment_id, variant_id, session_id, tool_calls, tool_successes, tool_failures, response_time_ms, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [res.experimentId, res.variantId, res.sessionId, res.toolCalls, res.toolSuccesses, res.toolFailures, res.responseTimeMs, new Date().toISOString()]
+      );
     } catch (err: any) {
       log.error('ExperimentManager', `Failed to record result: ${err.message}`);
     }
@@ -124,27 +110,30 @@ export class PromptExperimentManager {
 
   async deactivateExperiment(id: string): Promise<void> {
     if (!this.db) return;
-    await this.db.get_client().from('youbot_prompt_experiments').update({ active: 0 }).eq('id', id);
+    await this.db.execute(`UPDATE youbot_prompt_experiments SET active = 0 WHERE id = ?`, [id]);
   }
 
   async getResults(experimentId: string): Promise<any[]> {
     if (!this.db) return [];
     
-    // Supabase RPC or aggregate via PostgREST may be needed, but for now we mimic with RPC or manual
-    const { data, error } = await this.db.get_client()
-      .rpc('get_experiment_results_agg', { exp_id: experimentId });
-      
-    if (error) {
+    try {
+      const rows = await this.db.query(
+        `SELECT variant_id, COUNT(*) as count, AVG(tool_calls) as avg_tool_calls, AVG(tool_successes) as avg_successes, AVG(tool_failures) as avg_failures, AVG(response_time_ms) as avg_time 
+         FROM youbot_experiment_results 
+         WHERE experiment_id = ? 
+         GROUP BY variant_id`, 
+         [experimentId]
+      );
+      return rows;
+    } catch (error: any) {
       log.error('ExperimentManager', `Failed to aggregate results: ${error.message}`);
       return [];
     }
-    
-    return data;
   }
 
   async getAllExperiments(): Promise<any[]> {
     if (!this.db) return [];
-    const { data } = await this.db.get_client().from('youbot_prompt_experiments').select('*').order('created_at', { ascending: false });
+    const data = await this.db.query(`SELECT * FROM youbot_prompt_experiments ORDER BY created_at DESC`);
     return data || [];
   }
 }

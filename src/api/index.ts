@@ -53,6 +53,7 @@ import { handleVaultRoutes } from './routes/vault.js';
 import { handleMemoryRoutes } from './routes/memory.js';
 import { handleIntegrationRoutes } from './routes/integrations.js';
 import { handleIntegrationProviderRoutes } from './routes/integrations-providers.js';
+import { handleIntegrationsGoogleRoutes } from './routes/integrations-google.js';
 import { handleToolsRoutes } from './routes/tools.js';
 import { handleWebchatRoutes, ensureWebchatToken } from './routes/webchat.js';
 import { handleModulesRoutes } from './routes/modules.js';
@@ -1915,8 +1916,9 @@ export async function handleApiRoute(
   if (await handleSkillRoutes(req, res, url, method, ctx)) return true;
   if (await handleSafetyRoutes(req, res, url, method, ctx)) return true;
   if (await handleMemoryRoutes(req, res, url, method, ctx)) return true;
-  if (await handleIntegrationProviderRoutes(req, res, url, method, ctx)) return true;
   if (await handleIntegrationRoutes(req, res, url, method, ctx)) return true;
+  if (await handleIntegrationProviderRoutes(req, res, url, method, ctx)) return true;
+  if (await handleIntegrationsGoogleRoutes(req, res, url, method, ctx)) return true;
   if (await handleToolsRoutes(req, res, url, method, ctx)) return true;
 async function handleExperimentRoutes(req: http.IncomingMessage, res: http.ServerResponse, url: string, method: string): Promise<boolean> {
   const experiments = getPromptExperiments();

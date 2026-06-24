@@ -98,17 +98,11 @@ export class MeteringService {
     const cost = calculateCost(model, inputTokens, outputTokens);
     
     // Fire and forget
-    this.db.get_client().from('youbot_llm_usage').insert({
-      model,
-      purpose,
-      provider_id: providerId,
-      input_tokens: inputTokens,
-      output_tokens: outputTokens,
-      total_tokens: totalTokens,
-      estimated_cost: cost,
-      timestamp: new Date().toISOString()
-    }).then(({ error }: any) => {
-      if (error) console.error('[Metering] Failed to record usage:', error.message);
+    this.db.execute(
+      `INSERT INTO youbot_llm_usage (model, purpose, provider_id, input_tokens, output_tokens, total_tokens, estimated_cost, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [model, purpose, providerId, inputTokens, outputTokens, totalTokens, cost, new Date().toISOString()]
+    ).catch((error: any) => {
+      console.error('[Metering] Failed to record usage:', error.message);
     });
   }
 
@@ -116,10 +110,10 @@ export class MeteringService {
   async getSummary(period: 'today' | '7d' | '30d' | 'all' = '30d'): Promise<UsageSummary> {
     const since = this.getSinceDate(period);
 
-    const { data: rows, error } = await this.db.get_client()
-      .from('youbot_llm_usage')
-      .select('*')
-      .gte('timestamp', since);
+    const rows = await this.db.query(
+      `SELECT * FROM youbot_llm_usage WHERE timestamp >= ?`,
+      [since]
+    );
 
     const summary: UsageSummary = {
       period,
@@ -132,7 +126,7 @@ export class MeteringService {
       dailyCosts: []
     };
 
-    if (error || !rows) return summary;
+    if (!rows) return summary;
 
     const dailyMap = new Map<string, { cost: number; tokens: number }>();
 

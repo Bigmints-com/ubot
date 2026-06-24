@@ -80,18 +80,15 @@ class MetricsCollector {
     if (!success) t.errors++;
     t.lastUsed = new Date().toISOString();
 
-    // Supabase update (fire-and-forget inside async but we await anyway if called explicitly)
+    // Database update (fire-and-forget inside async but we await anyway if called explicitly)
     if (this.db) {
       try {
-        await this.db.get_client().from('youbot_tool_metrics').insert({
-          tool_name: toolName,
-          success: success ? 1 : 0,
-          duration_ms: durationMs || null,
-          session_id: sessionId || null,
-          timestamp: new Date().toISOString()
-        });
+        await this.db.execute(
+          `INSERT INTO youbot_tool_metrics (tool_name, success, duration_ms, session_id, timestamp) VALUES (?, ?, ?, ?, ?)`,
+          [toolName, success ? 1 : 0, durationMs || null, sessionId || null, new Date().toISOString()]
+        );
       } catch (err: any) {
-        console.error(`[Metrics] Supabase recordTool failed: ${err.message}`);
+        console.error(`[Metrics] Database recordTool failed: ${err.message}`);
       }
     }
   }
@@ -104,12 +101,10 @@ class MetricsCollector {
     
     try {
       const cutoff = new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
-      const { data, error } = await this.db.get_client()
-        .from('youbot_tool_metrics')
-        .select('*')
-        .gt('timestamp', cutoff);
-
-      if (error) throw error;
+      const data = await this.db.query(
+        `SELECT * FROM youbot_tool_metrics WHERE timestamp > ?`,
+        [cutoff]
+      );
       
       const agg = new Map<string, { calls: number, errors: number, durSum: number, durCount: number }>();
       

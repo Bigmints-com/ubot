@@ -31,8 +31,6 @@ export interface MemoryStore {
 }
 
 export function createMemoryStore(db: DatabaseConnection): MemoryStore {
-	const getClient = () => db.get_client();
-
 	return {
 		async saveMemory(
 			contactId,
@@ -49,25 +47,16 @@ export function createMemoryStore(db: DatabaseConnection): MemoryStore {
 				: null;
 
 			// Check existing memory
-			const { data: existing } = await getClient()
-				.from("youbot_memories")
-				.select("*")
-				.eq("contact_id", contactId)
-				.eq("category", category)
-				.eq("key", key)
-				.single();
+			const existing = await db.get(
+				`SELECT * FROM youbot_memories WHERE contact_id = ? AND category = ? AND key = ?`,
+				[contactId, category, key]
+			);
 
 			if (existing) {
-				await getClient()
-					.from("youbot_memories")
-					.update({
-						value,
-						source,
-						confidence,
-						updated_at: now,
-						expires_at: expiresAt,
-					})
-					.eq("id", existing.id);
+				await db.execute(
+					`UPDATE youbot_memories SET value = ?, source = ?, confidence = ?, updated_at = ?, expires_at = ? WHERE id = ?`,
+					[value, source, confidence, now, expiresAt, existing.id]
+				);
 
 				console.log(
 					`[Memory] Updated: ${contactId} → ${category}/${key} = "${value}"`,
@@ -82,18 +71,10 @@ export function createMemoryStore(db: DatabaseConnection): MemoryStore {
 			}
 
 			const id = uuidv4();
-			await getClient().from("youbot_memories").insert({
-				id,
-				contact_id: contactId,
-				category,
-				key,
-				value,
-				source,
-				confidence,
-				expires_at: expiresAt,
-				created_at: now,
-				updated_at: now,
-			});
+			await db.execute(
+				`INSERT INTO youbot_memories (id, contact_id, category, key, value, source, confidence, expires_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				[id, contactId, category, key, value, source, confidence, expiresAt, now, now]
+			);
 
 			console.log(
 				`[Memory] Saved: ${contactId} → ${category}/${key} = "${value}"`,
@@ -112,60 +93,43 @@ export function createMemoryStore(db: DatabaseConnection): MemoryStore {
 		},
 
 		async getMemories(contactId, category?): Promise<MemoryEntry[]> {
-			let query = getClient()
-				.from("youbot_memories")
-				.select("*")
-				.eq("contact_id", contactId);
+			let sql = `SELECT * FROM youbot_memories WHERE contact_id = ? AND (expires_at IS NULL OR expires_at > ?)`;
+			const params: any[] = [contactId, new Date().toISOString()];
 
 			if (category) {
-				query = query.eq("category", category);
+				sql += ` AND category = ?`;
+				params.push(category);
 			}
 
-			// Filter out expired entries
-			query = query.or(
-				`expires_at.is.null,expires_at.gt.${new Date().toISOString()}`,
-			);
-
-			const { data, error } = await query.order("updated_at", {
-				ascending: false,
-			});
-			if (error || !data) return [];
+			sql += ` ORDER BY updated_at DESC`;
+			const data = await db.query(sql, params);
 			return data.map(rowToMemory);
 		},
 
 		async getAllMemories(): Promise<MemoryEntry[]> {
-			const { data, error } = await getClient()
-				.from("youbot_memories")
-				.select("*")
-				.order("updated_at", { ascending: false });
-			if (error || !data) return [];
+			const data = await db.query(`SELECT * FROM youbot_memories ORDER BY updated_at DESC`);
 			return data.map(rowToMemory);
 		},
 
 		async searchMemories(query: string): Promise<MemoryEntry[]> {
-			const { data, error } = await getClient()
-				.from("youbot_memories")
-				.select("*")
-				.textsearch("value", query)
-				.order("updated_at", { ascending: false });
-			if (error || !data) return [];
+			const data = await db.query(
+				`SELECT * FROM youbot_memories WHERE value LIKE ? ORDER BY updated_at DESC`,
+				[`%${query}%`]
+			);
 			return data.map(rowToMemory);
 		},
 
 		async deleteMemory(id: string): Promise<boolean> {
-			const { error } = await getClient()
-				.from("youbot_memories")
-				.delete()
-				.eq("id", id);
-			if (error) return false;
-			return true;
+			try {
+				await db.execute(`DELETE FROM youbot_memories WHERE id = ?`, [id]);
+				return true;
+			} catch (error) {
+				return false;
+			}
 		},
 
 		async clearContactMemories(contactId: string): Promise<void> {
-			await getClient()
-				.from("youbot_memories")
-				.delete()
-				.eq("contact_id", contactId);
+			await db.execute(`DELETE FROM youbot_memories WHERE contact_id = ?`, [contactId]);
 		},
 
 		async formatForPrompt(contactId: string): Promise<string> {
@@ -177,14 +141,10 @@ export function createMemoryStore(db: DatabaseConnection): MemoryStore {
 		},
 
 		async getDocument(personaId: string): Promise<SoulDocument | null> {
-			const { data, error } = await getClient()
-				.from("youbot_soul_documents")
-				.select("*")
-				.eq("persona_id", personaId)
-				.single();
-			if (error || !data) return null;
+			const data = await db.get(`SELECT * FROM youbot_soul_documents WHERE persona_id = ?`, [personaId]);
+			if (!data) return null;
 			return {
-				id: data.id,
+				id: data.id || data.persona_id, // we changed schema to persona_id PK
 				personaId: data.persona_id,
 				content: data.content,
 				createdAt: new Date(data.created_at),
@@ -197,52 +157,43 @@ export function createMemoryStore(db: DatabaseConnection): MemoryStore {
 			content: string,
 		): Promise<SoulDocument> {
 			const now = new Date().toISOString();
-			const { data, error } = await getClient()
-				.from("youbot_soul_documents")
-				.upsert(
-					{
-						persona_id: personaId,
-						content,
-						created_at: now,
-						updated_at: now,
-					},
-					{ onConflict: "persona_id" },
-				)
-				.select("*")
-				.single();
+			try {
+				await db.execute(
+					`INSERT INTO youbot_soul_documents (persona_id, content, created_at, updated_at) VALUES (?, ?, ?, ?)
+					 ON CONFLICT(persona_id) DO UPDATE SET content = excluded.content, updated_at = excluded.updated_at`,
+					[personaId, content, now, now]
+				);
 
-			if (error || !data) {
+				const data = await db.get(`SELECT * FROM youbot_soul_documents WHERE persona_id = ?`, [personaId]);
+				if (!data) throw new Error('Failed to retrieve saved document');
+
+				return {
+					id: data.persona_id,
+					personaId: data.persona_id,
+					content: data.content,
+					createdAt: new Date(data.created_at),
+					updatedAt: new Date(data.updated_at),
+				};
+			} catch (error: any) {
 				throw new Error(
 					`Failed to save document for ${personaId}: ${error?.message}`,
 				);
 			}
-
-			return {
-				id: data.id,
-				personaId: data.persona_id,
-				content: data.content,
-				createdAt: new Date(data.created_at),
-				updatedAt: new Date(data.updated_at),
-			};
 		},
 
 		async deleteDocument(personaId: string): Promise<boolean> {
-			const { error } = await getClient()
-				.from("youbot_soul_documents")
-				.delete()
-				.eq("persona_id", personaId);
-			if (error) return false;
-			return true;
+			try {
+				await db.execute(`DELETE FROM youbot_soul_documents WHERE persona_id = ?`, [personaId]);
+				return true;
+			} catch (error) {
+				return false;
+			}
 		},
 
 		async listDocuments(): Promise<SoulDocument[]> {
-			const { data, error } = await getClient()
-				.from("youbot_soul_documents")
-				.select("*")
-				.order("updated_at", { ascending: false });
-			if (error || !data) return [];
+			const data = await db.query(`SELECT * FROM youbot_soul_documents ORDER BY updated_at DESC`);
 			return data.map((d: any) => ({
-				id: d.id,
+				id: d.persona_id,
 				personaId: d.persona_id,
 				content: d.content,
 				createdAt: new Date(d.created_at),

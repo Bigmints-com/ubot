@@ -26,25 +26,9 @@ export async function handleTasksRoutes(
         return true;
       }
       
-      const client = db.get_client();
-      
       // Get all task plans, order by newest
-      const { data: plans, error: planError } = await client
-        .from('youbot_task_plans')
-        .select('*')
-        .order('created_at', { ascending: false });
-
-      if (planError) {
-        throw new Error(planError.message);
-      }
-      
-      const { data: steps, error: stepError } = await client
-        .from('youbot_task_steps')
-        .select('*');
-        
-      if (stepError) {
-        throw new Error(stepError.message);
-      }
+      const plans = await db.query(`SELECT * FROM youbot_task_plans ORDER BY created_at DESC`);
+      const steps = await db.query(`SELECT * FROM youbot_task_steps`);
       
       const planMap = (plans || []).map((p: any) => ({
         id: p.id,
@@ -63,14 +47,7 @@ export async function handleTasksRoutes(
       }));
 
       // Also get spawned sessions (subagents)
-      const { data: spawned, error: spawnedError } = await client
-        .from('youbot_spawned_sessions')
-        .select('*')
-        .order('start_time', { ascending: false });
-        
-      if (spawnedError) {
-        throw new Error(spawnedError.message);
-      }
+      const spawned = await db.query(`SELECT * FROM youbot_spawned_sessions ORDER BY start_time DESC`);
       
       const spawnedMap = (spawned || []).map((s: any) => {
         const sStatus = s.status === 'running' ? 'executing' : s.status;

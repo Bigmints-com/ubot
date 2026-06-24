@@ -1,43 +1,26 @@
-/**
- * Task Plan Store
- * 
- * Persistence for complex task plans and their step execution status.
- */
-
 import { log } from '../logger/ring-buffer.js';
 import type { DatabaseConnection } from '../data/database/types.js';
 import type { TaskPlan, TaskStep } from './task-planner.js';
 
 export async function saveTaskPlan(sessionId: string, plan: TaskPlan, db: DatabaseConnection): Promise<void> {
   try {
-    const client = db.get_client();
-    
-    await client.from('youbot_task_plans').upsert({
-      id: plan.id,
-      session_id: sessionId,
-      original_request: plan.originalRequest,
-      status: plan.status,
-      created_at: plan.createdAt.toISOString()
-    });
+    await db.execute(
+      `INSERT OR REPLACE INTO youbot_task_plans (id, session_id, original_request, status, created_at) VALUES (?, ?, ?, ?, ?)`,
+      [plan.id, sessionId, plan.originalRequest, plan.status, plan.createdAt.toISOString()]
+    );
 
-    await client.from('youbot_task_steps').delete().eq('plan_id', plan.id);
+    await db.execute(`DELETE FROM youbot_task_steps WHERE plan_id = ?`, [plan.id]);
 
     if (plan.steps.length > 0) {
-      const stepRows = plan.steps.map(step => ({
-        id: step.id,
-        plan_id: plan.id,
-        description: step.description,
-        agent_type: step.agentType,
-        depends_on: step.dependsOn.join(','),
-        status: step.status,
-        prompt: step.prompt || null,
-        result: step.result || null,
-        error: step.error || null
-      }));
-      await client.from('youbot_task_steps').insert(stepRows);
+      for (const step of plan.steps) {
+        await db.execute(
+          `INSERT INTO youbot_task_steps (id, plan_id, description, agent_type, depends_on, status, prompt, result, error) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [step.id, plan.id, step.description, step.agentType, step.dependsOn.join(','), step.status, step.prompt || null, step.result || null, step.error || null]
+        );
+      }
     }
 
-    log.info('PlanStore', `Saved plan ${plan.id} with ${plan.steps.length} steps in Supabase`);
+    log.info('PlanStore', `Saved plan ${plan.id} with ${plan.steps.length} steps in database`);
   } catch (err: any) {
     log.error('PlanStore', `Failed to save task plan: ${err.message}`);
     throw err;
@@ -46,22 +29,17 @@ export async function saveTaskPlan(sessionId: string, plan: TaskPlan, db: Databa
 
 export async function getTaskPlan(planId: string, db: DatabaseConnection): Promise<TaskPlan | null> {
   try {
-    const client = db.get_client();
-    
-    const { data: row, error: planError } = await client
-      .from('youbot_task_plans')
-      .select('*')
-      .eq('id', planId)
-      .single();
+    const row = await db.get(
+      `SELECT * FROM youbot_task_plans WHERE id = ?`,
+      [planId]
+    );
       
-    if (planError || !row) return null;
+    if (!row) return null;
 
-    const { data: stepRows, error: stepsError } = await client
-      .from('youbot_task_steps')
-      .select('*')
-      .eq('plan_id', planId);
-      
-    if (stepsError || !stepRows) return null;
+    const stepRows = await db.query(
+      `SELECT * FROM youbot_task_steps WHERE plan_id = ?`,
+      [planId]
+    );
 
     const steps: TaskStep[] = stepRows.map((s: any) => ({
       id: s.id,
@@ -90,18 +68,12 @@ export async function getTaskPlan(planId: string, db: DatabaseConnection): Promi
 
 export async function getActivePlan(sessionId: string, db: DatabaseConnection): Promise<TaskPlan | null> {
   try {
-    const client = db.get_client();
-    
-    const { data: row, error } = await client
-      .from('youbot_task_plans')
-      .select('id')
-      .eq('session_id', sessionId)
-      .in('status', ['planning', 'executing'])
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .single();
+    const row = await db.get(
+      `SELECT id FROM youbot_task_plans WHERE session_id = ? AND status IN ('planning', 'executing') ORDER BY created_at DESC LIMIT 1`,
+      [sessionId]
+    );
       
-    if (error || !row) return null;
+    if (!row) return null;
     return await getTaskPlan(row.id, db);
   } catch (err: any) {
     log.error('PlanStore', `Failed to get active plan for session ${sessionId}: ${err.message}`);
@@ -119,15 +91,10 @@ export async function updateStepStatus(
 ): Promise<void> {
   if (!db) return;
   try {
-    await db.get_client()
-      .from('youbot_task_steps')
-      .update({
-        status,
-        result: result || null,
-        error: error || null
-      })
-      .eq('plan_id', planId)
-      .eq('id', stepId);
+    await db.execute(
+      `UPDATE youbot_task_steps SET status = ?, result = ?, error = ? WHERE plan_id = ? AND id = ?`,
+      [status, result || null, error || null, planId, stepId]
+    );
   } catch (err: any) {
     log.error('PlanStore', `Failed to update step status: ${err.message}`);
   }
@@ -135,10 +102,10 @@ export async function updateStepStatus(
 
 export async function updatePlanStatus(planId: string, status: TaskPlan['status'], db: DatabaseConnection): Promise<void> {
   try {
-    await db.get_client()
-      .from('youbot_task_plans')
-      .update({ status })
-      .eq('id', planId);
+    await db.execute(
+      `UPDATE youbot_task_plans SET status = ? WHERE id = ?`,
+      [status, planId]
+    );
   } catch (err: any) {
     log.error('PlanStore', `Failed to update plan status: ${err.message}`);
   }

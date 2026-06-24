@@ -98,8 +98,6 @@ function rowToFollowUp(row: any): FollowUp {
 }
 
 export function createFollowUpStore(db: DatabaseConnection): FollowUpStore {
-  const getClient = () => db.get_client();
-
   return {
     async create(input: FollowUpCreate): Promise<FollowUp> {
       const id = uuidv4();
@@ -107,141 +105,102 @@ export function createFollowUpStore(db: DatabaseConnection): FollowUpStore {
       const priority = input.priority || 'normal';
       const maxAttempts = input.maxAttempts || 3;
 
-      await getClient().from('youbot_follow_ups').insert({
-        id,
-        session_id: input.sessionId,
-        contact_id: input.contactId,
-        channel: input.channel,
-        reason: input.reason,
-        context: input.context || '',
-        status: 'pending',
-        priority,
-        follow_up_at: input.followUpAt.toISOString(),
-        created_at: now,
-        attempts: 0,
-        max_attempts: maxAttempts,
-        approval_id: input.approvalId || null,
-      });
+      await db.execute(
+        `INSERT INTO youbot_follow_ups (
+          id, session_id, contact_id, channel, reason, context, status, priority, 
+          follow_up_at, created_at, attempts, max_attempts, approval_id
+        ) VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, 0, ?, ?)`,
+        [
+          id, input.sessionId, input.contactId, input.channel, input.reason, 
+          input.context || '', priority, input.followUpAt.toISOString(), now, 
+          maxAttempts, input.approvalId || null
+        ]
+      );
 
       return {
-        id,
-        sessionId: input.sessionId,
-        contactId: input.contactId,
-        channel: input.channel,
-        reason: input.reason,
-        context: input.context || '',
-        status: 'pending',
-        priority,
-        followUpAt: input.followUpAt,
-        createdAt: new Date(now),
-        completedAt: null,
-        result: null,
-        attempts: 0,
-        maxAttempts,
-        approvalId: input.approvalId,
+        id, sessionId: input.sessionId, contactId: input.contactId, channel: input.channel,
+        reason: input.reason, context: input.context || '', status: 'pending', priority,
+        followUpAt: input.followUpAt, createdAt: new Date(now), completedAt: null, result: null,
+        attempts: 0, maxAttempts, approvalId: input.approvalId,
       };
     },
 
     async get(id: string): Promise<FollowUp | undefined> {
-      const { data, error } = await getClient().from('youbot_follow_ups').select('*').eq('id', id).single();
-      if (error || !data) return undefined;
-      return rowToFollowUp(data);
+      const row = await db.get(`SELECT * FROM youbot_follow_ups WHERE id = ?`, [id]);
+      return row ? rowToFollowUp(row) : undefined;
     },
 
     async list(filter?: FollowUpFilter): Promise<FollowUp[]> {
-      let query = getClient().from('youbot_follow_ups').select('*');
+      let sql = `SELECT * FROM youbot_follow_ups WHERE 1=1`;
+      const params: any[] = [];
 
       if (filter?.status) {
         const statuses = Array.isArray(filter.status) ? filter.status : [filter.status];
-        query = query.in('status', statuses);
+        sql += ` AND status IN (${statuses.map(() => '?').join(', ')})`;
+        params.push(...statuses);
       }
-      if (filter?.sessionId) {
-        query = query.eq('session_id', filter.sessionId);
-      }
-      if (filter?.contactId) {
-        query = query.eq('contact_id', filter.contactId);
-      }
-      if (filter?.channel) {
-        query = query.eq('channel', filter.channel);
-      }
-      if (filter?.priority) {
-        query = query.eq('priority', filter.priority);
-      }
-      if (filter?.dueBefore) {
-        query = query.lte('follow_up_at', filter.dueBefore.toISOString());
-      }
-      if (filter?.dueAfter) {
-        query = query.gte('follow_up_at', filter.dueAfter.toISOString());
-      }
+      if (filter?.sessionId) { sql += ` AND session_id = ?`; params.push(filter.sessionId); }
+      if (filter?.contactId) { sql += ` AND contact_id = ?`; params.push(filter.contactId); }
+      if (filter?.channel) { sql += ` AND channel = ?`; params.push(filter.channel); }
+      if (filter?.priority) { sql += ` AND priority = ?`; params.push(filter.priority); }
+      if (filter?.dueBefore) { sql += ` AND follow_up_at <= ?`; params.push(filter.dueBefore.toISOString()); }
+      if (filter?.dueAfter) { sql += ` AND follow_up_at >= ?`; params.push(filter.dueAfter.toISOString()); }
 
-      const { data, error } = await query.order('follow_up_at', { ascending: true });
-      if (error || !data) return [];
+      sql += ` ORDER BY follow_up_at ASC`;
+      const data = await db.query(sql, params);
       return data.map(rowToFollowUp);
     },
 
     async getDue(): Promise<FollowUp[]> {
       const now = new Date().toISOString();
-      const { data, error } = await getClient()
-        .from('youbot_follow_ups')
-        .select('*')
-        .eq('status', 'pending')
-        .lte('follow_up_at', now)
-        .order('priority', { ascending: false })
-        .order('follow_up_at', { ascending: true });
-      if (error || !data) return [];
+      const data = await db.query(
+        `SELECT * FROM youbot_follow_ups WHERE status = 'pending' AND follow_up_at <= ? ORDER BY priority DESC, follow_up_at ASC`,
+        [now]
+      );
       return data.map(rowToFollowUp);
     },
 
     async getForSession(sessionId: string): Promise<FollowUp[]> {
-      const { data, error } = await getClient()
-        .from('youbot_follow_ups')
-        .select('*')
-        .eq('session_id', sessionId)
-        .eq('status', 'pending')
-        .order('follow_up_at', { ascending: true });
-      if (error || !data) return [];
+      const data = await db.query(
+        `SELECT * FROM youbot_follow_ups WHERE session_id = ? AND status = 'pending' ORDER BY follow_up_at ASC`,
+        [sessionId]
+      );
       return data.map(rowToFollowUp);
     },
 
     async getForContact(contactId: string): Promise<FollowUp[]> {
-      const { data, error } = await getClient()
-        .from('youbot_follow_ups')
-        .select('*')
-        .eq('contact_id', contactId)
-        .eq('status', 'pending')
-        .order('follow_up_at', { ascending: true });
-      if (error || !data) return [];
+      const data = await db.query(
+        `SELECT * FROM youbot_follow_ups WHERE contact_id = ? AND status = 'pending' ORDER BY follow_up_at ASC`,
+        [contactId]
+      );
       return data.map(rowToFollowUp);
     },
 
     async complete(id: string, result: string): Promise<boolean> {
       const now = new Date().toISOString();
-      const { error } = await getClient()
-        .from('youbot_follow_ups')
-        .update({ status: 'completed', completed_at: now, result })
-        .eq('id', id)
-        .eq('status', 'pending');
-      return !error;
+      const res = await db.execute(
+        `UPDATE youbot_follow_ups SET status = 'completed', completed_at = ?, result = ? WHERE id = ? AND status = 'pending'`,
+        [now, result, id]
+      );
+      return res.changes > 0;
     },
 
     async cancel(id: string, reason?: string): Promise<boolean> {
       const now = new Date().toISOString();
-      const { error } = await getClient()
-        .from('youbot_follow_ups')
-        .update({ status: 'cancelled', completed_at: now, result: reason || 'Cancelled' })
-        .eq('id', id)
-        .eq('status', 'pending');
-      return !error;
+      const res = await db.execute(
+        `UPDATE youbot_follow_ups SET status = 'cancelled', completed_at = ?, result = ? WHERE id = ? AND status = 'pending'`,
+        [now, reason || 'Cancelled', id]
+      );
+      return res.changes > 0;
     },
 
     async expire(id: string, reason?: string): Promise<boolean> {
       const now = new Date().toISOString();
-      const { error } = await getClient()
-        .from('youbot_follow_ups')
-        .update({ status: 'expired', completed_at: now, result: reason || 'Max attempts reached' })
-        .eq('id', id)
-        .eq('status', 'pending');
-      return !error;
+      const res = await db.execute(
+        `UPDATE youbot_follow_ups SET status = 'expired', completed_at = ?, result = ? WHERE id = ? AND status = 'pending'`,
+        [now, reason || 'Max attempts reached', id]
+      );
+      return res.changes > 0;
     },
 
     async recordAttempt(id: string, newFollowUpAt?: Date): Promise<boolean> {
@@ -253,29 +212,35 @@ export function createFollowUpStore(db: DatabaseConnection): FollowUpStore {
         return await this.expire(id);
       }
 
-      const updates: any = { attempts: newAttempts };
+      const fields: string[] = ['attempts = ?'];
+      const params: any[] = [newAttempts];
+      
       if (newFollowUpAt) {
-        updates.follow_up_at = newFollowUpAt.toISOString();
+        fields.push('follow_up_at = ?');
+        params.push(newFollowUpAt.toISOString());
       }
+      params.push(id);
 
-      await getClient().from('youbot_follow_ups').update(updates).eq('id', id);
+      await db.execute(`UPDATE youbot_follow_ups SET ${fields.join(', ')} WHERE id = ?`, params);
       return true;
     },
 
     async delete(id: string): Promise<boolean> {
-      const { error } = await getClient().from('youbot_follow_ups').delete().eq('id', id);
-      return !error;
+      const res = await db.execute(`DELETE FROM youbot_follow_ups WHERE id = ?`, [id]);
+      return res.changes > 0;
     },
 
     async getStats(): Promise<{ pending: number; completed: number; cancelled: number; expired: number; overdue: number }> {
       const now = new Date().toISOString();
       
       const getCount = async (status?: string, overdue?: boolean) => {
-        let q = getClient().from('youbot_follow_ups').select('*', { count: 'exact', head: true });
-        if (status) q = q.eq('status', status);
-        if (overdue) q = q.lte('follow_up_at', now);
-        const { count } = await q;
-        return count || 0;
+        let sql = `SELECT COUNT(*) as count FROM youbot_follow_ups WHERE 1=1`;
+        const params: any[] = [];
+        if (status) { sql += ` AND status = ?`; params.push(status); }
+        if (overdue) { sql += ` AND follow_up_at <= ?`; params.push(now); }
+        
+        const row = await db.get<{count: number}>(sql, params);
+        return row?.count || 0;
       };
 
       const [pending, completed, cancelled, expired, overdue] = await Promise.all([
