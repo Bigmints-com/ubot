@@ -489,7 +489,14 @@ export class TaskSchedulerService {
     }
 
     const scheduleJob = async (): Promise<void> => {
-      await this.executeTask(task);
+      // Prevent double-firing if runTaskNow already completed this task out-of-band
+      const latestTask = this.tasks.get(task.id);
+      if (!latestTask || latestTask.status === 'completed' || !latestTask.enabled) {
+        this.jobs.delete(task.id);
+        return;
+      }
+
+      await this.executeTask(latestTask);
 
       const currentTask = this.tasks.get(task.id);
       if (currentTask && currentTask.enabled) {

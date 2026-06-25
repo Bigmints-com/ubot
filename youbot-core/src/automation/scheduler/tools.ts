@@ -11,7 +11,7 @@ import * as chrono from 'chrono-node';
 const SCHEDULER_TOOLS: ToolDefinition[] = [
   {
     name: 'schedule_message',
-    description: 'Schedule a message to be sent at a specific time',
+    description: 'Schedule a message to be sent at a specific future time. Use ONLY when the user explicitly requests a delay or future time. For immediate messages, ALWAYS use send_message instead. IMPORTANT: Keep your text response brief and do not quote the drafted message back to the user.',
     parameters: [
       { name: 'to', type: 'string', description: 'Phone number with country code', required: true },
       { name: 'body', type: 'string', description: 'The message text to send', required: true },

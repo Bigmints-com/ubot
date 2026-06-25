@@ -69,11 +69,21 @@ export class SQLiteConnection implements DatabaseConnection {
   }
 
   private initializeSchema() {
-    const stmt = this.db.prepare(`SELECT 1 FROM sqlite_master WHERE type='table' AND name='youbot_chat_sessions'`);
-    if (!stmt.get()) {
-      console.log('[SQLite] Initializing database schema...');
-      this.db.exec(`
-        CREATE TABLE IF NOT EXISTS youbot_chat_sessions (
+    console.log('[SQLite] Initializing database schema...');
+
+    // Drop legacy scheduled_tasks table if it has the old 'cron' column
+    try {
+      const tableInfo = this.db.prepare("PRAGMA table_info(youbot_scheduled_tasks)").all() as any[];
+      if (tableInfo.length > 0 && tableInfo.some(col => col.name === 'cron')) {
+        console.log('[SQLite] Dropping legacy youbot_scheduled_tasks table...');
+        this.db.exec("DROP TABLE youbot_scheduled_tasks;");
+      }
+    } catch (e) {
+      console.warn('[SQLite] Failed to check legacy schema for youbot_scheduled_tasks');
+    }
+
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS youbot_chat_sessions (
           id TEXT PRIMARY KEY,
           type TEXT NOT NULL DEFAULT 'web',
           name TEXT NOT NULL DEFAULT 'Chat',
@@ -149,17 +159,22 @@ export class SQLiteConnection implements DatabaseConnection {
 
         CREATE TABLE IF NOT EXISTS youbot_scheduled_tasks (
           id TEXT PRIMARY KEY,
-          cron TEXT NOT NULL,
-          prompt TEXT NOT NULL,
-          agent_type TEXT,
-          channel TEXT NOT NULL,
-          contact_id TEXT NOT NULL,
-          status TEXT NOT NULL DEFAULT 'active',
-          owner_id TEXT,
-          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-          updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+          name TEXT NOT NULL,
+          description TEXT,
+          tag TEXT NOT NULL,
+          schedule TEXT NOT NULL,
+          data TEXT NOT NULL,
+          priority TEXT NOT NULL,
+          status TEXT NOT NULL,
+          tags TEXT NOT NULL,
+          metadata TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          next_run_at TEXT,
+          run_count INTEGER NOT NULL DEFAULT 0,
+          failure_count INTEGER NOT NULL DEFAULT 0,
+          enabled INTEGER NOT NULL DEFAULT 1
         );
-
         CREATE TABLE IF NOT EXISTS ubot_spawned_sessions (
           id TEXT PRIMARY KEY,
           agent_id TEXT NOT NULL,
@@ -226,6 +241,18 @@ export class SQLiteConnection implements DatabaseConnection {
           metadata_json TEXT NOT NULL
         );
 
+        CREATE TABLE IF NOT EXISTS youbot_pending_approvals (
+          id TEXT PRIMARY KEY,
+          question TEXT NOT NULL,
+          context TEXT,
+          requester_jid TEXT,
+          session_id TEXT,
+          status TEXT NOT NULL DEFAULT 'pending',
+          owner_response TEXT,
+          resolved_at TEXT,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+
         CREATE TABLE IF NOT EXISTS youbot_tool_metrics (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           tool_name TEXT NOT NULL,
@@ -234,7 +261,18 @@ export class SQLiteConnection implements DatabaseConnection {
           session_id TEXT,
           timestamp TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         );
+
+        CREATE TABLE IF NOT EXISTS youbot_llm_usage (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          model TEXT NOT NULL,
+          purpose TEXT NOT NULL,
+          provider_id TEXT NOT NULL,
+          input_tokens INTEGER NOT NULL,
+          output_tokens INTEGER NOT NULL,
+          total_tokens INTEGER NOT NULL,
+          estimated_cost REAL NOT NULL DEFAULT 0.0,
+          timestamp TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
       `);
-    }
   }
 }
