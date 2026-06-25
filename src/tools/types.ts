@@ -42,6 +42,7 @@ export interface ToolContext {
   getWorkspaceProvider(): WorkspaceProvider | null;
   getCliService(): any | null;
   getFollowUpStore(): any | null;
+  getContactStore(): any | null;
 
   reportProgress?: (event: any) => void;
 }

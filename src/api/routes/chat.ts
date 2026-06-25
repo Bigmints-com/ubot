@@ -51,7 +51,16 @@ export async function handleChatRoutes(
     }
     
     const message = body.message || body.content || '';
-    const sessionId = body.sessionId || 'web-console';
+    const isOwner = ctx.auth?.isOwner ?? false;
+    let sessionId = body.sessionId || 'web-console';
+    
+    // Sandbox non-owner sessions to prevent access to dashboard threads
+    if (!isOwner) {
+      const clientPrefix = ctx.auth?.clientName ? `api_${ctx.auth.clientName.replace(/\W+/g, '_')}_` : 'api_anon_';
+      if (!sessionId.startsWith(clientPrefix)) {
+        sessionId = `${clientPrefix}${sessionId}`;
+      }
+    }
     
     if (!message.trim()) {
       error(res, 'Message is required');
@@ -148,7 +157,7 @@ export async function handleChatRoutes(
 
       // Fire and forget
       ctx.agentOrchestrator.chat(
-        sessionId, message, 'web', undefined, true, attachments, undefined,
+        sessionId, message, 'web', undefined, isOwner, attachments, undefined,
         (event) => {
           ctx.asyncJobStore?.addEvent(jobId, event).catch(() => {});
         }
@@ -195,10 +204,9 @@ export async function handleChatRoutes(
     }
 
     // Sync mode (default): wait for completion
-    // All authenticated API users are treated as owner (they have the API key)
     try {
       const response = await ctx.agentOrchestrator.chat(
-        sessionId, message, 'web', undefined, true, attachments
+        sessionId, message, 'web', undefined, isOwner, attachments
       );
 
       // Auto-name thread from first message if it has a generic name

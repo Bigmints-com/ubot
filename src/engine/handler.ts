@@ -21,6 +21,7 @@ import type { EventBus } from "../agents/skills/event-bus.js";
 import type { SkillEngine } from "../agents/skills/skill-engine.js";
 import type { Skill, SkillEvent } from "../agents/skills/skill-types.js";
 import { OWNER_SOUL_ID } from "../memory/soul.js";
+import type { ContactStore } from "../data/contact-store.js";
 
 // ─── Processing Tracker ───────────────────────────────────
 
@@ -70,6 +71,7 @@ export interface UnifiedDeps {
   followUpStore: FollowUpStore | null;
   eventBus: EventBus | null;
   skillEngine: SkillEngine | null;
+  contactStore?: ContactStore | null;
   saveConfigValue: (key: string, value: string) => void;
   /** Send a message to a specific session/channel (for approval relays) */
   relayMessage?: (sessionId: string, message: string) => Promise<boolean>;
@@ -202,23 +204,12 @@ function autoSaveOwnerIds(msg: UnifiedMessage, deps: UnifiedDeps): void {
 
 // ─── Session Routing ─────────────────────────────────────
 
-function resolveSessionId(msg: UnifiedMessage, isOwner: boolean): string {
+function resolveSessionId(msg: UnifiedMessage, isOwner: boolean, universalContactId: string): string {
   // Owner always routes to web-console (Command Center)
   if (isOwner) return "web-console";
 
-  // Visitors get channel-specific sessions
-  switch (msg.channel) {
-    case "telegram":
-      return `telegram:${msg.senderId}`;
-    case "webchat":
-      return `webchat:${msg.senderId}`;
-    case "whatsapp":
-      return msg.senderId; // WhatsApp JID is already the session
-    case "web":
-      return "web-console";
-    default:
-      return msg.senderId;
-  }
+  // Visitors share a single session across channels based on their Universal ID
+  return universalContactId;
 }
 
 // ─── Emit Skill Event ────────────────────────────────────
@@ -261,6 +252,17 @@ export async function handleIncomingMessage(
     autoSaveOwnerIds(msg, deps);
   }
 
+  // 2.5 Resolve Universal Contact ID
+  let universalContactId = msg.senderId;
+  if (deps.contactStore) {
+    try {
+      const uContact = await deps.contactStore.resolveContact(msg.channel, msg.senderId, msg.senderName, isOwner ? 'owner' : 'person');
+      universalContactId = uContact.id;
+    } catch (err: any) {
+      console.warn(`[Unified] Failed to resolve universal contact for ${msg.senderId}:`, err.message);
+    }
+  }
+
   // 3. Log
   if (isOwner) {
     console.log(
@@ -273,7 +275,7 @@ export async function handleIncomingMessage(
   }
 
   // 4. Resolve session ID
-  const sessionId = resolveSessionId(msg, isOwner);
+  const sessionId = resolveSessionId(msg, isOwner, universalContactId);
 
   // 5. Master auto-reply switch (visitors only)
   //    If auto-reply is OFF → nothing fires. No orchestrator, no skills.
@@ -304,7 +306,7 @@ export async function handleIncomingMessage(
       const event: SkillEvent = {
         source: msg.channel,
         type: "message",
-        from: msg.senderId,
+        from: universalContactId,
         to: "bot",
         body: msg.body,
         timestamp: msg.timestamp,
@@ -373,7 +375,7 @@ export async function handleIncomingMessage(
             }));
           },
           msg.channel,
-          msg.senderId,
+          universalContactId,
         );
       }
 
@@ -505,7 +507,7 @@ export async function handleIncomingMessage(
           }));
         },
         msg.channel,
-        msg.senderId,
+        universalContactId,
       );
     }
 

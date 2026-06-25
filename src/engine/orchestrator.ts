@@ -3168,7 +3168,7 @@ REQUIREMENTS:
 			if (!db) return;
 			try {
 				const rows = await db.query(
-					`SELECT id FROM ubot_task_plans WHERE status IN ('executing', 'planning')`
+					`SELECT id FROM youbot_task_plans WHERE status IN ('executing', 'planning')`
 				);
 				if (!rows || rows.length === 0) return;
 

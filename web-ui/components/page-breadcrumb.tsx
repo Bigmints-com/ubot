@@ -32,6 +32,7 @@ const coreRouteNames: Record<string, string> = {
   "/webchat": "Web Chat",
   "/apple": "Apple Services",
   "/profile": "Profile",
+  "/integrations": "Integrations",
 };
 
 // ── Extension Points ────────────────────────────────────

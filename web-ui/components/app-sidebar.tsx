@@ -32,6 +32,7 @@ import {
   User,
   Users,
   ChevronsUpDown,
+  Blocks,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -137,6 +138,7 @@ const knowledgeItems: NavItem[] = [
 const capabilityItems: NavItem[] = [
   { title: "Models", href: "/llms", icon: Bot },
   { title: "Skills", href: "/skills", icon: Puzzle },
+  { title: "Integrations", href: "/integrations", icon: Blocks },
   { title: "MCP Servers", href: "/mcp-servers", icon: Plug, feature: "mcp" },
 ];
 
