@@ -10,7 +10,7 @@ import type { ToolModule, ToolRegistry, ToolContext, ToolDefinition } from '../t
 const MESSAGING_TOOLS: ToolDefinition[] = [
   {
     name: 'send_message',
-    description: 'Send a message to a contact or group on any connected messaging platform',
+    description: 'Send a message immediately to a contact or group on any connected messaging platform. IMPORTANT: When sending messages on behalf of the user, keep your conversational text response extremely brief (e.g. "Sent."). DO NOT echo or quote the drafted message back to the user to avoid double messaging them.',
     parameters: [
       { name: 'to', type: 'string', description: 'Phone number with country code (e.g. +971501234567) or contact/group ID', required: true },
       { name: 'body', type: 'string', description: 'The message text to send', required: true },
