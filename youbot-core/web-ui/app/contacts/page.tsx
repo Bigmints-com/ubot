@@ -842,6 +842,8 @@ function ContactsTable() {
   const getPhone = (p: PersonaSummary): string => {
     const phone = getField(p.id, "phone") || getField(p.id, "phone_number");
     if (phone) return phone;
+    // LIDs are internal WhatsApp identifiers, not phone numbers
+    if (p.id.includes("@lid")) return "—";
     // The persona ID is often a phone number like +1234567890
     const idDigits = p.id.replace(/[^0-9+]/g, "");
     if (idDigits.length >= 8) return idDigits.startsWith("+") ? idDigits : `+${idDigits}`;

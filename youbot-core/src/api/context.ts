@@ -21,12 +21,15 @@ import type { McpServerManager } from '../capabilities/mcp/mcp-manager.js';
 import type { SkillRepository } from '../agents/skills/skill-repository.js';
 import type { AsyncJobStore } from './job-store.js';
 import type { WorkspaceProvider } from '../data/workspace-provider.js';
+import type { AuthResult } from './middleware/auth.js';
+import type { ContactStore } from '../data/contact-store.js';
 
 export interface ApiContext {
   // Core
   agentOrchestrator: AgentOrchestrator | null;
   coreDb: CoreDatabaseConnection | null;
   asyncJobStore: AsyncJobStore | null;
+  contactStore: ContactStore | null;
 
   // Channels
   waConnection: WhatsAppConnection | null;
@@ -62,6 +65,9 @@ export interface ApiContext {
   // Workspace
   workspacePath: string | null;
   workspaceProvider: WorkspaceProvider | null;
+
+  // Auth
+  auth?: AuthResult;
 
   // Helpers
   saveConfigValue: (key: string, value: string) => void;

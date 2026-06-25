@@ -83,6 +83,23 @@ export class SQLiteConnection implements DatabaseConnection {
     }
 
     this.db.exec(`
+      CREATE TABLE IF NOT EXISTS youbot_contacts (
+          id TEXT PRIMARY KEY,
+          display_name TEXT,
+          type TEXT NOT NULL DEFAULT 'person',
+          tags TEXT,
+          metadata TEXT,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE TABLE IF NOT EXISTS youbot_contact_identities (
+          contact_id TEXT NOT NULL,
+          channel TEXT NOT NULL,
+          platform_id TEXT NOT NULL,
+          PRIMARY KEY (channel, platform_id),
+          FOREIGN KEY(contact_id) REFERENCES youbot_contacts(id)
+      );
+
       CREATE TABLE IF NOT EXISTS youbot_chat_sessions (
           id TEXT PRIMARY KEY,
           type TEXT NOT NULL DEFAULT 'web',
@@ -274,5 +291,56 @@ export class SQLiteConnection implements DatabaseConnection {
           timestamp TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         );
       `);
+
+    this.runCrmMigration();
+  }
+
+  private runCrmMigration() {
+    try {
+      // Find memories that belong to contacts not yet in youbot_contact_identities
+      const unmigrated = this.db.prepare(`
+        SELECT DISTINCT contact_id 
+        FROM youbot_memories 
+        WHERE contact_id NOT IN (
+          SELECT platform_id FROM youbot_contact_identities
+        ) AND contact_id != '00000000-0000-0000-0000-000000000000'
+      `).all() as any[];
+
+      if (unmigrated.length > 0) {
+        console.log(`[SQLite] Migrating ${unmigrated.length} legacy contacts to Universal CRM...`);
+        const insertContact = this.db.prepare('INSERT INTO youbot_contacts (id, display_name, type, tags, metadata) VALUES (?, ?, ?, ?, ?)');
+        const insertIdentity = this.db.prepare('INSERT INTO youbot_contact_identities (contact_id, channel, platform_id) VALUES (?, ?, ?)');
+        const updateMemories = this.db.prepare('UPDATE youbot_memories SET contact_id = ? WHERE contact_id = ?');
+        const updateFollowups = this.db.prepare('UPDATE youbot_follow_ups SET contact_id = ? WHERE contact_id = ?');
+
+        // Need uuid for generating new IDs
+        const { v4: uuidv4 } = require('uuid');
+
+        this.db.exec('BEGIN TRANSACTION;');
+        for (const row of unmigrated) {
+          const oldId = row.contact_id;
+          // Determine channel heuristically
+          let channel = 'web';
+          if (oldId.includes('@s.whatsapp.net') || oldId.includes('@g.us')) {
+            channel = 'whatsapp';
+          } else if (/^\d+$/.test(oldId) && oldId.length < 15) {
+            channel = 'telegram';
+          } else if (oldId.includes('webchat:')) {
+            channel = 'webchat';
+          }
+          
+          const newId = uuidv4();
+          insertContact.run(newId, oldId, 'person', '[]', '{}');
+          insertIdentity.run(newId, channel, oldId);
+          updateMemories.run(newId, oldId);
+          updateFollowups.run(newId, oldId);
+        }
+        this.db.exec('COMMIT;');
+        console.log('[SQLite] Legacy CRM migration complete.');
+      }
+    } catch (e: any) {
+      this.db.exec('ROLLBACK;');
+      console.warn('[SQLite] CRM migration failed:', e.message);
+    }
   }
 }

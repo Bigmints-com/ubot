@@ -28,6 +28,7 @@ import { createEventBus, type EventBus } from '../agents/skills/event-bus.js';
 import { loadYoubotConfig, saveYoubotConfig } from '../data/config.js';
 
 import { createApprovalStore, type ApprovalStore } from '../automation/approvals/service.js';
+import { ContactStore } from '../data/contact-store.js';
 import { createAsyncJobStore, type AsyncJobStore } from './job-store.js';
 
 import type { AgentOrchestrator } from '../engine/orchestrator.js';
@@ -63,7 +64,7 @@ import { getPromptExperiments } from '../engine/prompt-experiment.js';
 import { json, parseBody, error as apiError, type ApiContext } from './context.js';
 
 // Middleware
-import { requiresAuth, authenticate, sendUnauthorized } from './middleware/auth.js';
+import { authenticate, requiresAuth, sendUnauthorized, setSessionValidator, type AuthResult } from './middleware/auth.js';
 import { getHooks } from '../hooks/extensions.js';
 import { ApiRateLimiter, sendRateLimited, setRateLimitHeaders } from './middleware/rate-limiter.js';
 import { logRequest, wrapResponse } from './middleware/request-logger.js';
@@ -155,6 +156,7 @@ let followUpStoreInstance: any | null = null;
 
 // Database reference for config persistence
 let coreDb: DatabaseConnection | null = null;
+let contactStore: ContactStore | null = null;
 let asyncJobStore: AsyncJobStore | null = null;
 
 // ─── Config Persistence (Direct JSON — single source of truth) ──
@@ -404,7 +406,7 @@ function setupWhatsAppHandlers(conn: WhatsAppConnection): void {
       approvalStore,
       followUpStore: followUpStoreInstance,
       eventBus,
-      skillEngine,
+      skillEngine,  contactStore,
       saveConfigValue,
       relayMessage: relayApprovalResponse,
     };
@@ -593,7 +595,7 @@ function setupTelegramHandlers(conn: TelegramConnection): void {
       approvalStore,
       followUpStore: followUpStoreInstance,
       eventBus,
-      skillEngine,
+      skillEngine,  contactStore,
       saveConfigValue,
       relayMessage: relayApprovalResponse,
     };
@@ -709,7 +711,7 @@ function setupWebchatHandlers(conn: WebchatConnection): void {
       approvalStore,
       followUpStore: followUpStoreInstance,
       eventBus,
-      skillEngine,
+      skillEngine,  contactStore,
       saveConfigValue,
       relayMessage: relayApprovalResponse,
     };
@@ -936,6 +938,7 @@ export function initializeApi(
       skillRepo = createFileSkillRepository(fallbackWs, 'skills');
     }
     coreDb = db as unknown as DatabaseConnection;
+    contactStore = new ContactStore(coreDb);
     asyncJobStore = createAsyncJobStore(coreDb);
     asyncJobStore.failAllProcessingJobs('Server restarted while job was processing');
     eventBus = createEventBus();
@@ -1226,6 +1229,7 @@ async function registerAgentTools(agent: AgentOrchestrator): Promise<void> {
     getWorkspaceProvider: () => workspaceProvider,
     getCliService: () => null, // CLI service is lazily loaded in the tool module
     getFollowUpStore: () => followUpStoreInstance,
+    getContactStore: () => contactStore,
   };
 
   await registerAllToolModules(registry, toolContext);
@@ -1263,6 +1267,7 @@ function getApiContext(): ApiContext {
     agentOrchestrator,
     coreDb,
     asyncJobStore,
+    contactStore,
     waConnection,
     waQrCode,
     waStatus,
@@ -1852,6 +1857,8 @@ export async function handleApiRoute(
     if (await handleWebchatRoutes(req, res, url, method, ctx)) return true;
   }
 
+  let currentAuth: AuthResult | undefined;
+
   // ── Authentication ─────────────────────────────────────
   if (requiresAuth(method, url)) {
     // Try extension auth hook first (e.g., SSO in cloud deployments)
@@ -1865,6 +1872,7 @@ export async function handleApiRoute(
           return true;
         }
         clientName = hookResult.clientName;
+        currentAuth = hookResult as AuthResult;
       } else {
         // Hook returned null — fall through to default auth
         const authResult = authenticate(req);
@@ -1873,6 +1881,7 @@ export async function handleApiRoute(
           return true;
         }
         clientName = authResult.clientName;
+        currentAuth = authResult;
       }
     } else {
       // No hook — use default API key auth
@@ -1882,6 +1891,7 @@ export async function handleApiRoute(
         return true;
       }
       clientName = authResult.clientName;
+      currentAuth = authResult;
     }
   }
 
@@ -1910,8 +1920,16 @@ export async function handleApiRoute(
 
   // ── Route handlers ─────────────────────────────────────
   const ctx = getApiContext();
+  ctx.auth = currentAuth;
 
   if (await handleChatRoutes(req, res, url, method, ctx)) return true;
+
+  // ── Enforce Owner Access ───────────────────────────────
+  if (requiresAuth(method, url) && currentAuth && !currentAuth.isOwner) {
+    res.writeHead(403, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Forbidden: Owner access required for this endpoint.' }));
+    return true;
+  }
   if (await handleChannelRoutes(req, res, url, method)) return true;
   if (await handleSkillRoutes(req, res, url, method, ctx)) return true;
   if (await handleSafetyRoutes(req, res, url, method, ctx)) return true;

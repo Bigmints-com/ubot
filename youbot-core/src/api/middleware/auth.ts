@@ -19,12 +19,15 @@ export interface ApiKey {
   name: string;
   /** Optional: restrict to specific scope sets (e.g. ['chat', 'tools']). Empty = all. */
   scopes?: string[];
+  /** Optional: Whether this API key grants owner-level privileges */
+  isOwner?: boolean;
 }
 
 export interface AuthResult {
   authenticated: boolean;
   clientName?: string;
   scopes?: string[];
+  isOwner?: boolean;
   error?: string;
 }
 
@@ -84,7 +87,7 @@ export function authenticate(req: http.IncomingMessage): AuthResult {
 
   // If no keys are configured, allow all requests (dev mode / first-time setup)
   if (keys.length === 0) {
-    return { authenticated: true, clientName: 'default (no keys configured)' };
+    return { authenticated: true, clientName: 'default (no keys configured)', isOwner: true };
   }
 
   // Method 1: Bearer token (API consumers)
@@ -105,6 +108,7 @@ export function authenticate(req: http.IncomingMessage): AuthResult {
       authenticated: true,
       clientName: matched.name,
       scopes: matched.scopes,
+      isOwner: matched.isOwner === true,
     };
   }
 
@@ -117,7 +121,7 @@ export function authenticate(req: http.IncomingMessage): AuthResult {
     if (sessionToken && validateSessionToken) {
       const valid = validateSessionToken(sessionToken);
       if (valid) {
-        return { authenticated: true, clientName: 'Dashboard Session' };
+        return { authenticated: true, clientName: 'Dashboard Session', isOwner: true };
       }
     }
   }
