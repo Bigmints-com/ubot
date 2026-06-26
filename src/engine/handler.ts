@@ -132,7 +132,7 @@ async function detectOwner(
   if (msg.channel === "whatsapp") {
     const ownerPhone = (config.ownerPhone || "").replace(/\D/g, "");
     const senderNumber = msg.senderId.replace(/\D/g, "").replace(/@.*/, "");
-    if (ownerPhone && senderNumber.includes(ownerPhone)) {
+    if (ownerPhone && (senderNumber === ownerPhone || senderNumber.endsWith(ownerPhone))) {
       return { isOwner: true, ownerName };
     }
   }
@@ -155,15 +155,6 @@ async function detectOwner(
     ) {
       return { isOwner: true, ownerName };
     }
-  }
-
-  // Fallback: name match (any channel)
-  if (
-    ownerName &&
-    msg.senderName &&
-    msg.senderName.toLowerCase().includes(ownerName.toLowerCase())
-  ) {
-    return { isOwner: true, ownerName };
   }
 
   return { isOwner: false, ownerName };

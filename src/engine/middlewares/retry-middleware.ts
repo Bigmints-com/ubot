@@ -17,7 +17,7 @@ export class RetryMiddleware implements AgentMiddleware {
   readonly name = 'RetryMiddleware';
 
   constructor(
-    private executeToolFn: (toolName: string, args: Record<string, any>) => Promise<ToolExecutionResult>
+    private executeToolFn: (ctx: MiddlewareContext) => Promise<ToolExecutionResult>
   ) {}
 
   async afterTool(ctx: MiddlewareContext, result: ToolExecutionResult): Promise<MiddlewareResult | null> {
@@ -31,7 +31,7 @@ export class RetryMiddleware implements AgentMiddleware {
         
         await new Promise(r => setTimeout(r, backoff));
         
-        currentResult = await this.executeToolFn(ctx.toolName, ctx.toolArgs);
+        currentResult = await this.executeToolFn(ctx);
         
         if (currentResult.success) {
           log.info('Agent', `Retry succeeded for ${ctx.toolName} on attempt ${attempt}`);

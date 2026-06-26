@@ -1,15 +1,21 @@
-import { DatabaseSync } from 'node:sqlite';
+import sqlite3 from 'sqlite3';
+import { open, Database } from 'sqlite';
 import { DatabaseConnection, DatabaseOptions, QueryResult } from './types.js';
 import * as path from 'path';
 
 export class SQLiteConnection implements DatabaseConnection {
-  private db: DatabaseSync;
+  private dbPromise: Promise<Database>;
 
   constructor(options: DatabaseOptions) {
     const dbPath = process.env.SQLITE_DB_PATH || path.join(process.cwd(), 'db.sqlite');
-    this.db = new DatabaseSync(dbPath);
-    this.db.exec('PRAGMA journal_mode = WAL;');
-    this.initializeSchema();
+    this.dbPromise = open({
+      filename: dbPath,
+      driver: sqlite3.Database
+    }).then(async (db) => {
+      await db.exec('PRAGMA journal_mode = WAL;');
+      await this.initializeSchema(db);
+      return db;
+    });
   }
 
   is_connected(): boolean {
@@ -17,13 +23,13 @@ export class SQLiteConnection implements DatabaseConnection {
   }
 
   close(): void {
-    this.db.close();
+    this.dbPromise.then(db => db.close());
   }
 
   async query<T = any>(sql: string, params: any[] = []): Promise<T[]> {
     try {
-      const stmt = this.db.prepare(sql);
-      const rows = stmt.all(...params);
+      const db = await this.dbPromise;
+      const rows = await db.all(sql, ...params);
       return rows.map(r => this.parseJsonFields(r)) as T[];
     } catch (error: any) {
       console.error(`[SQLite Error] Query failed: ${sql} | Error: ${error.message}`);
@@ -33,8 +39,8 @@ export class SQLiteConnection implements DatabaseConnection {
 
   async get<T = any>(sql: string, params: any[] = []): Promise<T | null> {
     try {
-      const stmt = this.db.prepare(sql);
-      const row = stmt.get(...params);
+      const db = await this.dbPromise;
+      const row = await db.get(sql, ...params);
       return row ? this.parseJsonFields(row) as T : null;
     } catch (error: any) {
       console.error(`[SQLite Error] Get failed: ${sql} | Error: ${error.message}`);
@@ -44,11 +50,11 @@ export class SQLiteConnection implements DatabaseConnection {
 
   async execute(sql: string, params: any[] = []): Promise<QueryResult> {
     try {
-      const stmt = this.db.prepare(sql);
-      const result = stmt.run(...params);
+      const db = await this.dbPromise;
+      const result = await db.run(sql, ...params);
       return {
-        changes: result.changes,
-        lastInsertRowid: result.lastInsertRowid
+        changes: result.changes ?? 0,
+        lastInsertRowid: result.lastID ?? 0
       };
     } catch (error: any) {
       console.error(`[SQLite Error] Execute failed: ${sql} | Error: ${error.message}`);
@@ -61,28 +67,30 @@ export class SQLiteConnection implements DatabaseConnection {
     const parsed = { ...row };
     for (const key of Object.keys(parsed)) {
       const val = parsed[key];
-      if (typeof val === 'string' && (val.startsWith('{') || val.startsWith('['))) {
-        try { parsed[key] = JSON.parse(val); } catch (e) {}
+      if (typeof val === 'string' && val.length > 1) {
+        if ((val.startsWith('{') && val.endsWith('}')) || (val.startsWith('[') && val.endsWith(']'))) {
+          try { parsed[key] = JSON.parse(val); } catch (e) {}
+        }
       }
     }
     return parsed;
   }
 
-  private initializeSchema() {
+  private async initializeSchema(db: Database) {
     console.log('[SQLite] Initializing database schema...');
 
     // Drop legacy scheduled_tasks table if it has the old 'cron' column
     try {
-      const tableInfo = this.db.prepare("PRAGMA table_info(youbot_scheduled_tasks)").all() as any[];
+      const tableInfo = await db.all("PRAGMA table_info(youbot_scheduled_tasks)");
       if (tableInfo.length > 0 && tableInfo.some(col => col.name === 'cron')) {
         console.log('[SQLite] Dropping legacy youbot_scheduled_tasks table...');
-        this.db.exec("DROP TABLE youbot_scheduled_tasks;");
+        await db.exec("DROP TABLE youbot_scheduled_tasks;");
       }
     } catch (e) {
       console.warn('[SQLite] Failed to check legacy schema for youbot_scheduled_tasks');
     }
 
-    this.db.exec(`
+    await db.exec(`
       CREATE TABLE IF NOT EXISTS youbot_contacts (
           id TEXT PRIMARY KEY,
           display_name TEXT,
@@ -135,6 +143,7 @@ export class SQLiteConnection implements DatabaseConnection {
           updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         );
         CREATE INDEX IF NOT EXISTS idx_youbot_memories_contact ON youbot_memories(contact_id);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_memories_unique ON youbot_memories(contact_id, category, key);
 
         CREATE TABLE IF NOT EXISTS youbot_soul_documents (
           persona_id TEXT PRIMARY KEY,
@@ -292,34 +301,28 @@ export class SQLiteConnection implements DatabaseConnection {
         );
       `);
 
-    this.runCrmMigration();
+    await this.runCrmMigration(db);
   }
 
-  private runCrmMigration() {
+  private async runCrmMigration(db: Database) {
     try {
-      // Find memories that belong to contacts not yet in youbot_contact_identities
-      const unmigrated = this.db.prepare(`
+      const unmigrated = await db.all(`
         SELECT DISTINCT contact_id 
         FROM youbot_memories 
         WHERE contact_id NOT IN (
           SELECT platform_id FROM youbot_contact_identities
         ) AND contact_id != '00000000-0000-0000-0000-000000000000'
-      `).all() as any[];
+      `);
 
       if (unmigrated.length > 0) {
         console.log(`[SQLite] Migrating ${unmigrated.length} legacy contacts to Universal CRM...`);
-        const insertContact = this.db.prepare('INSERT INTO youbot_contacts (id, display_name, type, tags, metadata) VALUES (?, ?, ?, ?, ?)');
-        const insertIdentity = this.db.prepare('INSERT INTO youbot_contact_identities (contact_id, channel, platform_id) VALUES (?, ?, ?)');
-        const updateMemories = this.db.prepare('UPDATE youbot_memories SET contact_id = ? WHERE contact_id = ?');
-        const updateFollowups = this.db.prepare('UPDATE youbot_follow_ups SET contact_id = ? WHERE contact_id = ?');
-
+        
         // Need uuid for generating new IDs
         const { v4: uuidv4 } = require('uuid');
 
-        this.db.exec('BEGIN TRANSACTION;');
+        await db.exec('BEGIN TRANSACTION;');
         for (const row of unmigrated) {
           const oldId = row.contact_id;
-          // Determine channel heuristically
           let channel = 'web';
           if (oldId.includes('@s.whatsapp.net') || oldId.includes('@g.us')) {
             channel = 'whatsapp';
@@ -330,17 +333,18 @@ export class SQLiteConnection implements DatabaseConnection {
           }
           
           const newId = uuidv4();
-          insertContact.run(newId, oldId, 'person', '[]', '{}');
-          insertIdentity.run(newId, channel, oldId);
-          updateMemories.run(newId, oldId);
-          updateFollowups.run(newId, oldId);
+          await db.run('INSERT INTO youbot_contacts (id, display_name, type, tags, metadata) VALUES (?, ?, ?, ?, ?)', [newId, oldId, 'person', '[]', '{}']);
+          await db.run('INSERT INTO youbot_contact_identities (contact_id, channel, platform_id) VALUES (?, ?, ?)', [newId, channel, oldId]);
+          await db.run('UPDATE youbot_memories SET contact_id = ? WHERE contact_id = ?', [newId, oldId]);
+          await db.run('UPDATE youbot_follow_ups SET contact_id = ? WHERE contact_id = ?', [newId, oldId]);
         }
-        this.db.exec('COMMIT;');
+        await db.exec('COMMIT;');
         console.log('[SQLite] Legacy CRM migration complete.');
       }
     } catch (e: any) {
-      this.db.exec('ROLLBACK;');
+      await db.exec('ROLLBACK;');
       console.warn('[SQLite] CRM migration failed:', e.message);
     }
   }
 }
+
