@@ -28,19 +28,25 @@ pkill -9 -f 'tailwindcss.*input.css.*output.css.*watch' 2>/dev/null || true
 sleep 1
 
 # 1) Start backend API on internal port 5081
-echo "🔧 Starting backend API on :5081..."
+echo "🔧 Building backend API..."
 cd "$DIR"
+npm run build
+
+echo "🔧 Starting backend API on :5081 (Production Mode)..."
 SURL="http://127.0.0.1:54321"
 SKEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU"
 SANON="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0"
 
-PORT=5081 SUPABASE_URL="$SURL" SUPABASE_SERVICE_ROLE_KEY="$SKEY" nohup bash -c 'ulimit -n 65536 2>/dev/null; exec npm run dev' > "$DIR/youbot.log" 2>&1 &
+PORT=5081 SUPABASE_URL="$SURL" SUPABASE_SERVICE_ROLE_KEY="$SKEY" nohup bash -c 'ulimit -n 65536 2>/dev/null; exec npm start' > "$DIR/youbot.log" 2>&1 &
 echo $! > "$DIR/youbot.pid"
 
 # 2) Start Next.js UI on port 5080 (user-facing)
-echo "🎨 Starting Next.js UI on :5080 (Turbopack)..."
+echo "🎨 Building Next.js UI..."
 cd "$DIR/web-ui"
-PORT=5080 WATCHPACK_POLLING=true NEXT_PUBLIC_SUPABASE_URL="$SURL" NEXT_PUBLIC_SUPABASE_ANON_KEY="$SANON" nohup bash -c 'ulimit -n 65536 2>/dev/null; exec npm run dev' > "$DIR/web-ui.log" 2>&1 &
+npm run build
+
+echo "🎨 Starting Next.js UI on :5080 (Production Mode)..."
+PORT=5080 NEXT_PUBLIC_SUPABASE_URL="$SURL" NEXT_PUBLIC_SUPABASE_ANON_KEY="$SANON" nohup bash -c 'ulimit -n 65536 2>/dev/null; exec npm start' > "$DIR/web-ui.log" 2>&1 &
 echo $! > "$DIR/web-ui.pid"
 
 sleep 4
