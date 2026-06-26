@@ -14,6 +14,7 @@ export interface ConversationStore {
   listSessions(): Promise<ConversationSession[]>;
   addMessage(sessionId: string, role: ChatRole, content: string, metadata?: ChatMessageMetadata): Promise<ChatMessage>;
   getHistory(sessionId: string, limit?: number): Promise<ChatMessage[]>;
+  getRecentWebMessages(sinceMs: number): Promise<ChatMessage[]>;
   clearSession(sessionId: string): Promise<void>;
   clearAll(): Promise<void>;
   deleteSession(sessionId: string): Promise<void>;
@@ -49,11 +50,15 @@ export function createConversationStore(db: DatabaseConnection): ConversationSto
     },
 
     async getSession(id: string): Promise<ConversationSession | undefined> {
-      const data = await db.get(`SELECT id, type, name, created_at, updated_at FROM youbot_chat_sessions WHERE id = ?`, [id]);
+      const data = await db.get(`
+        SELECT s.id, s.type, s.name, s.created_at, s.updated_at, COUNT(m.id) as count 
+        FROM youbot_chat_sessions s 
+        LEFT JOIN youbot_chat_messages m ON s.id = m.session_id 
+        WHERE s.id = ? 
+        GROUP BY s.id
+      `, [id]);
+      
       if (!data) return undefined;
-
-      const row = await db.get<{count: number}>(`SELECT COUNT(*) as count FROM youbot_chat_messages WHERE session_id = ?`, [id]);
-      const count = row?.count || 0;
 
       return {
         id: data.id,
@@ -61,7 +66,7 @@ export function createConversationStore(db: DatabaseConnection): ConversationSto
         name: data.name,
         createdAt: new Date(data.created_at),
         updatedAt: new Date(data.updated_at),
-        messageCount: count,
+        messageCount: data.count,
       };
     },
 
@@ -73,15 +78,13 @@ export function createConversationStore(db: DatabaseConnection): ConversationSto
 
     async listSessions(): Promise<ConversationSession[]> {
       try {
-        const sessions = await db.query(`SELECT id, type, name, created_at, updated_at FROM youbot_chat_sessions ORDER BY updated_at DESC`);
-        
-        if (!sessions.length) return [];
-        
-        const messages = await db.query(`SELECT session_id, COUNT(*) as count FROM youbot_chat_messages GROUP BY session_id`);
-        const counts = messages.reduce((acc: any, msg: any) => {
-          acc[msg.session_id] = msg.count;
-          return acc;
-        }, {});
+        const sessions = await db.query(`
+          SELECT s.id, s.type, s.name, s.created_at, s.updated_at, COUNT(m.id) as count 
+          FROM youbot_chat_sessions s 
+          LEFT JOIN youbot_chat_messages m ON s.id = m.session_id 
+          GROUP BY s.id 
+          ORDER BY s.updated_at DESC
+        `);
         
         return sessions.map((row: any) => ({
           id: row.id,
@@ -89,7 +92,7 @@ export function createConversationStore(db: DatabaseConnection): ConversationSto
           name: row.name,
           createdAt: new Date(row.created_at),
           updatedAt: new Date(row.updated_at),
-          messageCount: counts[row.id] || 0,
+          messageCount: row.count || 0,
         }));
       } catch (error) {
         console.error('[SQLite] listSessions Error:', error);
@@ -128,11 +131,33 @@ export function createConversationStore(db: DatabaseConnection): ConversationSto
 
     async getHistory(sessionId: string, limit = 50): Promise<ChatMessage[]> {
       const data = await db.query(
-        `SELECT * FROM youbot_chat_messages WHERE session_id = ? ORDER BY timestamp DESC LIMIT ?`,
+        `SELECT * FROM (
+           SELECT * FROM youbot_chat_messages WHERE session_id = ? ORDER BY timestamp DESC LIMIT ?
+         ) ORDER BY timestamp ASC`,
         [sessionId, limit]
       );
       
-      return data.reverse().map((row: any) => ({
+      return data.map((row: any) => ({
+        id: row.id,
+        sessionId: row.session_id,
+        role: row.role as ChatRole,
+        content: row.content,
+        timestamp: new Date(row.timestamp),
+        metadata: row.metadata ? (typeof row.metadata === 'string' ? JSON.parse(row.metadata) : row.metadata) : undefined,
+      }));
+    },
+
+    async getRecentWebMessages(sinceMs: number): Promise<ChatMessage[]> {
+      const data = await db.query(
+        `SELECT m.* FROM youbot_chat_messages m
+         JOIN youbot_chat_sessions s ON m.session_id = s.id
+         WHERE s.type = 'web' 
+           AND m.timestamp >= ?
+         ORDER BY m.timestamp ASC`,
+        [new Date(sinceMs).toISOString()]
+      );
+      
+      return data.map((row: any) => ({
         id: row.id,
         sessionId: row.session_id,
         role: row.role as ChatRole,

@@ -14,6 +14,9 @@ const getTodos = async (...args: any[]): Promise<any[]> => [];
 import fs from "fs";
 import OpenAI from "openai";
 import path from "path";
+import { TaskQueue } from "./task-queue.js";
+import { TtlMap } from "./ttl-map.js";
+import { Mutex } from "./mutex.js";
 import type { SkillEngine } from "../agents/skills/skill-engine.js";
 import type { SkillRepository } from "../agents/skills/skill-repository.js";
 import type { DatabaseConnection } from "../data/database/types.js";
@@ -104,53 +107,44 @@ async function findRecentOutboundMessages(
 	}
 
 	try {
-		const sessions = await conversationStore.listSessions();
-		const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000); // Last 24 hours
+		const cutoffMs = Date.now() - 24 * 60 * 60 * 1000; // Last 24 hours
+		const recentWebMessages = await conversationStore.getRecentWebMessages(cutoffMs);
 
-		for (const session of sessions) {
-			if (session.id === contactSessionId) continue;
-			if (session.updatedAt < cutoff) continue;
-			if (session.type !== "web") continue;
+		// Group by session to safely examine pairs
+		const sessionGroups = new Map<string, any[]>();
+		for (const msg of recentWebMessages) {
+			if (msg.sessionId === contactSessionId) continue;
+			if (!sessionGroups.has(msg.sessionId)) sessionGroups.set(msg.sessionId, []);
+			sessionGroups.get(msg.sessionId)!.push(msg);
+		}
 
-			const history = await conversationStore.getHistory(session.id, 30);
-			for (const msg of history) {
-				if (msg.role !== "assistant") continue;
-				const content = msg.content || "";
-				const contentLower = content.toLowerCase();
-
-				// Check if this message mentions any of our search terms
-				const mentionsContact = searchTerms.some((term) =>
-					contentLower.includes(term),
-				);
-				if (!mentionsContact) continue;
-
-				// If it involved send_message tool calls, this is likely an outbound message
-				const toolNames = msg.metadata?.toolCall?.toolName || "";
-				if (toolNames.includes("send_message")) {
-					outbound.push(content.slice(0, 300));
-				}
-			}
-
-			// Also check the user's original request that triggered the send_message
-			// This gives us the full context of WHY the owner sent the message
+		for (const history of sessionGroups.values()) {
 			for (let i = 0; i < history.length; i++) {
 				const msg = history[i];
-				if (msg.role !== "user") continue;
 				const content = msg.content || "";
 				const contentLower = content.toLowerCase();
-
-				const mentionsContact = searchTerms.some((term) =>
-					contentLower.includes(term),
-				);
-				if (!mentionsContact) continue;
-
-				// Check if the next assistant message used send_message
-				const nextMsg = history[i + 1];
-				if (
-					nextMsg?.role === "assistant" &&
-					nextMsg.metadata?.toolCall?.toolName?.includes("send_message")
-				) {
-					outbound.push(`[Owner's request]: ${content.slice(0, 300)}`);
+				
+				if (msg.role === "assistant") {
+					const mentionsContact = searchTerms.some((term) => contentLower.includes(term));
+					if (mentionsContact) {
+						const toolNames = msg.metadata?.toolCall?.toolName || "";
+						if (toolNames.includes("send_message")) {
+							outbound.push(content.slice(0, 300));
+						}
+					}
+				} else if (msg.role === "user") {
+					const nextMsg = history[i + 1];
+					if (
+						nextMsg?.role === "assistant" &&
+						nextMsg.metadata?.toolCall?.toolName?.includes("send_message")
+					) {
+						const mentionsContact = searchTerms.some((term) =>
+							(nextMsg.content || "").toLowerCase().includes(term)
+						);
+						if (mentionsContact) {
+							outbound.push(`[Owner's request]: ${content.slice(0, 300)}`);
+						}
+					}
 				}
 			}
 		}
@@ -257,7 +251,7 @@ export function createAgentOrchestrator(
 	}
 
 	const toolRegistry = createToolRegistry();
-	const continuationCount = new Map<string, number>();
+	const continuationCount = new TtlMap<string, number>(10 * 60 * 1000); // 10 minutes TTL
 
 	// Initialize Vector Store if DB is attached
 	let vectorStore: VectorStore | undefined;
@@ -917,7 +911,8 @@ export function createAgentOrchestrator(
 	});
 
 	// Multi-agent state
-	const sessionAgents = new Map<string, string>(); // sessionId -> agentId
+	const sessionAgents = new TtlMap<string, string>(60 * 60 * 1000); // 1 hour TTL
+	const sessionLocks = new TtlMap<string, Mutex>(10 * 60 * 1000); // 10 minutes TTL
 
 	// Initialize CrewRegistry (loads specialized agents from workspace)
 	if (workspacePath) {
@@ -931,6 +926,7 @@ export function createAgentOrchestrator(
 		return new OpenAI({
 			apiKey: currentConfig.llmApiKey,
 			baseURL: baseUrl,
+			timeout: 60000,
 		});
 	}
 
@@ -997,7 +993,7 @@ export function createAgentOrchestrator(
 					provider.model;
 
 				return {
-					client: new OpenAI({ apiKey, baseURL: baseUrl }),
+					client: new OpenAI({ apiKey, baseURL: baseUrl, timeout: 60000 }),
 					model: purposeModel,
 					providerId: provider.id,
 				};
@@ -1034,7 +1030,7 @@ export function createAgentOrchestrator(
 					baseUrl = baseUrl.replace("://localhost:", "://127.0.0.1:");
 				}
 				return {
-					client: new OpenAI({ apiKey: token, baseURL: baseUrl }),
+					client: new OpenAI({ apiKey: token, baseURL: baseUrl, timeout: 60000 }),
 					model: catalogModel || defaultProvider.model,
 					providerId: defaultProvider.id,
 				};
@@ -1266,6 +1262,8 @@ Inform the user about this possibility if it's relevant to the current conversat
 		return messages;
 	}
 
+	const soulTaskQueue = new TaskQueue(3); // Process up to 3 soul extractions concurrently
+
 	/** Extract/update all three data layers from a conversation turn */
 	async function extractSoulData(
 		sessionId: string,
@@ -1282,7 +1280,8 @@ Inform the user about this possibility if it's relevant to the current conversat
 		isOwner: boolean = false,
 		toolResults: ToolExecutionResult[] = [],
 	): Promise<void> {
-		if (!userMessage || !assistantResponse) return;
+		soulTaskQueue.add(async () => {
+			if (!userMessage || !assistantResponse) return;
 
 		// Build action-aware conversation text for memory extraction
 		let conversationText = `User: ${userMessage}\nAssistant: ${assistantResponse}`;
@@ -1633,6 +1632,7 @@ Inform the user about this possibility if it's relevant to the current conversat
 		} catch (err: any) {
 			console.error("[Soul] Data extraction error:", err.message);
 		}
+		});
 	}
 
 	/**
@@ -2057,7 +2057,14 @@ Inform the user about this possibility if it's relevant to the current conversat
 			skillContext?: string,
 			onProgress?: (event: any) => void,
 		): Promise<AgentResponse> {
-			const startTime = Date.now();
+			let lock = sessionLocks.get(sessionId);
+			if (!lock) {
+				lock = new Mutex();
+				sessionLocks.set(sessionId, lock);
+			}
+			const unlock = await lock.acquire();
+			try {
+				const startTime = Date.now();
 			const toolResults: ToolExecutionResult[] = [];
 
 			// Reset continuation count on new manual user message (not a sub-agent or automated check)
@@ -2070,12 +2077,19 @@ Inform the user about this possibility if it's relevant to the current conversat
 				.use(new CircuitBreakerMiddleware())
 				.use(new SkillDetectorMiddleware())
 				.use(
-					new RetryMiddleware(async (name, args) =>
-						toolRegistry.execute(
-							{ toolName: name, arguments: args, rawText: "" },
-							{ sessionId, isOwner: ownerFlag, contactName, source },
-						),
-					),
+					new RetryMiddleware(async (ctx) => {
+						const preResult = await pipeline.runBeforeTool(ctx);
+						if (preResult?.skipExecution) return preResult.skipExecution;
+
+						return await toolRegistry.execute(
+							{
+								toolName: ctx.toolName,
+								arguments: ctx.toolArgs,
+								rawText: "",
+							},
+							ctx.toolContext || { sessionId: ctx.sessionId }
+						);
+					})
 				);
 
 			// Track incoming message
@@ -2551,6 +2565,18 @@ If a skill matches the user's request, call run_skill with the skill ID. Otherwi
 						);
 					}
 
+					const toolContext = {
+						sessionId,
+						isOwner: ownerFlag,
+						contactName,
+						source,
+						getDatabase: () => db,
+						getAgent: () => orchestrator,
+						skillRepo,
+						skillEngine,
+						reportProgress: onProgress,
+					};
+
 					const middlewareCtx = {
 						messages: messages.map((m) => ({
 							role: m.role,
@@ -2562,18 +2588,7 @@ If a skill matches the user's request, call run_skill with the skill ID. Otherwi
 						sessionId,
 						iteration,
 						maxIterations: currentConfig.maxToolIterations,
-					};
-
-					const toolContext = {
-						sessionId,
-						isOwner: ownerFlag,
-						contactName,
-						source,
-						getDatabase: () => db,
-						getAgent: () => orchestrator,
-						skillRepo,
-						skillEngine,
-						reportProgress: onProgress,
+						toolContext,
 					};
 
 					if (onProgress) {
@@ -2963,7 +2978,7 @@ REQUIREMENTS:
 				}
 			}
 
-			conversationStore.addMessage(
+			await conversationStore.addMessage(
 				sessionId,
 				"assistant",
 				finalContent,
@@ -3010,6 +3025,9 @@ REQUIREMENTS:
 				attachments,
 				thinking: thinkingContent,
 			};
+			} finally {
+				unlock();
+			}
 		},
 
 		async generate(systemPrompt: string, userMessage: string): Promise<string> {

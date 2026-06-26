@@ -45,51 +45,20 @@ export function createMemoryStore(db: DatabaseConnection): MemoryStore {
 			const expiresAt = ttlSeconds
 				? new Date(Date.now() + ttlSeconds * 1000).toISOString()
 				: null;
-
-			// Check existing memory
-			const existing = await db.get(
-				`SELECT * FROM youbot_memories WHERE contact_id = ? AND category = ? AND key = ?`,
-				[contactId, category, key]
-			);
-
-			if (existing) {
-				await db.execute(
-					`UPDATE youbot_memories SET value = ?, source = ?, confidence = ?, updated_at = ?, expires_at = ? WHERE id = ?`,
-					[value, source, confidence, now, expiresAt, existing.id]
-				);
-
-				console.log(
-					`[Memory] Updated: ${contactId} → ${category}/${key} = "${value}"`,
-				);
-				return {
-					...rowToMemory(existing),
-					value,
-					source,
-					confidence,
-					updatedAt: new Date(now),
-				};
-			}
-
 			const id = uuidv4();
+
 			await db.execute(
-				`INSERT INTO youbot_memories (id, contact_id, category, key, value, source, confidence, expires_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				`INSERT INTO youbot_memories (id, contact_id, category, key, value, source, confidence, expires_at, created_at, updated_at) 
+				 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+				 ON CONFLICT(contact_id, category, key) 
+				 DO UPDATE SET value = excluded.value, source = excluded.source, confidence = excluded.confidence, updated_at = excluded.updated_at, expires_at = excluded.expires_at`,
 				[id, contactId, category, key, value, source, confidence, expiresAt, now, now]
 			);
 
-			console.log(
-				`[Memory] Saved: ${contactId} → ${category}/${key} = "${value}"`,
-			);
-			return {
-				id,
-				contactId,
-				category,
-				key,
-				value,
-				source,
-				confidence,
-				createdAt: new Date(now),
-				updatedAt: new Date(now),
-			};
+			const saved = await db.get(`SELECT * FROM youbot_memories WHERE contact_id = ? AND category = ? AND key = ?`, [contactId, category, key]);
+
+			console.log(`[Memory] Saved/Updated: ${contactId} → ${category}/${key} = "${value}"`);
+			return rowToMemory(saved!);
 		},
 
 		async getMemories(contactId, category?): Promise<MemoryEntry[]> {

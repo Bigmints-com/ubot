@@ -255,6 +255,7 @@ export async function selectToolsForMessage(
       routerClient = new OpenAI({
         apiKey: 'ollama', // Ollama doesn't need a key
         baseURL: baseUrl,
+        timeout: 60000,
       });
       log.info('ToolSelector', `Using router model: ${routerModel} (main: ${model})`);
     }

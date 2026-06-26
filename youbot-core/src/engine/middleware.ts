@@ -15,6 +15,7 @@ export interface MiddlewareContext {
   sessionId: string;
   iteration: number;
   maxIterations: number;
+  toolContext?: any;
 }
 
 export interface MiddlewareResult {
