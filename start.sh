@@ -46,7 +46,7 @@ cd "$DIR/web-ui"
 npm run build
 
 echo "🎨 Starting Next.js UI on :5080 (Production Mode)..."
-PORT=5080 NEXT_PUBLIC_SUPABASE_URL="$SURL" NEXT_PUBLIC_SUPABASE_ANON_KEY="$SANON" nohup bash -c 'ulimit -n 65536 2>/dev/null; exec npm start' > "$DIR/web-ui.log" 2>&1 &
+PORT=5080 NEXT_PUBLIC_SUPABASE_URL="$SURL" NEXT_PUBLIC_SUPABASE_ANON_KEY="$SANON" nohup bash -c 'ulimit -n 65536 2>/dev/null; exec npx -y serve@latest -s out -l 5080' > "$DIR/web-ui.log" 2>&1 &
 echo $! > "$DIR/web-ui.pid"
 
 sleep 4
