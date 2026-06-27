@@ -223,40 +223,21 @@ Respond with ONLY the message text — no metadata tags, no reasoning.`;
 
   // Determine where to send the reminder (owner's channel)
   const config = (deps as any).getConfig?.();
-  const ownerPhone = config?.ownerPhone?.replace(/\D/g, '') || '';
+  const rawOwnerPhone = (config?.ownerPhone || '').split(',')[0] || '';
+  const ownerPhone = rawOwnerPhone.replace(/\D/g, '');
   const ownerTelegramId = config?.ownerTelegramId || '';
+  const escalationChannel = config?.primaryEscalationChannel || 'both';
 
-  // Try WhatsApp first
-  if (ownerPhone) {
-    try {
-      const wa = (deps as any).getWhatsApp?.();
-      if (wa?.isConnected) {
-        const ownerJid = `${ownerPhone}@s.whatsapp.net`;
-        const sent = await deps.sendMessage('whatsapp', ownerJid, reminder);
-        if (sent) {
-          await deps.followUpStore.recordAttempt(followUp.id);
-          console.log(`[FollowUpChecker] Approval follow-up ${followUp.id} — reminder sent to owner via WhatsApp`);
-          return;
-        }
-      }
-    } catch (err: any) {
-      console.error(`[FollowUpChecker] Failed to send WhatsApp reminder: ${err.message}`);
-    }
-  }
+  let sent = false;
 
-  // Fallback to Telegram
-  if (ownerTelegramId) {
+  // Try Telegram if preferred or both
+  if ((escalationChannel === 'telegram' || escalationChannel === 'both') && ownerTelegramId) {
     try {
       const tg = (deps as any).getTelegram?.();
-      if (tg) {
-        const chatId = Number(ownerTelegramId);
-        if (!isNaN(chatId)) {
-          const sent = await deps.sendMessage('telegram', String(chatId), reminder);
-          if (sent) {
-            await deps.followUpStore.recordAttempt(followUp.id);
-            console.log(`[FollowUpChecker] Approval follow-up ${followUp.id} — reminder sent to owner via Telegram`);
-            return;
-          }
+      if (tg?.isConnected) {
+        sent = await tg.sendMessage(Number(ownerTelegramId), reminder);
+        if (sent) {
+          console.log(`[FollowUpChecker] Approval follow-up ${followUp.id} — reminder sent to owner via Telegram`);
         }
       }
     } catch (err: any) {
@@ -264,9 +245,28 @@ Respond with ONLY the message text — no metadata tags, no reasoning.`;
     }
   }
 
-  // If no owner channel available, reschedule
-  await deps.followUpStore.recordAttempt(followUp.id);
-  console.log(`[FollowUpChecker] Approval follow-up ${followUp.id} — no owner channel available, rescheduled`);
+  // Try WhatsApp if preferred or if both and telegram wasn't sent
+  if (!sent && (escalationChannel === 'whatsapp' || escalationChannel === 'both') && ownerPhone) {
+    try {
+      const wa = (deps as any).getWhatsApp?.();
+      if (wa?.isConnected) {
+        const ownerJid = `${ownerPhone}@s.whatsapp.net`;
+        sent = await deps.sendMessage('whatsapp', ownerJid, reminder);
+        if (sent) {
+          console.log(`[FollowUpChecker] Approval follow-up ${followUp.id} — reminder sent to owner via WhatsApp`);
+        }
+      }
+    } catch (err: any) {
+      console.error(`[FollowUpChecker] Failed to send WhatsApp reminder: ${err.message}`);
+    }
+  }
+
+  if (sent) {
+    await deps.followUpStore.recordAttempt(followUp.id);
+  } else {
+    console.error(`[FollowUpChecker] Could not send reminder for ${followUp.id} to any owner channel`);
+    await deps.followUpStore.recordAttempt(followUp.id);
+  }
 }
 
 /**

@@ -106,11 +106,15 @@ const approvalsToolModule: ToolModule = {
         const notification = `🔔 **Approval Request** (ID: ${approval.id})\n\n**From:** ${context || 'Unknown'}\n**Requester:** ${requesterJid}\n**Question:** ${question}\n\n👉 Go to the Approvals page to respond, or reply here with your answer.`;
         convStore.addMessage('web-console', 'assistant', notification, { source: 'web' });
 
-        // Notify owner via WhatsApp
+        // Check escalation channel preference
         const config = agent.getConfig();
-        const ownerPhone = config.ownerPhone?.replace(/\D/g, '') || '';
+        const escalationChannel = config.primaryEscalationChannel || 'both';
+
+        // Notify owner via WhatsApp
+        const rawOwnerPhone = (config.ownerPhone || '').split(',')[0] || '';
+        const ownerPhone = rawOwnerPhone.replace(/\D/g, '');
         const wa = ctx.getWhatsApp();
-        if (ownerPhone && wa?.isConnected) {
+        if ((escalationChannel === 'whatsapp' || escalationChannel === 'both') && ownerPhone && wa?.isConnected) {
           try {
             const ownerJid = `${ownerPhone}@s.whatsapp.net`;
             await wa.sendMessage(ownerJid, { text: `🔔 *Approval Request*\n\n${context}\n\n*Question:* ${question}\n\nReply to this message with your response.` });
@@ -121,7 +125,7 @@ const approvalsToolModule: ToolModule = {
 
         // Notify owner via Telegram
         const tg = ctx.getTelegram();
-        if (tg && config.ownerTelegramId) {
+        if ((escalationChannel === 'telegram' || escalationChannel === 'both') && tg && config.ownerTelegramId) {
           try {
             const chatId = Number(config.ownerTelegramId);
             if (!isNaN(chatId)) {

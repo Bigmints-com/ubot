@@ -99,13 +99,15 @@ const schedulerToolModule: ToolModule = {
           const wa = ctx.getWhatsApp();
           const agent = ctx.getAgent();
           const config = agent?.getConfig();
-          if (d.ownerTelegramId && tg) {
+          const escalationChannelPref = config?.primaryEscalationChannel || 'both';
+          if ((escalationChannelPref === 'telegram' || escalationChannelPref === 'both') && d.ownerTelegramId && tg) {
             try { await tg.sendMessage(Number(d.ownerTelegramId), reminderText); return { sent: true, channel: 'telegram' }; } catch {}
           }
-          const ownerPhone = config?.ownerPhone;
-          if (wa?.isConnected && ownerPhone) {
+          const rawOwnerPhone = (config?.ownerPhone || '').split(',')[0] || '';
+          const ownerPhone = rawOwnerPhone.replace(/\D/g, '');
+          if ((escalationChannelPref === 'whatsapp' || escalationChannelPref === 'both') && wa?.isConnected && ownerPhone) {
             try {
-              const jid = `${ownerPhone.replace(/\D/g, '')}@s.whatsapp.net`;
+              const jid = `${ownerPhone}@s.whatsapp.net`;
               await wa.sendMessage(jid, { text: reminderText });
               return { sent: true, channel: 'whatsapp' };
             } catch {}
@@ -203,13 +205,15 @@ const schedulerToolModule: ToolModule = {
 
         const reminderHandler = async (_ctx: any, data: { message: string; ownerTelegramId?: string }) => {
           const reminderText = `⏰ **Reminder:** ${data.message}`;
-          if (data.ownerTelegramId && tg) {
+          const escalationChannelPref = config?.primaryEscalationChannel || 'both';
+          if ((escalationChannelPref === 'telegram' || escalationChannelPref === 'both') && data.ownerTelegramId && tg) {
             try { await tg.sendMessage(Number(data.ownerTelegramId), reminderText); return { sent: true, channel: 'telegram' }; } catch {}
           }
-          const ownerPhone = config?.ownerPhone;
-          if (wa?.isConnected && ownerPhone) {
+          const rawOwnerPhone = (config?.ownerPhone || '').split(',')[0] || '';
+          const ownerPhone = rawOwnerPhone.replace(/\D/g, '');
+          if ((escalationChannelPref === 'whatsapp' || escalationChannelPref === 'both') && wa?.isConnected && ownerPhone) {
             try {
-              const jid = `${ownerPhone.replace(/\D/g, '')}@s.whatsapp.net`;
+              const jid = `${ownerPhone}@s.whatsapp.net`;
               await wa.sendMessage(jid, { text: reminderText });
               return { sent: true, channel: 'whatsapp' };
             } catch {}
