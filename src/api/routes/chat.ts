@@ -455,6 +455,7 @@ export async function handleChatRoutes(
       ownerPhone: config.ownerPhone || '',
       ownerTelegramId: config.ownerTelegramId || '',
       ownerTelegramUsername: config.ownerTelegramUsername || '',
+      primaryEscalationChannel: config.primaryEscalationChannel || 'both',
       webchatEnabled: webchat.enabled !== false,
       webchatToken: webchat.connection_token || '',
       webchatRelayUrl: webchat.relay_url || '',
@@ -485,6 +486,7 @@ export async function handleChatRoutes(
     if (body.autoReplyWhatsApp !== undefined) { if (!cfg.channels) cfg.channels = {}; if (!cfg.channels.whatsapp) cfg.channels.whatsapp = {}; cfg.channels.whatsapp.auto_reply = updated.autoReplyWhatsApp; }
     if (body.autoReplyTelegram !== undefined) { if (!cfg.channels) cfg.channels = {}; if (!cfg.channels.telegram) cfg.channels.telegram = {}; cfg.channels.telegram.auto_reply = updated.autoReplyTelegram; }
     if (body.autoReplyWebchat !== undefined) { if (!cfg.channels) cfg.channels = {}; if (!cfg.channels.webchat) cfg.channels.webchat = {}; cfg.channels.webchat.auto_reply = updated.autoReplyWebchat; }
+    if (body.primaryEscalationChannel !== undefined) { if (!cfg.agent) cfg.agent = {}; cfg.agent.primary_escalation_channel = updated.primaryEscalationChannel; }
     if (body.maxHistoryMessages !== undefined) { if (!cfg.agent) cfg.agent = {}; cfg.agent.max_history_messages = updated.maxHistoryMessages; }
     // Webchat-specific settings (saved directly to config.json channels.webchat)
     if (body.webchatEnabled !== undefined) { if (!cfg.channels) cfg.channels = {}; if (!cfg.channels.webchat) cfg.channels.webchat = {}; cfg.channels.webchat.enabled = body.webchatEnabled; }
@@ -509,6 +511,7 @@ export async function handleChatRoutes(
       ownerPhone: updated.ownerPhone || '',
       ownerTelegramId: updated.ownerTelegramId || '',
       ownerTelegramUsername: updated.ownerTelegramUsername || '',
+      primaryEscalationChannel: updated.primaryEscalationChannel || 'both',
       saved: true,
     });
     return true;
