@@ -9,6 +9,13 @@ import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Settings,
   Save,
   RefreshCw,
@@ -29,6 +36,7 @@ interface AgentConfig {
   ownerPhone: string;
   ownerTelegramId: string;
   ownerTelegramUsername: string;
+  primaryEscalationChannel: 'telegram' | 'whatsapp' | 'both';
 }
 
 // ── Component ──
@@ -59,6 +67,8 @@ export default function SettingsPage() {
     try {
       await api("/api/chat/config", { method: "PUT", body: config });
       toast.success("Settings saved");
+      setSaved(true);
+      setTimeout(() => setSaved(false), 3000);
     } catch {
       toast.error("Failed to save settings");
     }
@@ -96,9 +106,10 @@ export default function SettingsPage() {
                 id="maxHistory"
                 type="number"
                 value={config?.maxHistoryMessages || 20}
-                onChange={(e) =>
-                  updateField("maxHistoryMessages", parseInt(e.target.value))
-                }
+                onChange={(e) => {
+                  const val = parseInt(e.target.value);
+                  updateField("maxHistoryMessages", isNaN(val) ? 0 : val);
+                }}
               />
               <p className="text-xs text-muted-foreground">
                 Maximum number of conversation messages to include in context
@@ -150,10 +161,32 @@ export default function SettingsPage() {
                 id="ownerTelegramId"
                 value={config?.ownerTelegramId || ""}
                 onChange={(e) => updateField("ownerTelegramId", e.target.value)}
-                placeholder="Auto-detected on first message"
+                placeholder="123456789"
               />
               <p className="text-xs text-muted-foreground">
-                Auto-saved after your first message to the bot.
+                Your exact Telegram Chat ID.
+              </p>
+            </div>
+
+            <Separator />
+
+            <div className="space-y-2">
+              <Label>Primary Escalation Channel</Label>
+              <Select
+                value={config?.primaryEscalationChannel || "both"}
+                onValueChange={(value) => updateField("primaryEscalationChannel", value)}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select primary channel" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="both">Both (WhatsApp & Telegram)</SelectItem>
+                  <SelectItem value="telegram">Telegram Only</SelectItem>
+                  <SelectItem value="whatsapp">WhatsApp Only</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Which channel YouBot uses to ask you for approvals, send reminders, or escalate issues.
               </p>
             </div>
           </CardContent>
