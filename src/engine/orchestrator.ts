@@ -69,6 +69,7 @@ import {
 	formatToolsForAPI,
 	getToolAliases,
 	getToolsForSource,
+	VISITOR_SAFE_TOOL_NAMES,
 	type ToolRegistry,
 } from "./tools.js";
 import type {
@@ -1143,6 +1144,7 @@ export function createAgentOrchestrator(
 		userMessage: string,
 		isOwner: boolean = false,
 		attachments?: Attachment[],
+		contactName?: string,
 	): Promise<ChatMsg[]> {
 		const rawHistory = await conversationStore.getHistory(
 			sessionId,
@@ -1177,6 +1179,10 @@ Inform the user about this possibility if it's relevant to the current conversat
 		const soulPrompt = await soul.buildSoulPrompt(sessionId, isOwner);
 		if (soulPrompt) {
 			systemPrompt += "\n\n" + soulPrompt;
+		}
+
+		if (contactName) {
+			systemPrompt += `\n\n## Current Contact\nYou are currently speaking with: ${contactName}`;
 		}
 
 		const messages: ChatMsg[] = [{ role: "system", content: systemPrompt }];
@@ -2081,6 +2087,15 @@ Inform the user about this possibility if it's relevant to the current conversat
 						const preResult = await pipeline.runBeforeTool(ctx);
 						if (preResult?.skipExecution) return preResult.skipExecution;
 
+						if (!isOwner && !VISITOR_SAFE_TOOL_NAMES.has(ctx.toolName)) {
+							return {
+								toolName: ctx.toolName,
+								success: false,
+								error: `Security Policy Violation: Tool ${ctx.toolName} is restricted for visitors. Unauthorized.`,
+								duration: 0,
+							};
+						}
+
 						return await toolRegistry.execute(
 							{
 								toolName: ctx.toolName,
@@ -2135,6 +2150,7 @@ Inform the user about this possibility if it's relevant to the current conversat
 				message,
 				ownerFlag,
 				attachments,
+				contactName,
 			);
 
 			// Trim history to fit the active model's context window.
@@ -2605,6 +2621,13 @@ If a skill matches the user's request, call run_skill with the skill ID. Otherwi
 
 					if (beforeResult?.skipExecution) {
 						result = beforeResult.skipExecution;
+					} else if (!isOwner && !VISITOR_SAFE_TOOL_NAMES.has(resolvedToolName)) {
+						result = {
+							toolName: resolvedToolName,
+							success: false,
+							error: `Security Policy Violation: Tool ${resolvedToolName} is restricted for visitors. Unauthorized.`,
+							duration: 0,
+						};
 					} else {
 						result = await toolRegistry.execute(
 							{
@@ -2843,12 +2866,21 @@ REQUIREMENTS:
 								});
 							}
 
-							const result = await toolRegistry.execute(
-								{
+							let result: ToolExecutionResult;
+							if (!isOwner && !VISITOR_SAFE_TOOL_NAMES.has(resolvedName)) {
+								result = {
 									toolName: resolvedName,
-									arguments: tc.arguments,
-									rawText: "",
-								},
+									success: false,
+									error: `Security Policy Violation: Tool ${resolvedName} is restricted for visitors. Unauthorized.`,
+									duration: 0,
+								};
+							} else {
+								result = await toolRegistry.execute(
+									{
+										toolName: resolvedName,
+										arguments: tc.arguments,
+										rawText: "",
+									},
 								{
 									sessionId,
 									isOwner: ownerFlag,
@@ -2861,6 +2893,7 @@ REQUIREMENTS:
 									reportProgress: onProgress,
 								},
 							);
+							}
 
 							toolResults.push(result);
 							metricsCollector.recordTool(

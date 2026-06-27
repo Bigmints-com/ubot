@@ -187,8 +187,8 @@ function getMimeType(filePath: string): string {
 
 // In production, serve the static Next.js export from YOUBOT_HOME/web-ui/
 // In development, serve from ./public
-const STATIC_DIRS = IS_PRODUCTION && YOUBOT_HOME
-  ? [path.join(YOUBOT_HOME, 'web')]
+const STATIC_DIRS = IS_PRODUCTION
+  ? [path.join(process.cwd(), 'web')]
   : [path.join(process.cwd(), 'public')];
 
 function serveStatic(filePath: string): Promise<{ content: Buffer; contentType: string } | null> {

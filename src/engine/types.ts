@@ -284,6 +284,8 @@ export interface AgentConfig {
   temperature: number;
   /** Max tokens for LLM response */
   maxTokens: number;
+  /** Which channel to use for escalations/notifications (ask_owner, reminders). Defaults to both. */
+  primaryEscalationChannel?: 'telegram' | 'whatsapp' | 'both';
   /** Owner's Telegram Chat ID — used to route approval requests */
   ownerTelegramId: string;
   /** Owner's Telegram username (without @) — used for owner detection */
@@ -554,6 +556,7 @@ RULE: If you use the words "get back to you" or "follow up" in your response, yo
   maxToolIterations: 25,
   temperature: 0.7,
   maxTokens: 4096,
+  primaryEscalationChannel: 'both',
   ownerTelegramId: "",
   ownerTelegramUsername: "",
   autoReplyWhatsApp: false,

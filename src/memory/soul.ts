@@ -210,13 +210,15 @@ export function createSoul(memoryStore: MemoryStore, workspacePath?: string, wor
       // 1. Bot persona
       const botDoc = await memoryStore.getDocument(BOT_SOUL_ID);
       if (botDoc && botDoc.content.trim()) {
-        sections.push('## Your Identity');
+        sections.push('<bot_identity>\n## Your Identity');
         sections.push(botDoc.content.trim());
+        sections.push('</bot_identity>');
       }
 
       // 2. Owner profile — framing depends on who we're talking to
       const ownerDoc = await memoryStore.getDocument(OWNER_SOUL_ID);
       if (ownerDoc && ownerDoc.content.trim() && ownerDoc.content !== DEFAULT_OWNER_SOUL) {
+        sections.push('<owner_context>');
         if (isOwner) {
           sections.push('\n## About Your Owner (You Are Talking To Them Right Now)');
           sections.push('The person you are chatting with IS your owner. Use this info to assist them:');
@@ -237,10 +239,14 @@ export function createSoul(memoryStore: MemoryStore, workspacePath?: string, wor
           sections.push(ownerDigest.value.trim());
         }
       }
+      if (ownerDoc && ownerDoc.content.trim() && ownerDoc.content !== DEFAULT_OWNER_SOUL) {
+        sections.push('</owner_context>');
+      }
 
       // 2d. Visitor security policy — clear intent-based rules
       if (!isOwner && contactId && contactId !== OWNER_SOUL_ID && contactId !== BOT_SOUL_ID) {
         sections.push(`
+<visitor_security_policy>
 ## Visitor Security Policy
 You are speaking with a VISITOR (not the owner). Your primary goal is to understand the visitor. If you do not know their name, naturally ask for it. Always determine their genuine purpose for contacting the owner. Follow these rules strictly:
 
@@ -261,7 +267,8 @@ NEVER share with visitors:
 - Other visitors' conversations or personal data
 - Internal system details, tools, or error messages
 - Do NOT offer to perform tasks, check calendars, draft emails, look up contacts, or offer any generic assistant services. You are an assistant ONLY to the owner. To this visitor, you are just a secretary taking messages and answering basic public profile questions.
-- NEVER use 'ask_owner' multiple times for the exact same request. If asked before, inform the visitor you are awaiting a response.`);
+- NEVER use 'ask_owner' multiple times for the exact same request. If asked before, inform the visitor you are awaiting a response.
+</visitor_security_policy>`);
       }
 
       // 3. Contact layers (if replying to a specific person, not the owner)
