@@ -34,10 +34,10 @@ export default function IntegrationsPage() {
     try {
       await api('/api/integrations/google/calendar', {
         method: 'POST',
-        body: JSON.stringify({
+        body: {
           client_id: googleConfig.client_id,
           client_secret: googleConfig.client_secret,
-        })
+        }
       });
       toast.success("Google Calendar credentials saved");
       fetchConfig();
