@@ -286,7 +286,7 @@ function setupWhatsAppHandlers(conn: WhatsAppConnection): void {
     if (!msg.body && !msg.hasMedia) return;
 
     const jid = msg.from || '';
-    const replyJid = msg.rawJid || jid;
+    const replyJid = (msg as any).rawJid || jid; // Use the raw LID for crypto continuity
 
     // Always prefer pushName (WhatsApp display name) over raw JID
     const senderName = msg.pushName || msg.from || '';
@@ -378,7 +378,10 @@ function setupWhatsAppHandlers(conn: WhatsAppConnection): void {
       replyFn: async (text: string) => {
         log.info('WhatsApp', `Sending reply to rawJid=${replyJid} (resolved=${jid})`);
         try {
-          await conn.sendMessage(replyJid, { text });
+          const rawQuoted = msg.id ? conn.getRawMessage(msg.id) : undefined;
+          log.info('WhatsApp', `Quoting message: ${!!rawQuoted} (msg.id=${msg.id})`);
+          const options = undefined; // FORCE NO QUOTING EVER
+          await conn.sendMessage(replyJid, { text }, options);
           waMessages.push({ from: 'me', to: jid, body: text, timestamp: new Date().toISOString(), isFromMe: true });
         } catch (err: any) {
           log.error('WhatsApp', `Failed to send reply to ${replyJid}: ${err.message}`);
@@ -1179,7 +1182,15 @@ export function initializeApi(
   // Log deployment mode
   console.log(`[YOUBOT] Mode: ${MODE.toUpperCase()} | Features: WA=${FEATURES.whatsapp} TG=${FEATURES.telegram} CLI=${FEATURES.cli}`);
 
-  // Gate channel auto-connect based on deployment mode and extension hooks
+  // Gate channel auto-connect to the second initializeApi call (when agent is ready).
+  // The first call (agent=undefined) is a bootstrap-only pass to create skillRepo/skillEngine
+  // before the orchestrator exists. Connecting channels then causes duplicate connections
+  // that fight each other with WhatsApp code 440 and Telegram 409 conflicts.
+  if (!agent) {
+    console.log('[Channels] Deferring auto-connect — agent not ready yet (bootstrap pass).');
+    return { skillRepo, skillEngine };
+  }
+
   const startupHooks = getHooks().startup;
   if (FEATURES.whatsapp && !startupHooks?.shouldSkipChannel?.('whatsapp')) {
     autoConnectWhatsApp();
