@@ -81,14 +81,15 @@ export class WhatsAppRateLimiter {
     socket: WASocket,
     jid: string,
     content: AnyMessageContent,
+    options?: any,
   ): Promise<WAMessage | undefined> {
     if (!this.config.enabled) {
-      return socket.sendMessage(jid, content);
+      return socket.sendMessage(jid, content, options);
     }
 
     // Serialize sends to the same contact (no parallel bursts)
     const lock = this.contactLocks.get(jid) ?? Promise.resolve();
-    const sendPromise = lock.then(() => this._throttledSend(socket, jid, content));
+    const sendPromise = lock.then(() => this._throttledSend(socket, jid, content, options));
 
     // Store the new lock (without leaking the return value)
     this.contactLocks.set(jid, sendPromise.then(() => {}).catch(() => {}));
@@ -102,6 +103,7 @@ export class WhatsAppRateLimiter {
     socket: WASocket,
     jid: string,
     content: AnyMessageContent,
+    options?: any,
   ): Promise<WAMessage | undefined> {
     // 1. Wait for ALL global rate limit windows
     await this._waitForAllWindows();
@@ -132,7 +134,7 @@ export class WhatsAppRateLimiter {
     }
 
     // 5. Actually send
-    const result = await socket.sendMessage(jid, content);
+    const result = await socket.sendMessage(jid, content, options);
 
     // 6. Record the send
     const now = Date.now();

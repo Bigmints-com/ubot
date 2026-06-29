@@ -720,7 +720,10 @@ function setupWebchatHandlers(conn: WebchatConnection): void {
     };
 
     try {
-      await handleIncomingMessage(unified, deps);
+      const result = await handleIncomingMessage(unified, deps);
+      if (result.response && result.response.trim()) {
+        await unified.replyFn(result.response);
+      }
     } finally {
       replied = true;
       clearInterval(typingInterval);

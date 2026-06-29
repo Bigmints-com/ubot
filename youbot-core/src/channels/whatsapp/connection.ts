@@ -101,9 +101,17 @@ export class WhatsAppConnection {
   }
 
   /** Send a message through the rate limiter (preferred over raw socket.sendMessage) */
-  async sendMessage(jid: string, content: AnyMessageContent): Promise<WAMessage | undefined> {
+  async sendMessage(jid: string, content: AnyMessageContent, options?: any): Promise<WAMessage | undefined> {
     if (!this.socket) throw new Error('Not connected to WhatsApp');
-    return this.rateLimiter.sendMessage(this.socket, jid, content);
+    const msg = await this.rateLimiter.sendMessage(this.socket, jid, content, options);
+    if (msg && msg.key.id) {
+      this.rawMessages.set(msg.key.id, msg);
+      if (this.rawMessages.size > this.MAX_RAW_MESSAGES) {
+        const oldest = this.rawMessages.keys().next().value;
+        if (oldest) this.rawMessages.delete(oldest);
+      }
+    }
+    return msg;
   }
 
   async sendPresenceUpdate(type: import('@whiskeysockets/baileys').WAPresence, toJid: string): Promise<void> {
@@ -130,16 +138,31 @@ export class WhatsAppConnection {
     else if (msg.videoMessage) mimeType = msg.videoMessage.mimetype || 'video/mp4';
     else if (msg.audioMessage) mimeType = msg.audioMessage.mimetype || 'audio/ogg';
     else if (msg.documentMessage) mimeType = msg.documentMessage.mimetype || 'application/octet-stream';
-    else return null;
 
+    // Download stream using Baileys
     try {
-      const buffer = await downloadMediaMessage(rawMsg, 'buffer', {});
-      return { buffer: buffer as Buffer, mimeType };
-    } catch (err: any) {
-      console.error(`[WhatsApp] Failed to download media for ${messageId}:`, err.message);
+      const stream = await import('@whiskeysockets/baileys').then((m) =>
+        m.downloadContentFromMessage(
+          (msg.imageMessage || msg.videoMessage || msg.audioMessage || msg.documentMessage) as any,
+          mimeType.split('/')[0] as any,
+        ),
+      );
+      let buffer = Buffer.from([]);
+      for await (const chunk of stream) {
+        buffer = Buffer.concat([buffer, chunk]);
+      }
+      return { buffer, mimeType };
+    } catch (err) {
+      console.error('[WhatsApp] ❌ Failed to download media:', err);
       return null;
     }
   }
+
+  /** Get a raw Baileys message by ID for quoting */
+  getRawMessage(id: string): any {
+    return this.rawMessages.get(id);
+  }
+
 
   /** Get the rate limiter instance (for stats / config updates) */
   getRateLimiter(): WhatsAppRateLimiter {
@@ -189,7 +212,11 @@ export class WhatsAppConnection {
         maxMsgRetryCount: this.config.maxMsgRetryCount,
         browser: this.config.browser,
         logger: this.logger,
-        getMessage: async () => {
+        getMessage: async (key) => {
+          if (key.id) {
+            const rawMsg = this.rawMessages.get(key.id);
+            if (rawMsg?.message) return rawMsg.message;
+          }
           return { conversation: '' };
         }
       });
@@ -352,8 +379,21 @@ export class WhatsAppConnection {
         }
 
         if (isReplaced) {
-          console.log('[WhatsApp] ⏹️  Connection replaced by another session/instance (code 440). Stopping to avoid infinite loop.');
-          this.updateStatus('disconnected');
+          this.state.reconnectAttempts++;
+          const delay = Math.min(8000 * this.state.reconnectAttempts, 60000);
+          console.log(`[WhatsApp] ⚠️  Connection replaced by another session (code 440). Reconnecting in ${(delay / 1000).toFixed(0)}s (attempt ${this.state.reconnectAttempts}/${this.maxReconnectAttempts})...`);
+          this.updateStatus('reconnecting');
+          if (this.state.reconnectAttempts >= this.maxReconnectAttempts) {
+            console.log('[WhatsApp] ⏹️  Too many 440 conflicts. Giving up — restart the server or scan QR again.');
+            this.updateStatus('disconnected');
+            return;
+          }
+          await new Promise(resolve => setTimeout(resolve, delay));
+          try {
+            await this.connect();
+          } catch (err: any) {
+            console.error('[WhatsApp] 💥 Reconnect after 440 conflict failed:', err.message);
+          }
           return;
         }
         

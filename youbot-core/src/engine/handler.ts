@@ -376,6 +376,14 @@ export async function handleIncomingMessage(
         `[Unified] Visitor chat error (${msg.channel}):`,
         err.message,
       );
+      // Send a fallback reply so the sender always gets a response
+      try {
+        await msg.replyFn(
+          "Sorry, I'm having trouble processing your message right now. Please try again in a moment.",
+        );
+      } catch {
+        /* ignore reply errors */
+      }
       return { isOwner, sessionId, response: "", handled: false };
     } finally {
       activeSessions.delete(sessionId);

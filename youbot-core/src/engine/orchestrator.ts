@@ -1045,8 +1045,12 @@ export function createAgentOrchestrator(
 		};
 	}
 
-	function buildSystemPrompt(agentId?: string): string {
+	function buildSystemPrompt(agentId?: string, isOwner: boolean = true): string {
 		let basePrompt = currentConfig.systemPrompt;
+
+		if (!isOwner) {
+			basePrompt = "You are an AI assistant representing the owner to a guest/visitor. Follow your defined persona instructions carefully. You do not have access to any system tools or code execution capabilities.";
+		}
 
 		// Override with specialized agent prompt if applicable
 		if (agentId && crewRegistry.hasAgent(agentId)) {
@@ -1160,7 +1164,7 @@ export function createAgentOrchestrator(
 		}
 
 		// Build system prompt with soul data (bot persona + owner + contact)
-		let systemPrompt = buildSystemPrompt(activeAgentId);
+		let systemPrompt = buildSystemPrompt(activeAgentId, isOwner);
 
 		// Check for pending skill suggestions
 		const suggestion = SkillDetectorMiddleware.getPendingSuggestion(sessionId);
